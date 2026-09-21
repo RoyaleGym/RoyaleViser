@@ -1,0 +1,322 @@
+"""The renderer and the app loop, headless (SDL_VIDEODRIVER=dummy) on the synthetic battle.
+
+Draw time for a 100-troop frame is measured and printed (``-s``): the best of 60 draws must
+be under 8 ms (this laptop, 2026-09-20: 3.8-5.1 ms at scale 24 with paths, targets and
+labels on; the mean was 5.1 ms on a quiet machine and 9-11 ms on a busy one).
+"""
+
+from __future__ import annotations
+
+import copy
+import os
+import statistics
+import sys
+import time
+from pathlib import Path
+
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import pygame
+import pytest
+
+from royaleviser import app, model
+from royaleviser.app import KEYS, App, Compare, compare_text, fit_layout, fit_scale, run
+from royaleviser.render import (
+    Board,
+    Renderer,
+    Transport,
+    ViewState,
+    clock_text,
+    default_board,
+    elixir_text,
+    fit_text,
+    split_name,
+)
+from royaleviser.theme import DEFAULT, layout
+from synthetic import ListSource, battle, dense_frame, frame_at
+
+FRAMES = battle()
+CHECKPOINT_TICKS = (0, 215, 1015, 1035, 1405, 2050, 2390)
+
+
+@pytest.fixture(scope="module")
+def renderer() -> Renderer:
+    return Renderer(scale=24, help_lines=KEYS)
+
+
+def transport(index: int) -> Transport:
+    return Transport(source_name="synthetic", length=len(FRAMES), index=index, playing=True)
+
+
+def test_synthetic_frames_meet_the_contract() -> None:
+    assert len(FRAMES) == 2400
+    for f in FRAMES[::50]:
+        assert model.problems(f) == [], f.tick
+    assert FRAMES[2050].overtime and not FRAMES[1990].overtime
+    assert FRAMES[-1].game_over and FRAMES[-1].winner == 0
+    assert FRAMES[-1].crowns == [1, 0]
+    assert any("plays" in e for e in FRAMES[-1].events)
+    assert any("death" in e for e in FRAMES[-1].events)
+    assert FRAMES[1015].spells and FRAMES[1015].spells[0].motion == 0
+    assert FRAMES[1035].spells and FRAMES[1035].spells[0].motion == 3
+    knight = FRAMES[1405].unit("knight")
+    assert knight is not None and knight.stun_ticks > 0
+    assert FRAMES[215].unit("archers").deploy_ticks > 0
+    assert FRAMES[215].unit("knight").path
+
+
+@pytest.mark.parametrize("scale", [24, 12])
+@pytest.mark.parametrize("seat", [0, 1])
+def test_draws_every_checkpoint_without_error(scale: int, seat: int) -> None:
+    r = Renderer(scale=scale, help_lines=KEYS)
+    assert r.surface.get_size() == layout(DEFAULT, scale, (18, 32)).window
+    for toggles in ({}, {"show_grid": True, "show_debug": True, "show_help": True}):
+        view = ViewState(seat=seat, hover_uid="knight", **toggles)
+        for i in CHECKPOINT_TICKS:
+            f = FRAMES[i]
+            view.compare_frame = copy.deepcopy(f)
+            view.compare_text = compare_text(f, view.compare_frame)
+            r.draw(f, view, transport(i))
+    assert r.surface.get_at((r.layout.arena[0] + 1, r.layout.arena[1] + 1))[:3] in (
+        DEFAULT.grass_light,
+        DEFAULT.grass_dark,
+        DEFAULT.tower_zone,
+    )
+
+
+def test_unknown_hand_and_unknown_hp_draw() -> None:
+    r = Renderer(scale=24)
+    f = copy.deepcopy(FRAMES[600])
+    p = f.players[1]
+    p.hand, p.hand_known, p.next_card, p.cycle, p.deck, p.deck_known = (
+        ["?"] * 4,
+        False,
+        None,
+        [],
+        [],
+        False,
+    )
+    p.tower_hp = [model.UNKNOWN_HP] * 3
+    f.units[0].hp = model.UNKNOWN_HP
+    r.draw(f, ViewState(), transport(600))
+    r.draw(f, ViewState(seat=1), Transport(source_name="live", live=True, source_status="seq 9"))
+
+
+def test_team_0_king_is_drawn_at_its_pixel_for_both_seats(renderer: Renderer) -> None:
+    f = FRAMES[0]
+    king = f.unit("tower0")
+    assert king is not None and king.team == 0
+    ax, ay, aw, ah = renderer.layout.arena
+    for seat, expected in ((0, (ax + 216, ay + ah - 72)), (1, (ax + aw - 216, ay + 72))):
+        assert renderer.to_px(king.x, king.y, f.units_per_tile, seat) == expected
+        renderer.draw(f, ViewState(seat=seat, show_paths=False, show_targets=False), transport(0))
+        px, py = expected
+        assert renderer.surface.get_at((px + 20, py))[:3] == DEFAULT.team_king[0], seat
+        # the other king sits at the mirrored pixel in the other team's shade
+        red = f.unit("tower3")
+        rx, ry = renderer.to_px(red.x, red.y, f.units_per_tile, seat)
+        assert (rx, ry) == (px, 2 * ay + ah - py)
+        assert renderer.surface.get_at((rx + 20, ry))[:3] == DEFAULT.team_king[1], seat
+        assert renderer.unit_at(px, py, f, ViewState(seat=seat)) == "tower0"
+    assert renderer.unit_at(ax + 1, ay + 1, f, ViewState()) is None
+
+
+def test_timeline_and_text_helpers(renderer: Renderer) -> None:
+    x, y, w, h = renderer.layout.timeline
+    assert renderer.timeline_index_at(x, y + h // 2, 100) == 0
+    assert renderer.timeline_index_at(x + w - 1, y + h // 2, 100) == 99
+    assert renderer.timeline_index_at(x + w // 2, y + h // 2, 3) == 1
+    assert renderer.timeline_index_at(x - 5, y, 100) is None
+    assert renderer.timeline_index_at(x, y - 40, 100) is None
+    assert renderer.timeline_index_at(x, y, 0) is None
+    assert split_name("Knight", 10) == ["Knight"]
+    assert split_name("GoblinDrill", 10) == ["Goblin", "Drill"]
+    assert split_name("ElectroDragon", 10) == ["Electro", "Dragon"]
+    assert split_name("P.E.K.K.A", 10) == ["P.E.K.K.A"]
+    assert clock_text(1234, 50) == "1:01" and clock_text(0, 50) == "0:00"
+    assert elixir_text(5437) == "5.437" and elixir_text(10000) == "10.000"
+    font = renderer.fonts["tiny"]
+    assert fit_text("short", font, 500) == "short"
+    long = fit_text("a very long line of text that cannot fit", font, 60)
+    assert long.endswith("…") and font.size(long)[0] <= 60
+
+
+def test_board_from_the_default_arena_matches_the_builtin() -> None:
+    b = default_board()
+    built = Board.builtin()
+    assert (b.tiles_x, b.tiles_y, b.half) == (18, 32, 2)
+    assert b.water == built.water and b.bridge == built.bridge
+    assert b.king_zones == built.king_zones
+    assert sorted(b.princess_zones) == sorted(built.princess_zones)
+    assert b.no_deploy  # the grid's NO_DEPLOY cells: king blocks, back rows, river corners
+
+
+def test_text_cache_is_bounded(renderer: Renderer) -> None:
+    for i in range(5000):
+        renderer.text(f"line {i}", "tiny")
+    assert len(renderer._text_cache) <= 4096
+    assert renderer.text("line 4999", "tiny") is renderer.text("line 4999", "tiny")
+
+
+def test_dense_frame_draw_time() -> None:
+    r = Renderer(scale=24, help_lines=KEYS)
+    f = dense_frame(100)
+    assert len(f.units) >= 100
+    view = ViewState()
+    r.draw(f, view, Transport())
+    times = []
+    for _ in range(60):
+        t0 = time.perf_counter()
+        r.draw(f, view, Transport())
+        times.append((time.perf_counter() - t0) * 1000)
+    mean, median, best = statistics.fmean(times), statistics.median(times), min(times)
+    print(f"\n100-troop frame at scale 24: mean {mean:.2f} ms, median {median:.2f}, min {best:.2f}")
+    # The best of 60 is the draw's own cost; the mean carries whatever else the machine is
+    # doing (a busy machine put it at 85 % CPU on 2026-09-20: mean 9-11 ms, min 4-6 ms).
+    assert best < 8, times
+    assert median < 40, times
+
+
+def test_compare_text_counts_the_strays() -> None:
+    f = FRAMES[600]
+    g = copy.deepcopy(f)
+    assert compare_text(f, g) == f"{len(g.units)} entities, 0 differ"
+    g.units[0].x += 3 * g.units_per_tile
+    assert compare_text(f, g).endswith("1 differ")
+    h = copy.deepcopy(f)
+    h.units_per_tile = 18000
+    for u in h.units:
+        u.x, u.y = u.x * 18, u.y * 18
+    assert compare_text(f, h).endswith("0 differ")
+
+
+def test_fit_scale_picks_the_largest_that_fits() -> None:
+    w, h = layout(DEFAULT, 24, (18, 32)).window
+    assert fit_scale(DEFAULT, (18, 32), w, h) == 24
+    assert fit_scale(DEFAULT, (18, 32), w - 1, h) == 23
+    assert fit_scale(DEFAULT, (18, 32), w, h - 1) == 23
+    assert fit_scale(DEFAULT, (18, 32), 100, 100) == app.MIN_SCALE
+
+
+def test_app_keys_and_pacing_headless() -> None:
+    pygame.init()
+    src = ListSource(FRAMES, "synthetic")
+    other = ListSource([frame_at(t) for t in range(0, 2400, 2)], "half-rate")
+    a = App([src, other], ViewState(), speed=4.0)
+    a.pull()
+    assert a.frame is FRAMES[0] and a.view.compare_frame is not None
+    assert a.view.compare_text.endswith("0 differ")
+    a.advance(1000)  # one wall second at 4x = 80 frames
+    assert src.index == 80 and other.index == 40
+    a.key(pygame.K_SPACE, 0)
+    assert a.transport.playing is False
+    a.key(pygame.K_RIGHT, pygame.KMOD_SHIFT)
+    assert src.index == 100
+    a.key(pygame.K_LEFT, 0)
+    assert src.index == 99
+    a.key(pygame.K_END, 0)
+    assert src.index == 2399 and a.frame.game_over
+    a.key(pygame.K_HOME, 0)
+    assert src.index == 0
+    a.key(pygame.K_f, 0)
+    a.key(pygame.K_p, 0)
+    a.key(pygame.K_t, 0)
+    a.key(pygame.K_g, 0)
+    a.key(pygame.K_d, 0)
+    a.key(pygame.K_c, 0)
+    a.key(pygame.K_h, 0)
+    v = a.view
+    assert (v.seat, v.show_paths, v.show_targets, v.show_grid, v.show_debug) == (
+        1,
+        False,
+        False,
+        True,
+        True,
+    )
+    assert v.show_compare is False and v.show_help is True
+    a.key(pygame.K_RIGHTBRACKET, 0)
+    assert a.transport.speed == 8.0
+    for _ in range(9):
+        a.key(pygame.K_MINUS, 0)
+    assert a.transport.speed == 0.25
+    a.key(pygame.K_SPACE, 0)
+    a.advance(200)  # 0.25x: 200 wall ms = 50 battle ms = one frame
+    assert src.index == 1
+    a.key(pygame.K_END, 0)
+    a.transport.playing = True
+    a.advance(400)  # 0.25x: 100 battle ms at the last frame
+    assert a.transport.at_end and a.transport.playing is False
+    a.key(pygame.K_SPACE, 0)  # play from the end restarts
+    assert src.index == 0 and a.transport.playing
+    a.key(pygame.K_q, 0)
+    assert a.running is False
+    a.draw(time.perf_counter())
+    assert a.draw_times and "draws" in a.stats()
+    pygame.quit()
+
+
+def test_run_headless_writes_the_shot(tmp_path: Path) -> None:
+    shot = tmp_path / "shot.png"
+    src = ListSource(FRAMES, "synthetic")
+    code = run(src, ViewState(seat=1), seconds=0.5, shot=str(shot), speed=8.0, start_tick=600)
+    assert code == 0 and src.closed
+    assert shot.exists()
+    surf = pygame.image.load(str(shot))
+    assert surf.get_size() == layout(DEFAULT, 24, (18, 32)).window
+    assert src.index > 12  # 0.5 s at 8x from tick 600 advanced the replay
+
+
+def test_fit_layout_drops_the_inspector_for_a_narrow_window() -> None:
+    w, h = layout(DEFAULT, 24, (18, 32)).window
+    assert fit_layout(DEFAULT, (18, 32), w, h) == (DEFAULT, 24)
+    theme, scale = fit_layout(DEFAULT, (18, 32), 712, 1029)  # a narrow slot
+    assert theme.inspector_w == 0 and scale == 20
+    assert layout(theme, scale, (18, 32)).window == (705, 700)
+    assert layout(theme, scale, (18, 32)).inspector[2] == 0
+    theme, scale = fit_layout(DEFAULT, (18, 32), 100, 100)  # nothing fits: the smallest compact
+    assert theme.inspector_w == 0 and scale == app.MIN_SCALE
+
+
+def test_compact_layout_draws_the_compare_lines_in_the_dashboard() -> None:
+    theme, scale = fit_layout(DEFAULT, (18, 32), 712, 1029)
+    r = Renderer(scale=scale, theme=theme)
+    view = ViewState(compare_frame=FRAMES[600], compare_name="other", compare_text="a\nb")
+    r.draw(FRAMES[600], view, Transport(source_name="s"))
+    assert r.surface.get_size() == (705, 700)
+    assert r.compare_lines(view) == ["compare: other  shown", "a", "b"]
+
+
+def test_compare_totals_and_replay_scrubbing() -> None:
+    c = Compare()
+    f = FRAMES[600]
+    g = copy.deepcopy(f)
+    c.note(0, f)
+    assert c.text(f.tick).startswith(f"tick {f.tick}: not seen by both")
+    c.note(1, g)
+    assert c.results[f.tick] == (len(f.units), len(g.units), 0) and (c.ticks, c.differ) == (1, 0)
+    h = copy.deepcopy(FRAMES[601])
+    h.units[0].hp -= 1
+    c.note(0, FRAMES[601])
+    c.note(1, h)
+    assert c.text(h.tick).endswith("2 ticks compared, 1 differ")
+    c.note(0, FRAMES[0])  # scrubbed back: a replay keeps its totals
+    c.note(1, FRAMES[0])
+    assert (c.ticks, c.differ) == (3, 1)
+    live = Compare(restart_on_drop=True)
+    live.note(0, FRAMES[600])
+    live.note(0, FRAMES[0])  # a new battle
+    assert live.ticks == 0 and live.results == {}
+
+
+def test_run_accepts_geometry_and_scale(tmp_path: Path) -> None:
+    shot = tmp_path / "small.png"
+    src = ListSource(FRAMES[:10], "short")
+    assert run([src], geometry=(700, 600, 10, 10), seconds=0.2, shot=str(shot)) == 0
+    dw, dh = app.frame_extras()
+    theme, scale = fit_layout(DEFAULT, (18, 32), 700 - dw, 600 - dh)
+    assert theme.inspector_w == 0 and 15 <= scale <= 16
+    lw, lh = layout(theme, scale, (18, 32)).window
+    assert pygame.image.load(str(shot)).get_size() == (max(lw, 700 - dw), max(lh, 600 - dh))
+    assert os.environ.get("SDL_VIDEO_WINDOW_POS") == "10,10"

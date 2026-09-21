@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "royaleviser"
+version = "0.1.0"
+description = "RoyaleViser: the rlviser-style out-of-process viewer for RoyaleLive captures, engine traces and a running RoyaleSim"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "pygame>=2.6",
+    "msgspec>=0.19",
+    "numpy>=2.0",
+]
+# Also needed, but not on PyPI: royalegym (the trace format, the engine-side publisher and the
+# arena geometry), installed editable from the sibling checkout ../RoyaleGym by the workspace
+# recipe in README.md. Only TraceSource, Publisher / frame_from_state and the arena drawing
+# import it; the model, the theme, CaptureSource and StreamSource do not. RoyaleLive is never
+# imported: RoyaleLive imports this package instead.
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.16",
+]
+
+[tool.setuptools]
+packages = ["royaleviser"]
+
+[tool.setuptools.package-data]
+royaleviser = ["cards.json"]  # the live client's card table (a copy of RoyaleLive's)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["royaleviser", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003", "SIM108"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["royaleviser", "royalegym"]
