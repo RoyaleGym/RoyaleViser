@@ -290,6 +290,17 @@ already holds a `Frame`.
    kind, not a list beside them), 11 KB for 60. A datagram over 65507
    bytes is resent with the unit paths emptied, then dropped and counted
    (`publisher.dropped`).
+
+   **What that costs a training run was measured on 2026-09-22, and the answer is nothing
+   this measurement could detect.** Eighteen iterations alternating three attached and three
+   detached, three times over, so the ratio is taken inside one window: 28.13 +- 1.25 s an
+   iteration attached against 28.33 +- 1.65 s detached, a difference of -0.20 s with a
+   standard error of 0.69; inference time identical to two decimals. Every difference came
+   out negative, which is the tell that it is noise rather than a cost, so the honest form is
+   a BOUND and not a point estimate: **under 1.4 s an iteration at 95 %, which is under 5 %
+   of one**, on a two-worker 48-battle run at 8,192 timesteps an iteration with a 64x4 net on
+   an RTX 3050. The geometry is part of the number; quoting the bound without it says less
+   than nothing. (Measured by the training session; its log carries the raw iterations.)
 4. `royalegym.viser.frame_dict` builds the wire dict from a `BattleState`;
    `sources.frame_from_state` turns it into a `Frame`, and `TraceSource` builds its rows the
    same way — so a trace and a stream of one battle draw identically. Spawn and death event
