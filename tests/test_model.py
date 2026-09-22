@@ -341,8 +341,8 @@ def test_cli_parser() -> None:
     assert a.learning is None  # unset: the stream's port plus one (sources.learning_endpoint)
     moved = p.parse_args(["--stream", ":9870", "--learning", ":9999"])
     assert moved.learning == ("127.0.0.1", 9999)
-    # The view options are one group a front end can add to its own parser (RoyaleLive's
-    # viser_live.py does): the same names, the same defaults.
+    # The view options are one group a front end can add to its own parser and get the same
+    # names and the same defaults, which is what makes another front end's window this one.
     q = cli.argparse.ArgumentParser()
     cli.add_view_arguments(q)
     b = q.parse_args(["--seat", "1", "--geometry", "800x600"])
