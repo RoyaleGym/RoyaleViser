@@ -191,6 +191,10 @@ def run_sources(sources: list[Source], args: argparse.Namespace) -> int:
         title=TITLE,
         follow_local=args.seat == "local",
         tolerance=tolerance_of(args),
+        # Both sides of a parity trace key their units by the recording's entity key, so the
+        # comparison pairs them by that rather than by name and distance. Nothing else here
+        # can say the two sides number units the same way.
+        pair_by_uid=bool(getattr(args, "parity", None)),
     )
 
 

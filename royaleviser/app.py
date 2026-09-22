@@ -180,6 +180,42 @@ def rows(frame: Frame) -> list[Row]:
     return [(u.team, u.name, u.x * 1000 // upt, u.y * 1000 // upt, u.hp) for u in frame.units]
 
 
+def keyed_rows(frame: Frame) -> dict[Any, Row]:
+    """Every unit as a comparison row, under its uid."""
+    upt = frame.units_per_tile
+    return {
+        u.uid: (u.team, u.name, u.x * 1000 // upt, u.y * 1000 // upt, u.hp) for u in frame.units
+    }
+
+
+def differing_by_uid(a: dict[Any, Row], b: dict[Any, Row], tolerance: int) -> tuple[int, int]:
+    """``differing_within`` for two sides that key the same units the same way.
+
+    WHERE THE UIDS MEAN THE SAME THING, PAIRING BY THEM IS THE ONLY HONEST COMPARISON. Pairing
+    by name and distance is satisfied by the defect it is supposed to show: two units of one
+    card that swap places pair with each other's positions and the tick reads as agreeing. The
+    two sides of a parity trace both key by the recording's entity key, so this is available
+    there; two recordings of one battle number their entities separately, so it is not, and
+    ``Compare`` only turns it on where the caller says the keys are shared.
+
+    A uid one side does not have counts as differing, whatever the tolerance -- the same rule
+    as an unpaired unit in ``differing_within``, and here it cannot be papered over by a
+    same-named neighbour.
+    """
+    differ = hp_differ = 0
+    for key in a.keys() | b.keys():
+        left, right = a.get(key), b.get(key)
+        if left is None or right is None:
+            differ += 1
+            continue
+        d2 = (left[2] - right[2]) ** 2 + (left[3] - right[3]) ** 2
+        if d2 > tolerance * tolerance:
+            differ += 1
+        elif left[4] != right[4]:
+            hp_differ += 1
+    return differ, hp_differ
+
+
 def differing_within(a: list[Row], b: list[Row], tolerance: int) -> tuple[int, int]:
     """(units that differ, pairs that agree on position but not on hp), within ``tolerance``.
 
@@ -270,10 +306,16 @@ class Compare:
     never within any tolerance. 0, the default, is exact agreement.
     """
 
-    def __init__(self, restart_on_drop: bool = False, tolerance: int = 0) -> None:
+    def __init__(
+        self, restart_on_drop: bool = False, tolerance: int = 0, pair_by_uid: bool = False
+    ) -> None:
         self.restart_on_drop = restart_on_drop
         self.tolerance = max(0, tolerance)
+        # Only where the caller KNOWS both sides number their units the same way; see
+        # ``differing_by_uid``. Two recordings of one battle do not.
+        self.pair_by_uid = pair_by_uid
         self._sig: list[OrderedDict[int, tuple[list[Row], int]]] = [OrderedDict(), OrderedDict()]
+        self._keyed: list[OrderedDict[int, dict[Any, Row]]] = [OrderedDict(), OrderedDict()]
         self._last_tick: list[int | None] = [None, None]
         # tick -> (n main, n other, differ, hp differ)
         self.results: dict[int, tuple[int, int, int, int]] = {}
@@ -283,6 +325,7 @@ class Compare:
 
     def reset(self) -> None:
         self._sig = [OrderedDict(), OrderedDict()]
+        self._keyed = [OrderedDict(), OrderedDict()]
         self._last_tick = [None, None]
         self.results.clear()
         self.ticks = self.differ = self.hp_differ = 0
@@ -297,11 +340,19 @@ class Compare:
         if frame.tick in buf or frame.tick in self.results:
             return
         buf[frame.tick] = (rows(frame), len(frame.units))
+        if self.pair_by_uid:
+            self._keyed[which][frame.tick] = keyed_rows(frame)
+            while len(self._keyed[which]) > COMPARE_WINDOW:
+                self._keyed[which].popitem(last=False)
         while len(buf) > COMPARE_WINDOW:
             buf.popitem(last=False)
         if frame.tick in self._sig[1 - which]:
             (sa, na), (sb, nb) = self._sig[0][frame.tick], self._sig[1][frame.tick]
-            if self.tolerance:
+            if self.pair_by_uid and self.tolerance:
+                d, hp = differing_by_uid(
+                    self._keyed[0][frame.tick], self._keyed[1][frame.tick], self.tolerance
+                )
+            elif self.tolerance:
                 d, hp = differing_within(sa, sb, self.tolerance)
             else:
                 d, hp = differing(Counter(sa), Counter(sb)), 0
@@ -411,12 +462,15 @@ class App:
         title: str = "RoyaleViser",
         follow_local: bool = False,
         tolerance: int = 0,
+        pair_by_uid: bool = False,
     ) -> None:
         if not sources:
             raise ValueError("run needs at least one source")
         self.source = sources[0]
         self.compare = sources[1] if len(sources) > 1 else None
-        self.agreement = Compare(restart_on_drop=self.source.live, tolerance=tolerance)
+        self.agreement = Compare(
+            restart_on_drop=self.source.live, tolerance=tolerance, pair_by_uid=pair_by_uid
+        )
         self.follow_local = follow_local  # --seat local: seat the source's local side once known
         self.view = view
         self.view.compare_name = self.compare.name if self.compare is not None else ""
@@ -682,6 +736,7 @@ def run(
     theme: Theme = DEFAULT,
     follow_local: bool = False,
     tolerance: int = 0,
+    pair_by_uid: bool = False,
 ) -> int:
     """Open the window over ``sources`` and run until quit, --seconds or a closed window.
 
@@ -735,6 +790,7 @@ def run(
         title=title,
         follow_local=follow_local,
         tolerance=tolerance,
+        pair_by_uid=pair_by_uid,
     )
     app.renderer.surface = surface
     pygame.display.set_caption(title)

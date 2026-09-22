@@ -17,6 +17,13 @@ Both sides come out in NATIVE MILLITILES (1000 per tile), which is what the harn
 for both: the recording's own units, and the engine's subtiles divided down. Nothing here
 converts or rescales, so a disagreement on the board is the file's, not this module's.
 
+WHAT THE ROWS DO NOT COVER. The harness writes a row per MATCHED pair, so an entity it could
+not match is in neither side of this view: a recording entity with no engine counterpart, and
+an engine entity with no recording one. The report counts both (``unmatched_truth`` and
+``unmatched_sim``) and the status line carries those counts, because a view that quietly drops
+the units that failed to match would be at its most convincing exactly where the engine and the
+game agree least.
+
 WHAT A PARITY FILE DOES NOT HAVE, and what this does about it. No elixir, no hands, no decks:
 those say "not in this source" the way a recording's opponent does. No crowns and no result.
 No collision radius and no footprint, so buildings and towers draw at the viewer's marked
@@ -62,7 +69,10 @@ PARITY_SUFFIX = ".parity.json"
 #: Truth behaviour states of a unit that has not started moving: deploying, and the summon
 #: delay of a staggered formation member (RoyaleSim's replay harness names the same two).
 DEPLOY_STATES = (4, 11)
-#: A friendly's regular time in ticks; the tick runs on into overtime (sources.LIVE_REGULAR_TICKS).
+#: A friendly's regular time in ticks; the tick runs on into overtime. The ticks in a parity
+#: file are a recording's, so the rule here is the one CaptureSource applies to the same ticks
+#: (``sources.LIVE_REGULAR_TICKS``, and STRICTLY greater), or the same battle would change its
+#: overtime by one tick depending on which source opened it.
 REGULAR_TICKS = 3690
 TOWER_ROOTS = {"KingTower": KIND_KING_TOWER, "PrincessTower": KIND_PRINCESS_TOWER}
 #: card ids: 26xxxxxx troop, 27xxxxxx building, 28xxxxxx spell (sources.LIVE_BUILDING_MIN).
@@ -97,9 +107,19 @@ class ParitySource:
     file have the same ticks in the same order, so a viewer seeks one to the other's tick
     exactly.
 
-    The row layout is the harness's: truth ``[x, y, hp, state, path_n, target key]`` and sim
-    ``[x, y, hp, attacking, path_n, target key]``, both keyed by the RECORDING's entity key,
-    so a unit is the same unit on both sides and the compare pairs them without guessing.
+    The row layout is the harness's: truth ``[x, y, hp, state, path_n, target]`` and sim
+    ``[x, y, hp, attacking, path_n, target]``. Every ROW is keyed by the RECORDING's entity
+    key, so a unit is the same unit on both sides and the compare pairs them by that key
+    rather than by guessing from a name and a distance.
+
+    The two ``target`` columns are NOT in the same space, and that is why only one of them
+    becomes a ``Unit.target``. The recording's is another recording key, which is a uid here.
+    The engine's is an index into the harness's own list of engine entities (harness.rs, the
+    value side of ``sim_index_of``), and the file publishes no way to turn it back into a
+    recording key: ``Pair.sim_index`` is the engine's entity id, a third space again. Drawing
+    it as a target would point a line at whichever unit happened to hold that number, so the
+    engine side's target stays None and the raw value rides in ``extra`` under a name that
+    says what it is.
     """
 
     live: bool = False
@@ -124,15 +144,22 @@ class ParitySource:
         # attributes the unit to, which is what a watcher would call it.
         pairs = {int(p["truth_key"]): (int(p["side"]), str(p["root"])) for p in report["pairs"]}
         self._by_tick: dict[int, list[dict[str, Any]]] = {}
+        # The most this side was ever seen with. Per SIDE, not shared: the two sides are two
+        # simulations, and taking the engine's hp as the recording's maximum would draw a
+        # recording's hp bar against a number the recording never reached.
         self._max_hp: dict[int, int] = {}
+        column = "truth" if side == RECORDING else "sim"
         for row in trace:
             key = int(row["key"])
             self._by_tick.setdefault(int(row["tick"]), []).append(row)
-            for which in ("truth", "sim"):
-                cell = row.get(which)
-                if cell:
-                    self._max_hp[key] = max(self._max_hp.get(key, 0), int(cell[2]))
+            cell = row.get(column)
+            if cell:
+                self._max_hp[key] = max(self._max_hp.get(key, 0), int(cell[2]))
         self._pairs = pairs
+        self.unmatched = (
+            len(report.get("unmatched_truth") or ()),
+            len(report.get("unmatched_sim") or ()),
+        )
         self._ticks = sorted(self._by_tick)
         self.length = len(self._ticks)
         self.index = 0
@@ -178,7 +205,8 @@ class ParitySource:
             flying=False,  # not in the file; the viewer draws no shadow rather than a wrong one
             deploy_ticks=1 if deploying else 0,
             stun_ticks=0,
-            target=None if target < 0 else target,
+            # Only the recording's target is a key this viewer can resolve; see the class.
+            target=None if (target < 0 or self.side == ENGINE) else target,
             path=[],  # the file has the NUMBER of path nodes, not the nodes
             direction=None,
             state=fourth if self.side == RECORDING else None,
@@ -186,6 +214,10 @@ class ParitySource:
                 "path_n": path_n,
                 "attacking": bool(fourth) if self.side == ENGINE else None,
                 "apart": row.get("dist"),
+                # The engine's own index for what it was shooting at, in the harness's list of
+                # engine entities. Not a uid here, so it is a number to read rather than a line
+                # to draw (see the class docstring).
+                "engine_target_index": None if self.side != ENGINE or target < 0 else target,
             },
         )
 
@@ -220,7 +252,7 @@ class ParitySource:
             players=[self._player(0), self._player(1)],
             units=units,
             spells=[],  # the trace rows are units; a spell in flight is not scored
-            overtime=tick >= REGULAR_TICKS,
+            overtime=tick > REGULAR_TICKS,
             game_over=False,  # the file scores ticks, and says nothing about who won
             winner=NO_WINNER,
             crowns=[0, 0],
@@ -252,9 +284,12 @@ class ParitySource:
     def status(self) -> str:
         if not self.length:
             return f"{self.name}: no rows"
+        unmatched = ""
+        if any(self.unmatched):
+            unmatched = f", {self.unmatched[0]}+{self.unmatched[1]} unmatched and not shown"
         return (
             f"{self.name} frame {self.index + 1}/{self.length}"
-            f" tick {self._ticks[self.index]} ({len(self._pairs)} matched units)"
+            f" tick {self._ticks[self.index]} ({len(self._pairs)} matched units{unmatched})"
         )
 
     def close(self) -> None:

@@ -251,3 +251,109 @@ def test_a_file_the_harness_itself_wrote_opens() -> None:
     assert rec.length == eng.length > 0
     f = rec.frame()
     assert f is not None and model.problems(f) == [] and f.units
+
+
+def test_the_engine_s_target_is_not_pretended_to_be_a_unit_here(parity_file: Path) -> None:
+    """The two target columns are different key spaces. The recording's is another recording
+    key, which is a uid in this window. The engine's is an index into the harness's own list
+    of engine entities, and the file publishes no way back from it, so drawing it as a target
+    would point a line at whichever unit happened to hold that number."""
+    rec, eng = open_parity(parity_file)
+    a, b = rec.frame(), eng.frame()
+    assert a.unit(7).target == 1  # a recording key, and unit 1 is in the frame
+    assert b.unit(7).target is None
+    assert b.unit(7).extra["engine_target_index"] == 1  # the raw value, named for what it is
+    assert a.unit(7).extra["engine_target_index"] is None
+
+
+def test_each_side_s_max_hp_is_its_own(tmp_path: Path) -> None:
+    """The two sides are two simulations. Taking the engine's hp as the recording's maximum
+    would draw a recording's bar against a number the recording never reached."""
+    rows = [
+        row(10, 7, "Knight", [3500, 8000, 900, 1, 0, -1], [3500, 8000, 1452, 0, 0, -1]),
+        row(11, 7, "Knight", [3500, 8100, 880, 1, 0, -1], [3500, 8100, 1400, 0, 0, -1]),
+    ]
+    path = tmp_path / "hp.parity.json"
+    path.write_text(json.dumps(report(rows, [(7, 0, "Knight")])), encoding="utf-8")
+    rec, eng = open_parity(path)
+    assert rec.frame().unit(7).max_hp == 900  # the most the RECORDING ever showed
+    assert eng.frame().unit(7).max_hp == 1452
+
+
+def test_overtime_is_the_same_tick_it_would_be_in_the_recording(tmp_path: Path) -> None:
+    """A parity file's ticks are a recording's, so the same battle must not change its
+    overtime by one tick depending on which source opened it."""
+    from royaleviser import sources
+
+    rows = [
+        row(t, 7, "Knight", [3500, 8000, 900, 1, 0, -1], [3500, 8000, 900, 0, 0, -1])
+        for t in (sources.LIVE_REGULAR_TICKS, sources.LIVE_REGULAR_TICKS + 1)
+    ]
+    path = tmp_path / "ot.parity.json"
+    path.write_text(json.dumps(report(rows, [(7, 0, "Knight")])), encoding="utf-8")
+    rec, _ = open_parity(path)
+    assert not rec.frame().overtime  # exactly at regular time is not yet overtime
+    rec.seek(1)
+    assert rec.frame().overtime
+
+
+def test_the_units_the_harness_could_not_match_are_counted_where_they_are_missing(
+    tmp_path: Path,
+) -> None:
+    """The rows are matched pairs only, so an entity the harness could not match is in
+    NEITHER side. A view that quietly dropped them would be at its most convincing exactly
+    where the engine and the game agree least."""
+    rows = [row(10, 7, "Knight", [3500, 8000, 900, 1, 0, -1], [3500, 8000, 900, 0, 0, -1])]
+    d = report(rows, [(7, 0, "Knight")])
+    d["unmatched_truth"] = [[9, "Cannon"], [11, "Skeletons"]]
+    d["unmatched_sim"] = [[4, 0, "Cannon"]]
+    path = tmp_path / "um.parity.json"
+    path.write_text(json.dumps(d), encoding="utf-8")
+    rec, eng = open_parity(path)
+    assert rec.unmatched == eng.unmatched == (2, 1)
+    assert "2+1 unmatched and not shown" in rec.status()
+    assert len(rec.frame().units) == 1  # and they are indeed not in the frame
+
+
+def test_the_two_sides_are_compared_by_the_key_they_share(tmp_path: Path) -> None:
+    """Pairing by name and distance is satisfied by the defect it should show: two units of
+    one card that swap places pair with each other's positions and the tick reads as agreeing.
+    Both sides of a parity trace key by the recording's entity key, so the comparison uses it.
+    """
+    from royaleviser.app import differing_by_uid, differing_within, keyed_rows
+    from royaleviser.app import rows as row_list
+
+    # Two Skeletons that swapped: each engine unit sits exactly where the OTHER one was.
+    rows = [
+        row(10, 21, "Skeletons", [3000, 9000, 81, 1, 0, -1], [4000, 9000, 81, 0, 0, -1]),
+        row(10, 22, "Skeletons", [4000, 9000, 81, 1, 0, -1], [3000, 9000, 81, 0, 0, -1]),
+    ]
+    path = tmp_path / "swap.parity.json"
+    path.write_text(
+        json.dumps(report(rows, [(21, 0, "Skeletons"), (22, 0, "Skeletons")])), encoding="utf-8"
+    )
+    rec, eng = open_parity(path)
+    a, b = rec.frame(), eng.frame()
+    assert differing_within(row_list(a), row_list(b), 250) == (0, 0)  # the blind answer
+    assert differing_by_uid(keyed_rows(a), keyed_rows(b), 250) == (2, 0)  # the true one
+
+    by_name, by_key = Compare(tolerance=250), Compare(tolerance=250, pair_by_uid=True)
+    for c in (by_name, by_key):
+        c.note(0, a)
+        c.note(1, b)
+    assert by_name.results[10][2] == 0
+    assert by_key.results[10][2] == 2
+    # A uid one side does not have is never within any tolerance.
+    assert differing_by_uid(keyed_rows(a), {}, 10**9) == (2, 0)
+
+
+def test_the_command_line_pairs_a_parity_view_by_key(parity_file: Path) -> None:
+    from royaleviser.app import App
+    from royaleviser.render import ViewState
+
+    args = build_parser().parse_args(["--parity", str(parity_file)])
+    srcs = open_sources(args)
+    app = App(srcs, ViewState(), tolerance=tolerance_of(args), pair_by_uid=True)
+    assert app.agreement.pair_by_uid and app.agreement.tolerance == DEFAULT_TOLERANCE
+    for s in srcs:
+        s.close()
