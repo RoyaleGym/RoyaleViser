@@ -258,11 +258,13 @@ em dash of the field that stayed unset, rather than showing up as a wrong number
 else.
 
 **How far apart the numbers really are.** Measured 2026-09-22 on the laptop profile
-(RustEngine, three worker processes): one iteration is **532 seconds** of wall clock at 64
-environment steps a second, and the environment publishes frames for only the first half
-minute of it — 228 frames, no drops — then nothing until the next rollout. So a viewer on a
-real run sees a board that stands still for eight minutes at a time, and a panel that moves
-once in that window. That is the separate datagram earning its keep, and it is also why the
+(RustEngine, three worker processes), from both ends independently: an iteration is **518 to
+544 seconds** of wall clock over three of them, at 64 environment steps a second, and the
+environment publishes frames for only the first half minute — 228 frames, no drops — then
+nothing until the next rollout. The environment's own timers agree from the other side: the
+collection phase is 13 to 19 seconds and the update phase is 84 to 98 per cent of the
+iteration. So a viewer on a real run sees a board that stands still for eight minutes at a
+time, and a panel that moves once in that window. That is the separate datagram earning its keep, and it is also why the
 panel prints how old the status is beside its heading: at this cadence a run that is working
 and a run that died forty minutes ago look identical without it.
 
