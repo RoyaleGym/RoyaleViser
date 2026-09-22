@@ -297,6 +297,15 @@ class Names:
                 return cost
         return None
 
+    def id_of(self, name: str) -> int | None:
+        """The card id a name belongs to, or None when the table does not have the name.
+
+        The lowest id wins, so a card whose other form shares its name (LIVE_FORMS) answers
+        with the register card rather than with whichever form was inserted first.
+        """
+        ids = [cid for cid, (n, _) in self._by_id.items() if n == name]
+        return min(ids) if ids else None
+
 
 # --------------------------------------------------------------------------
 # Wire codec and a contract check

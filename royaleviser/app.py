@@ -170,9 +170,82 @@ def differing(a: Signature, b: Signature) -> int:
     return max(sum((a - b).values()), sum((b - a).values()))
 
 
-def compare_text(main: Frame, other: Frame) -> str:
-    """'N entities, M differ' for two frames of the same tick."""
-    return f"{len(other.units)} entities, {differing(signature(main), signature(other))} differ"
+#: One unit as the comparison sees it: (team, name, x, y, hp), positions in millitiles.
+Row = tuple[int, str, int, int, int]
+
+
+def rows(frame: Frame) -> list[Row]:
+    """Every unit as a comparison row, in millitiles (``signature`` as a list)."""
+    upt = frame.units_per_tile
+    return [(u.team, u.name, u.x * 1000 // upt, u.y * 1000 // upt, u.hp) for u in frame.units]
+
+
+def differing_within(a: list[Row], b: list[Row], tolerance: int) -> tuple[int, int]:
+    """(units that differ, pairs that agree on position but not on hp), within ``tolerance``.
+
+    EXACT EQUALITY IS THE WRONG QUESTION for two different simulations of one battle. Two
+    clients of one friendly run the same lockstep simulation, so their recordings agree to
+    the unit; an engine replaying a recorded battle does not, and never will. Every unit is
+    then "differing" and the count says nothing about whether the engine is close or lost.
+
+    So a unit of one side is paired with the NEAREST unit of the other side of the same team
+    and name, closest pair first, and a pair counts as agreeing when the two are within
+    ``tolerance`` millitiles of each other. What is left unpaired on either side is a unit one
+    side has and the other does not, which is the failure the position tolerance must never
+    hide, so it counts as differing whatever the tolerance is.
+
+    HP is deliberately NOT part of the pairing and NOT part of the differ count here: a pair
+    that stands in the same place with different hp is a different finding from a unit in the
+    wrong place, and the second return value keeps it visible instead of folding the two into
+    one number that cannot be read back.
+    """
+    differ = hp_differ = 0
+    keys = {(t, n) for t, n, *_ in a} | {(t, n) for t, n, *_ in b}
+    for key in keys:
+        left = [r for r in a if (r[0], r[1]) == key]
+        right = [r for r in b if (r[0], r[1]) == key]
+        pairs = sorted(
+            (
+                (x0 - x1) ** 2 + (y0 - y1) ** 2,
+                i,
+                j,
+                h0 != h1,
+            )
+            for i, (_, _, x0, y0, h0) in enumerate(left)
+            for j, (_, _, x1, y1, h1) in enumerate(right)
+        )
+        used_l: set[int] = set()
+        used_r: set[int] = set()
+        for d2, i, j, hp_apart in pairs:
+            if i in used_l or j in used_r:
+                continue
+            used_l.add(i)
+            used_r.add(j)
+            if d2 > tolerance * tolerance:
+                differ += 1
+            elif hp_apart:
+                hp_differ += 1
+        differ += max(len(left) - len(used_l), len(right) - len(used_r))
+    return differ, hp_differ
+
+
+def compare_text(main: Frame, other: Frame, tolerance: int = 0) -> str:
+    """'N entities, M differ' for two frames of the same tick.
+
+    With no tolerance this is exact agreement, the question two recordings of one battle
+    answer. With one it is "how far apart are they", the question an engine and a recording
+    answer, and the hp disagreements are counted beside the positions rather than inside them.
+    """
+    if tolerance <= 0:
+        return f"{len(other.units)} entities, {differing(signature(main), signature(other))} differ"
+    differ, hp_differ = differing_within(rows(main), rows(other), tolerance)
+    hp = f", {hp_differ} hp" if hp_differ else ""
+    return f"{len(other.units)} entities, {differ} differ{hp} (within {tiles_text(tolerance)})"
+
+
+def tiles_text(millitiles: int) -> str:
+    """A tolerance as tiles to two places, for the line a reader has to judge it by."""
+    return f"{millitiles / 1000:.2f} tiles"
 
 
 class Compare:
@@ -188,21 +261,31 @@ class Compare:
     the result at ``tick`` and the running totals. With ``restart_on_drop`` (live sources)
     a tick falling back by NEW_BATTLE_DROP restarts everything: a new battle; a replay
     scrubbed backwards keeps its totals and never compares a tick twice.
+
+    ``tolerance`` in millitiles turns the question from "are these the same battle" into "how
+    far apart are they", which is the only readable answer when one side is an ENGINE replaying
+    a battle the other side RECORDED. Then a unit is paired with the nearest of its team and
+    name, a pair within the tolerance agrees, and a pair that agrees on position but not on hp
+    is counted separately (``differing_within``). A unit one side has and the other does not is
+    never within any tolerance. 0, the default, is exact agreement.
     """
 
-    def __init__(self, restart_on_drop: bool = False) -> None:
+    def __init__(self, restart_on_drop: bool = False, tolerance: int = 0) -> None:
         self.restart_on_drop = restart_on_drop
-        self._sig: list[OrderedDict[int, tuple[Signature, int]]] = [OrderedDict(), OrderedDict()]
+        self.tolerance = max(0, tolerance)
+        self._sig: list[OrderedDict[int, tuple[list[Row], int]]] = [OrderedDict(), OrderedDict()]
         self._last_tick: list[int | None] = [None, None]
-        self.results: dict[int, tuple[int, int, int]] = {}  # tick -> (n main, n other, differ)
+        # tick -> (n main, n other, differ, hp differ)
+        self.results: dict[int, tuple[int, int, int, int]] = {}
         self.ticks = 0
         self.differ = 0
+        self.hp_differ = 0
 
     def reset(self) -> None:
         self._sig = [OrderedDict(), OrderedDict()]
         self._last_tick = [None, None]
         self.results.clear()
-        self.ticks = self.differ = 0
+        self.ticks = self.differ = self.hp_differ = 0
 
     def note(self, which: int, frame: Frame) -> None:
         """Frame ``frame`` was shown by source ``which`` (0 main, 1 compare)."""
@@ -213,27 +296,38 @@ class Compare:
         buf = self._sig[which]
         if frame.tick in buf or frame.tick in self.results:
             return
-        buf[frame.tick] = (signature(frame), len(frame.units))
+        buf[frame.tick] = (rows(frame), len(frame.units))
         while len(buf) > COMPARE_WINDOW:
             buf.popitem(last=False)
         if frame.tick in self._sig[1 - which]:
             (sa, na), (sb, nb) = self._sig[0][frame.tick], self._sig[1][frame.tick]
-            d = differing(sa, sb)
-            self.results[frame.tick] = (na, nb, d)
+            if self.tolerance:
+                d, hp = differing_within(sa, sb, self.tolerance)
+            else:
+                d, hp = differing(Counter(sa), Counter(sb)), 0
+            self.results[frame.tick] = (na, nb, d, hp)
             self.ticks += 1
             self.differ += d > 0
+            self.hp_differ += hp > 0
 
     def text(self, tick: int | None) -> str:
         """Two lines: the comparison at ``tick`` (or why there is none) and the totals."""
         if tick is None:
             first = "no frame yet"
         elif tick in self.results:
-            na, nb, d = self.results[tick]
+            na, nb, d, hp = self.results[tick]
             n = f"{na} entities" if na == nb else f"{na} vs {nb} entities"
-            first = f"tick {tick}: {n}, {d} differ"
+            first = f"tick {tick}: {n}, {d} differ" + (f", {hp} hp" if hp else "")
         else:
             first = f"tick {tick}: not seen by both"
-        return f"{first}\n{self.ticks} ticks compared, {self.differ} differ"
+        # The tolerance is on the totals line, not the tick line: every number above it was
+        # judged by it, and a reader who reads only "0 differ" must not have to guess within
+        # what.
+        within = f" (within {tiles_text(self.tolerance)})" if self.tolerance else ""
+        totals = f"{self.ticks} ticks compared, {self.differ} differ"
+        if self.tolerance and self.hp_differ:
+            totals += f", {self.hp_differ} hp"
+        return f"{first}\n{totals}{within}"
 
 
 def empty_frame(units_per_tile: int) -> Frame:
@@ -307,12 +401,13 @@ class App:
         theme: Theme = DEFAULT,
         title: str = "RoyaleViser",
         follow_local: bool = False,
+        tolerance: int = 0,
     ) -> None:
         if not sources:
             raise ValueError("run needs at least one source")
         self.source = sources[0]
         self.compare = sources[1] if len(sources) > 1 else None
-        self.agreement = Compare(restart_on_drop=self.source.live)
+        self.agreement = Compare(restart_on_drop=self.source.live, tolerance=tolerance)
         self.follow_local = follow_local  # --seat local: seat the source's local side once known
         self.view = view
         self.view.compare_name = self.compare.name if self.compare is not None else ""
@@ -577,6 +672,7 @@ def run(
     title: str = "RoyaleViser",
     theme: Theme = DEFAULT,
     follow_local: bool = False,
+    tolerance: int = 0,
 ) -> int:
     """Open the window over ``sources`` and run until quit, --seconds or a closed window.
 
@@ -622,7 +718,14 @@ def run(
             surface = pygame.display.set_mode(window_size())
             place_window(x, y)
     app = App(
-        sources, view, scale=scale, speed=speed, theme=theme, title=title, follow_local=follow_local
+        sources,
+        view,
+        scale=scale,
+        speed=speed,
+        theme=theme,
+        title=title,
+        follow_local=follow_local,
+        tolerance=tolerance,
     )
     app.renderer.surface = surface
     pygame.display.set_caption(title)

@@ -350,7 +350,7 @@ def test_cli_parser() -> None:
     assert vars(q.parse_args([])) == {
         k: v
         for k, v in vars(p.parse_args([])).items()
-        if k not in ("sources", "stream", "compare", "learning")
+        if k not in ("sources", "stream", "compare", "learning", "parity", "tolerance")
     }
     assert p.parse_args([]).seat == "local"
     for key, action in cli.KEYS:
@@ -361,3 +361,13 @@ def test_cli_parser() -> None:
         cli.main(["a.jsonl"])  # sources are opened before any window exists
     with pytest.raises(SystemExit):
         cli.main(["a.jsonl", "b.jsonl", "--compare", "c.jsonl"])  # three sources
+
+
+def test_the_parity_view_is_one_file_and_no_other_source() -> None:
+    """--parity opens both sides of one file, so combining it with another source would ask
+    for three sources in two slots and silently drop one."""
+    for extra in (["a.jsonl"], ["--stream", ":9870"], ["--compare", "b.jsonl"]):
+        with pytest.raises(SystemExit):
+            cli.main(["--parity", "x.parity.json", *extra])
+    with pytest.raises(FileNotFoundError):  # opened before any window exists, like any source
+        cli.main(["--parity", "no-such-file.parity.json"])

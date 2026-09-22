@@ -4,10 +4,15 @@
     python -m royaleviser trace.msgpack --speed 4 --start-tick 600
     python -m royaleviser --stream 127.0.0.1:9870        # and a learner's status on 9871
     python -m royaleviser a.jsonl --compare b.jsonl --seat 0 --shot shot.png --seconds 2
+    python -m royaleviser --parity battle.parity.json   # the engine over the battle it replayed
 
 One positional source (or --stream) is the primary; a second one (a second positional, or
 --compare) is ghosted onto the board at the same tick and compared with it tick by tick
-(two clients of the same battle, or a trace against a capture). --seat local seats the
+(two clients of the same battle, or a trace against a capture). --parity opens BOTH sides of
+one RoyaleSim parity trace at once, the recording with the engine's own run of it ghosted over
+the top, and compares them within --tolerance rather than exactly: two clients of one battle
+agree to the unit, and an engine replaying a recorded battle never will, so the readable
+question there is how far apart they are. --seat local seats the
 primary's local player at the bottom (the side whose hand the capture holds; team 0 for a
 trace or a stream); --geometry is the window's outer rectangle in physical pixels, for a
 caller that places the window itself; --seconds N and --shot PATH exist for unattended tests.
@@ -103,12 +108,30 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SOURCE",
         help="a second capture/trace/host:port ghosted onto the board at the same tick",
     )
+    p.add_argument(
+        "--parity",
+        metavar="FILE",
+        help="a RoyaleSim parity trace (--trace): the recording, with the engine's run ghosted",
+    )
+    p.add_argument(
+        "--tolerance",
+        type=int,
+        default=None,
+        metavar="MILLITILES",
+        help="count two units as agreeing within this far apart (--parity: 250, a quarter tile)",
+    )
     add_view_arguments(p)
     return p
 
 
 def source_specs(args: argparse.Namespace) -> list[tuple[str, Any]]:
-    """[(kind, spec)] in priority order: positionals, then the stream; --compare is second."""
+    """[(kind, spec)] in priority order: positionals, then the stream; --compare is second.
+
+    --parity is ONE file that opens two sources, so it fills both slots by itself and cannot
+    be combined with another source.
+    """
+    if getattr(args, "parity", None):
+        return [("parity", args.parity)]
     specs: list[tuple[str, Any]] = [("path", s) for s in args.sources]
     if args.stream is not None:
         specs.append(("stream", args.stream))
@@ -117,9 +140,20 @@ def source_specs(args: argparse.Namespace) -> list[tuple[str, Any]]:
     return specs
 
 
+def tolerance_of(args: argparse.Namespace) -> int:
+    """The compare tolerance: what was asked for, else a quarter tile for --parity, else exact."""
+    from .parity import DEFAULT_TOLERANCE
+
+    asked = getattr(args, "tolerance", None)
+    if asked is not None:
+        return max(0, asked)
+    return DEFAULT_TOLERANCE if getattr(args, "parity", None) else 0
+
+
 def open_sources(args: argparse.Namespace) -> list[Source]:
     """The primary and, when given, the compare source; every opened source is closed when a
     later one fails to open."""
+    from .parity import open_parity
     from .sources import StreamSource, learning_endpoint, open_source
 
     specs = source_specs(args)
@@ -128,7 +162,9 @@ def open_sources(args: argparse.Namespace) -> list[Source]:
     sources: list[Source] = []
     try:
         for kind, spec in specs[:2]:
-            if kind == "path":
+            if kind == "parity":
+                sources.extend(open_parity(spec, names))
+            elif kind == "path":
                 sources.append(open_source(spec, names, learner))
             else:
                 sources.append(StreamSource(*spec, learner or learning_endpoint(*spec)))
@@ -154,6 +190,7 @@ def run_sources(sources: list[Source], args: argparse.Namespace) -> int:
         start_tick=args.start_tick,
         title=TITLE,
         follow_local=args.seat == "local",
+        tolerance=tolerance_of(args),
     )
 
 
@@ -165,8 +202,10 @@ def run(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if not args.sources and args.stream is None:
-        parser.error("give a capture/trace path or --stream")
+    if not args.sources and args.stream is None and not args.parity:
+        parser.error("give a capture/trace path, --stream or --parity")
+    if args.parity and (args.sources or args.stream is not None or args.compare):
+        parser.error("--parity opens both sides by itself; give no other source")
     if len(source_specs(args)) > 2:
         parser.error("at most two sources: a primary and one to compare with")
     return run(args)

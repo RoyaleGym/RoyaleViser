@@ -429,7 +429,8 @@ def test_compare_totals_and_replay_scrubbing() -> None:
     c.note(0, f)
     assert c.text(f.tick).startswith(f"tick {f.tick}: not seen by both")
     c.note(1, g)
-    assert c.results[f.tick] == (len(f.units), len(g.units), 0) and (c.ticks, c.differ) == (1, 0)
+    assert c.results[f.tick] == (len(f.units), len(g.units), 0, 0)
+    assert (c.ticks, c.differ) == (1, 0)
     h = copy.deepcopy(FRAMES[601])
     h.units[0].hp -= 1
     c.note(0, FRAMES[601])
@@ -804,3 +805,70 @@ def test_the_window_says_when_a_carried_box_runs_off_the_board() -> None:
     )
     assert "Cannon's box leaves the arena" in r.notes(off, Transport())
     r.draw(off, ViewState(), Transport(source_name="t"))
+
+
+def test_a_tolerance_turns_the_compare_into_how_far_apart_rather_than_whether() -> None:
+    """Two recordings of one battle agree to the unit, because both clients run the same
+    lockstep simulation. An engine replaying a recorded battle does not and never will, so
+    exact equality makes every unit differ and says nothing about whether it is close."""
+    from royaleviser.app import differing_within, rows
+
+    f = FRAMES[600]
+    near = copy.deepcopy(f)
+    for u in near.units:
+        u.x += 200  # a fifth of a tile off, every unit
+    assert compare_text(f, near).endswith(f"{len(f.units)} differ")  # exact: all of them
+    assert compare_text(f, near, 250) == f"{len(f.units)} entities, 0 differ (within 0.25 tiles)"
+    assert compare_text(f, near, 150).startswith(f"{len(f.units)} entities, {len(f.units)} differ")
+
+    # HP is counted beside the positions, never folded into them: a unit standing in the
+    # right place with the wrong hp is a different finding from one in the wrong place.
+    hp_off = copy.deepcopy(f)
+    hp_off.units[0].hp -= 7
+    assert (
+        compare_text(f, hp_off, 250)
+        == f"{len(f.units)} entities, 0 differ, 1 hp (within 0.25 tiles)"
+    )
+
+    # A unit one side does not have is never within any tolerance, however large.
+    gone = copy.deepcopy(f)
+    gone.units.pop()
+    assert differing_within(rows(f), rows(gone), 10**9) == (1, 0)
+    extra = copy.deepcopy(f)
+    extra.units.append(copy.deepcopy(extra.units[0]))
+    assert differing_within(rows(f), rows(extra), 10**9) == (1, 0)
+
+    # Two units of one name are paired nearest-first rather than in list order, so a pair
+    # that swapped places in the list still reads as agreeing.
+    a = [(0, "Knight", 0, 0, 10), (0, "Knight", 5000, 0, 10)]
+    b = [(0, "Knight", 5000, 100, 10), (0, "Knight", 100, 0, 10)]
+    assert differing_within(a, b, 250) == (0, 0)
+    assert differing_within(a, b, 50) == (2, 0)
+
+
+def test_the_compare_panel_says_what_tolerance_its_numbers_were_judged_by() -> None:
+    """A reader who sees "0 differ" and no tolerance will take it for exact agreement."""
+    c = Compare(tolerance=250)
+    f = FRAMES[600]
+    g = copy.deepcopy(f)
+    for u in g.units:
+        u.x += 200
+    c.note(0, f)
+    c.note(1, g)
+    expected = (
+        f"tick {f.tick}: {len(f.units)} entities, 0 differ\n"
+        "1 ticks compared, 0 differ (within 0.25 tiles)"
+    )
+    assert c.text(f.tick) == expected
+    exact = Compare()
+    exact.note(0, f)
+    exact.note(1, g)
+    assert exact.text(f.tick).endswith("1 ticks compared, 1 differ")  # and no tolerance named
+
+
+def test_the_app_passes_the_tolerance_to_its_comparison() -> None:
+    pygame.init()
+    a = App([ListSource(FRAMES, "main"), ListSource(FRAMES, "other")], ViewState(), tolerance=250)
+    assert a.agreement.tolerance == 250
+    a.pull()
+    assert "within 0.25 tiles" in a.view.compare_text
