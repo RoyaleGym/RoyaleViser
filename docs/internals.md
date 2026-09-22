@@ -163,13 +163,27 @@ unit-tick: the tick, the unit, where the recording had it and where the engine p
 native milli-tiles. `royaleviser.parity` turns each column into a source. Both sides key units
 by the RECORDING's entity key, so the compare pairs them without guessing.
 
+Both sides key every row by the RECORDING's entity key, so the comparison pairs them by that
+key rather than by name and distance. That is not a refinement, it is the difference between a
+true answer and a flattering one: pairing by name pairs two Skeletons that SWAPPED places with
+each other's positions, and the tick then reads as agreeing. `Compare(pair_by_uid=True)` is on
+only for `--parity`, because two recordings of one battle number their entities separately.
+
 What a parity file does not carry, and what the viewer does about it: no elixir, hands, decks,
 crowns or result, so those say "not in this source"; no radius and no footprint, so buildings
 draw at the marked fallback size; the path is a COUNT of nodes rather than the nodes, so it
 rides in the inspector instead of being drawn as a path nobody recorded. `max_hp` is the most
-that unit was ever seen with in that file, which is what the file itself supports. The
-report's `first_divergence`, its one statement about a moment rather than a total, becomes an
-event line to scrub to.
+that unit was ever seen with ON ITS OWN SIDE, so a recording's hp bar is never drawn against a
+number only the engine reached. The report's `first_divergence`, its one statement about a
+moment rather than a total, becomes an event line to scrub to.
+
+Two columns the viewer deliberately does not draw. The engine's `target` is an index into the
+harness's own list of engine entities, not a recording key, and the file publishes no way back
+from it, so drawing it as a target line would point at whichever unit happened to hold that
+number; it is a number in the inspector instead. And the rows are MATCHED PAIRS only, so an
+entity the harness could not match is in neither side: the report counts those and the status
+line carries the counts, because a view that quietly dropped them would be at its most
+convincing exactly where the engine and the game agree least.
 
 ## The synthetic recordings
 
