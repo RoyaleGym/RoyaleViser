@@ -685,9 +685,9 @@ def test_a_frame_without_a_footprint_says_so_rather_than_drawing_a_guess_plainly
     guessed = one_unit_frame(building("c", model.KIND_BUILDING, 6.5, 10.5, upt, None), upt)
     carried = one_unit_frame(building("c", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0), upt)
 
-    assert footprint_note(guessed) == "1 of 1 sizes guessed"
+    assert footprint_note(guessed) == "1 of 1 building sizes guessed"
     assert footprint_note(carried) == ""
-    assert footprint_note(FRAMES[600]).endswith("sizes guessed")  # the synthetic battle
+    assert footprint_note(FRAMES[600]).endswith("building sizes guessed")  # the synthetic battle
     assert "guessed" in footprint_line(guessed.units[0], upt)
     assert footprint_line(carried.units[0], upt) == "3.0 x 3.0 tiles at (5.0, 9.0)"
     assert footprint_line(FRAMES[600].unit("knight"), upt) == "-"  # a troop has no box
@@ -705,7 +705,7 @@ def test_a_frame_without_a_footprint_says_so_rather_than_drawing_a_guess_plainly
     assert marks(guessed) > 0, "a guessed size was drawn with nothing to say so"
     assert marks(carried) == 0, "a carried footprint must not be marked as a guess"
     # The note reaches the status block, where a reader looks for it.
-    assert r.notes(guessed, Transport()) == ["1 of 1 sizes guessed"]
+    assert r.notes(guessed, Transport()) == ["1 of 1 building sizes guessed"]
     assert r.notes(carried, Transport()) == []
 
 

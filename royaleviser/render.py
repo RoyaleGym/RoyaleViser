@@ -369,7 +369,7 @@ def footprint_note(frame: Frame) -> str:
     guessed = sum(1 for u in solid if u.footprint is None)
     if not guessed:
         return ""
-    return f"{guessed} of {len(solid)} sizes guessed"
+    return f"{guessed} of {len(solid)} building sizes guessed"
 
 
 def footprint_line(unit: Unit, units_per_tile: int) -> str:
