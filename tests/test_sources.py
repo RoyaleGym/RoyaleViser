@@ -1111,3 +1111,65 @@ def test_a_second_viewer_takes_the_stream_and_the_first_one_says_how_old_its_boa
     first.close()
     second.close()
     pub.close()
+
+
+def test_the_engine_s_own_footprints_reach_the_frame_and_the_drawn_rectangle() -> None:
+    """The Cannon P0, end to end on the real engine: sim exposes a box per building and tower,
+    gym carries it in the frame, and the viewer draws exactly that.
+
+    This is the only test here that asks the COMPILED engine what size a Cannon is, so it is
+    also the one that fails if a rebuild stops exposing boxes. It skips where the extension is
+    not built, which is a fresh clone before `maturin develop --release`.
+    """
+    rust_engine = pytest.importorskip(
+        "royalegym.rust_engine",
+        reason=(
+            "SKIPPED, NOT PASSED: this test asks the compiled engine for its footprints and "
+            "the royalesim extension is not built here"
+        ),
+    )
+    from royalegym.protocol import DeployCommand
+
+    eng = rust_engine.RustEngine()
+    cards = eng.cards()
+    want = ("Cannon", "Knight", "Giant", "Minions", "Musketeer", "Fireball", "Zap")
+    deck = [i for i, c in enumerate(cards) if c.name in want]
+    deck = (deck + [i for i in range(len(cards)) if i not in deck])[:8]
+    eng.reset(
+        7,
+        DefaultStateMutator(decks=[list(deck), list(deck)]).build(np.random.default_rng(1), cards),
+    )
+    eng.step([], 100)
+    hand = [cards[c].name for c in eng.state().players[0].hand]
+    assert "Cannon" in hand, hand
+    eng.step(
+        [
+            DeployCommand(
+                team=0, hand_slot=hand.index("Cannon"), x=6 * 18000 + 9000, y=10 * 18000 + 9000
+            )
+        ],
+        30,
+    )
+    frame = sound(sources.frame_from_state(eng.state(), Names.from_cards(cards), 18000))
+
+    solid = [u for u in frame.units if u.kind != model.KIND_TROOP]
+    assert solid and all(u.footprint is not None for u in solid), "the engine exposed no box"
+    tiles = {
+        u.name: (
+            (u.footprint[2] - u.footprint[0]) / 18000,
+            (u.footprint[3] - u.footprint[1]) / 18000,
+        )
+        for u in solid
+    }
+    assert tiles["Cannon"] == (3.0, 3.0), tiles  # the owner's ruling, from the engine itself
+    assert tiles["KingTower"] == (4.0, 4.0) and tiles["PrincessTower"] == (3.0, 3.0), tiles
+
+    # ... and the window draws the box, rather than anything of its own.
+    from royaleviser.render import Renderer, footprint_note
+
+    r = Renderer(scale=24)
+    cannon = next(u for u in solid if u.name == "Cannon")
+    for seat in (0, 1):
+        rect = r.unit_rect_px(cannon, 18000, seat)
+        assert (rect.width, rect.height) == (3 * 24, 3 * 24), seat
+    assert footprint_note(frame) == "", "a frame with every box carried must mark nothing"
