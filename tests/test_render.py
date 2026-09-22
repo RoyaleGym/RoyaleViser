@@ -856,8 +856,7 @@ def test_the_compare_panel_says_what_tolerance_its_numbers_were_judged_by() -> N
     c.note(0, f)
     c.note(1, g)
     expected = (
-        f"tick {f.tick}: {len(f.units)} entities, 0 differ\n"
-        "1 ticks compared, 0 differ (within 0.25 tiles)"
+        f"tick {f.tick}: {len(f.units)} entities, 0 differ\n1 ticks, 0 differ (within 0.25 tiles)"
     )
     assert c.text(f.tick) == expected
     exact = Compare()
@@ -872,3 +871,19 @@ def test_the_app_passes_the_tolerance_to_its_comparison() -> None:
     assert a.agreement.tolerance == 250
     a.pull()
     assert "within 0.25 tiles" in a.view.compare_text
+
+
+def test_the_tolerance_clause_fits_the_panel_it_is_drawn_in() -> None:
+    """The clause is the one part of the line a reader must not miss, and it is at the end,
+    so it is the part an ellipsis eats. Measured rather than eyeballed: the long form of the
+    totals line plus the clause came to 295 px in a 287 px column."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    width = r.layout.events[2] - 8
+    font = r.fonts["tiny"]
+    c = Compare(tolerance=250)
+    c.ticks, c.differ, c.hp_differ = 2407, 3, 2
+    c.results[9] = (12, 12, 3, 2)
+    for line in c.text(9).split("\n"):
+        assert font.size(line)[0] <= width, (font.size(line)[0], width, line)
+        assert fit_text(line, font, width) == line  # nothing is ellipsised away
+    assert "within 0.25 tiles" in c.text(9)

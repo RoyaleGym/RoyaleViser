@@ -322,9 +322,14 @@ class Compare:
             first = f"tick {tick}: not seen by both"
         # The tolerance is on the totals line, not the tick line: every number above it was
         # judged by it, and a reader who reads only "0 differ" must not have to guess within
-        # what.
+        # what. That clause is also why the line says "N ticks" rather than "N ticks
+        # compared" once a tolerance is set: the long form plus the clause is wider than the
+        # panel, and what the ellipsis ate was the clause itself (measured 2026-09-22: 295 px
+        # into a 287 px column).
         within = f" (within {tiles_text(self.tolerance)})" if self.tolerance else ""
-        totals = f"{self.ticks} ticks compared, {self.differ} differ"
+        totals = (
+            f"{self.ticks} {'ticks' if self.tolerance else 'ticks compared'}, {self.differ} differ"
+        )
         if self.tolerance and self.hp_differ:
             totals += f", {self.hp_differ} hp"
         return f"{first}\n{totals}{within}"
