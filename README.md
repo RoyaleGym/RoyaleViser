@@ -188,8 +188,8 @@ Working end to end:
 - Traces from the engine: a 2001-frame self-play trace draws with every frame passing the
   viewer's own consistency check.
 - Streaming from a running environment: 360 environment steps, 329 frames sent, 0 dropped.
-- The learning panel filled from a live stream: a learner's status on its own port, whole per
-  message, re-sent to a viewer that attaches mid-run (`docs/viewer-learning.png`).
+- The learning panel filled from a live stream: a status on its own port, whole per message,
+  re-sent to a viewer that attaches mid-run (`docs/viewer-learning.png`).
 - Every draw is a full repaint and costs 2-5 ms at 24 px per tile, far inside the 20 frames a
   second a replay needs, which is why the viewer is Python and pygame rather than a Rust
   process.
@@ -199,6 +199,9 @@ draw:
 
 - A stream carries one frame per environment step (10 ticks at the defaults), not one per
   tick; for a per-tick view, record a trace with `frame_every_tick=True` and open that.
+- No training run has filled the learning panel yet. The path is tested end to end and the
+  screenshot above is a real stream, but the status in it comes from `tests/run_stream.py`,
+  which stands in for the learner: what is proven is the road, not the traffic.
 - A recording gives no unit a radius or a flying flag, so every unit is drawn at one default
   size and air units look like ground units.
 - A trace or stream gives no unit a path or a target, so the path and target overlays draw nothing for them.

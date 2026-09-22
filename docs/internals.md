@@ -174,7 +174,8 @@ already holds a `Frame`.
    clock read — 193 ns per call, measured 2026-09-21 over 200k calls, best of three — and it
    polls its socket for heartbeats at most once a second.
 3. While attached it sends one msgpack datagram per call to the last heartbeat's address:
-   measured 2.6 KB for 12 units and 6 towers, 11 KB for 60 entities. A datagram over 65507
+   measured 2.6 KB for 18 units (12 troops and the 6 towers, which are units of their own
+   kind, not a list beside them), 11 KB for 60. A datagram over 65507
    bytes is resent with the unit paths emptied, then dropped and counted
    (`publisher.dropped`).
 4. `royalegym.viser.frame_dict` builds the wire dict from a `BattleState`;
