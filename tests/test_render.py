@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pygame
 import pytest
 
-from royaleviser import app, model
+from royaleviser import app, model, sources
 from royaleviser.app import KEYS, App, Compare, compare_text, fit_layout, fit_scale, run
 from royaleviser.render import (
     LEARNING_GROUPS,
@@ -304,6 +304,42 @@ def test_learning_fields_are_the_same_list_attached_or_not() -> None:
     assert (got["iteration"], got["KL"], got["illegal actions"]) == ("1420", "0.0094", "1.7%")
     assert got["policy loss"] == UNSET  # a field the learner left unset, not a zero
     assert got["learner"] == "" and got["ladder"] == ""
+
+
+def test_a_status_off_the_wire_fills_the_panel_through_the_app() -> None:
+    """The whole path in one test: a learner publishes a status, the StreamSource takes it
+    off the same socket the frames come in on, the app hands it to the transport, and the
+    panel draws the numbers the learner sent -- and only those."""
+    pygame.init()
+    frames = sources.Publisher(port=0)
+    learner = sources.LearningPublisher(port=0, pump_thread=False)
+    src = sources.StreamSource(*frames.address, learner.address)
+    time.sleep(0.05)
+    frames._pub._last_poll = 0.0
+    a = App([src], ViewState())
+    a.pull()
+    assert a.transport.learning is None  # nothing published yet: "no learner attached"
+    assert frames.publish(FRAMES[600])
+    status = model.Learning(
+        run="ppo-0007", iteration=1420, policy_loss=0.0, kl=0.0094, elo=1183.0
+    )
+    assert learner.publish(status) and learner.sent == 1
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end and (a.transport.learning is None or a.frame is None):
+        learner.pump()
+        a.pull()
+        time.sleep(0.01)
+    assert a.frame is not None and a.transport.learning == status
+    assert a.dirty  # a status arriving redraws the window, though the board did not move
+    lines = dict(a.renderer.learning_lines(a.transport.learning))
+    assert (lines["iteration"], lines["KL"], lines["ELO vs pool"]) == ("1420", "0.0094", "1183")
+    assert lines["policy loss"] == "0.000"  # the learner said zero, so the panel says zero
+    assert lines["value loss"] == lines["win rate"] == UNSET  # never sent, so never a number
+    a.draw(time.perf_counter())  # the real draw, with a status that came off the wire
+    assert a.transport.draw_ms > 0
+    src.close()
+    frames.close()
+    learner.close()
 
 
 def test_learning_panel_closes_the_dashboard_under_the_match_log() -> None:

@@ -122,3 +122,19 @@ def test_main_runs_a_trace_headless(tmp_path: Path) -> None:
     assert shot.exists()
     src = TraceSource(path)
     assert src.length == 201 and src.local_side is None
+
+
+def test_the_learning_endpoint_is_paired_with_the_stream() -> None:
+    """--stream alone also listens for a learner one port up, so attaching to a training run
+    is still one flag; --learning moves it."""
+    args = cli.build_parser().parse_args(["--stream", "127.0.0.1:9870"])
+    (src,) = cli.open_sources(args)
+    assert isinstance(src, StreamSource)
+    assert (src.peer, src.learning_peer) == (("127.0.0.1", 9870), ("127.0.0.1", 9871))
+    src.close()
+    args = cli.build_parser().parse_args(
+        ["--stream", "127.0.0.1:9870", "--learning", "127.0.0.1:9999"]
+    )
+    (src,) = cli.open_sources(args)
+    assert src.learning_peer == ("127.0.0.1", 9999)
+    src.close()

@@ -23,7 +23,9 @@ WHAT IS AND IS NOT KNOWN
     field with "?" / [] / -1, and the renderer prints the reason instead of a wrong number.
 
 Wire form: ``encode_frame`` / ``decode_frame`` are msgspec msgpack of these dataclasses,
-so the engine-side publisher and ``sources.StreamSource`` share one codec.
+so the engine-side publisher and ``sources.StreamSource`` share one codec. ``Learning`` --
+what a learner reports, once per iteration rather than once per step -- rides the same
+socket as its own kind of datagram (``encode_learning`` / ``is_learning``).
 """
 
 from __future__ import annotations
@@ -139,6 +141,49 @@ class Frame:
         return None
 
 
+@dataclass(slots=True)
+class Learning:
+    """Training status from a learner, for the dashboard panel under the match log.
+
+    The fields are the ones a PPO run against a frozen-pool ladder reports: the learner's own
+    losses, the rollout's throughput and what it scored, and the standing against the pool.
+    Every number is None until a learner supplies it, and the panel shows an em dash in its
+    place, so the field list a reader sees is the same whether or not anything is attached.
+
+    It travels on its own datagram (``encode_learning``), not on a Frame: the numbers are the
+    learner's, they change once per iteration rather than once per step, and they keep
+    arriving while the environment is between rollouts and no frame is moving. One message is
+    the WHOLE status the learner currently knows -- the viewer replaces what it holds rather
+    than merging, so the panel never shows a number the learner never asserted at one moment.
+    A field the learner does not send stays None and stays an em dash.
+    """
+
+    run: str = ""  # the run or checkpoint name, shown beside the heading
+    # learner
+    iteration: int | None = None
+    policy_loss: float | None = None
+    value_loss: float | None = None
+    entropy: float | None = None
+    kl: float | None = None
+    clip_frac: float | None = None
+    explained_var: float | None = None
+    grad_norm: float | None = None
+    learning_rate: float | None = None
+    # rollout
+    env_steps_per_s: float | None = None
+    engine_ticks_per_s: float | None = None
+    episode_ticks: float | None = None
+    crowns_per_episode: float | None = None
+    towers_per_episode: float | None = None
+    illegal_rate: float | None = None  # share of actions the placement mask rejected
+    elixir_wasted: float | None = None  # elixir lost to a full bar, per episode
+    # ladder
+    elo: float | None = None  # against the frozen pool
+    win_rate: float | None = None
+    pool_size: int | None = None
+    games_vs_pool: int | None = None
+
+
 @runtime_checkable
 class Source(Protocol):
     """Where frames come from. A replay exposes frames by index; a live source the latest.
@@ -154,6 +199,11 @@ class Source(Protocol):
     step(delta)     replays: move by delta frames (clamped); live: ignored
     status()        one line for the status bar (frame counter, sample latency, drops)
     close()         release the file / the socket / whatever the source holds open
+
+    A source may also carry ``learning``: the last ``Learning`` it heard from a learner, or
+    None. It is read with ``getattr`` and is deliberately NOT a member here -- this Protocol
+    is ``runtime_checkable`` and ``app.run`` does an ``isinstance`` on it, so a member would
+    turn every source that has no learner into something that is not a Source.
     """
 
     name: str
@@ -252,6 +302,39 @@ def encode_frame(frame: Frame) -> bytes:
 
 def decode_frame(data: bytes) -> Frame:
     return msgspec.msgpack.decode(data, type=Frame)
+
+
+# A learning status travels on the same socket as the frames, so the two have to be told
+# apart before anything is decoded. A status datagram is the one-key map {"learning": {...}},
+# which msgpack always writes as a fixmap of one (\x81) followed by the 8-byte string key
+# (\xa8 "learning"); a frame is a map of Frame's twelve fields, so it can never start that
+# way. ``is_learning`` is the whole demultiplexer: one comparison, no decode.
+LEARNING_TAG = "learning"
+LEARNING_PREFIX = b"\x81\xa8learning"
+
+
+@dataclass(slots=True)
+class _LearningMessage:
+    """The one-key envelope a status datagram is: ``{"learning": {...}}``."""
+
+    learning: Learning
+
+
+def encode_learning(status: Learning) -> bytes:
+    """msgpack bytes of a Learning: what a learner sends once per iteration."""
+    return msgspec.msgpack.encode({LEARNING_TAG: status})
+
+
+def decode_learning(data: bytes) -> Learning:
+    """The Learning in a status datagram. A key the sender left out keeps its None, which is
+    what the panel draws as an em dash -- an absent field is never a zero."""
+    return msgspec.msgpack.decode(data, type=_LearningMessage).learning
+
+
+def is_learning(data: bytes) -> bool:
+    """Whether a datagram is a learning status rather than a frame (see LEARNING_PREFIX)."""
+    return data.startswith(LEARNING_PREFIX)
+
 
 
 def problems(frame: Frame) -> list[str]:

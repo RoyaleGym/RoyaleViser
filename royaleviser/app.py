@@ -345,7 +345,13 @@ class App:
     # ------------------------------------------------------------------ sources
 
     def pull(self) -> None:
-        """The main source's current frame and the compare source's at the same tick."""
+        """The main source's current frame and the compare source's at the same tick.
+
+        A source that hears from a learner (``StreamSource``) also carries a ``learning``
+        status; it is read with ``getattr`` so every other source simply has none, and the
+        panel keeps saying no learner is attached. A new status is a new object, so the
+        window redraws when one arrives even though the board has not moved.
+        """
         f = self.source.frame()
         key = (id(f), f.tick if f else None, f.meta.get("seq") if f else None)
         changed = key != self.last_key
@@ -361,6 +367,10 @@ class App:
                         self.follow_local = False
                 if self.view.hover_uid is not None and f.unit(self.view.hover_uid) is None:
                     self.view.hover_uid = None
+        learning = getattr(self.source, "learning", None)
+        if learning is not self.transport.learning:
+            self.transport.learning = learning
+            self.dirty = True
         if self.compare is not None and (changed or self.compare.live):
             self.pull_compare(f, changed)
 

@@ -54,6 +54,7 @@ from .model import (
     TOWER_KINDS,
     UNKNOWN_HP,
     Frame,
+    Learning,
     Player,
     Unit,
 )
@@ -97,40 +98,9 @@ class ViewState:
     compare_text: str = ""  # "N entities, M differ", computed by the app
 
 
-@dataclass(slots=True)
-class Learning:
-    """Training status from a learner, for the dashboard panel under the match log.
-
-    The fields are the ones a PPO run against a frozen-pool ladder reports: the learner's own
-    losses, the rollout's throughput and what it scored, and the standing against the pool.
-    Every number is None until a learner supplies it, and the panel shows an em dash in its
-    place, so the field list a reader sees is the same whether or not anything is attached.
-    """
-
-    run: str = ""  # the run or checkpoint name, shown beside the heading
-    # learner
-    iteration: int | None = None
-    policy_loss: float | None = None
-    value_loss: float | None = None
-    entropy: float | None = None
-    kl: float | None = None
-    clip_frac: float | None = None
-    explained_var: float | None = None
-    grad_norm: float | None = None
-    learning_rate: float | None = None
-    # rollout
-    env_steps_per_s: float | None = None
-    engine_ticks_per_s: float | None = None
-    episode_ticks: float | None = None
-    crowns_per_episode: float | None = None
-    towers_per_episode: float | None = None
-    illegal_rate: float | None = None  # share of actions the placement mask rejected
-    elixir_wasted: float | None = None  # elixir lost to a full bar, per episode
-    # ladder
-    elo: float | None = None  # against the frozen pool
-    win_rate: float | None = None
-    pool_size: int | None = None
-    games_vs_pool: int | None = None
+# ``Learning`` -- the learner's status -- is defined in model.py with the wire codec that
+# carries it (``model.encode_learning``), because it arrives from outside this process the
+# way a Frame does. It is imported above, and drawn only here.
 
 
 #: (heading, ((label, attribute, format), ...)) in the order the panel fills its two columns.

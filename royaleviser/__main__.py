@@ -2,7 +2,7 @@
 
     python -m royaleviser frames-<label>-<stamp>.jsonl.gz
     python -m royaleviser trace.msgpack --speed 4 --start-tick 600
-    python -m royaleviser --stream 127.0.0.1:9870
+    python -m royaleviser --stream 127.0.0.1:9870        # and a learner's status on 9871
     python -m royaleviser a.jsonl --compare b.jsonl --seat 0 --shot shot.png --seconds 2
 
 One positional source (or --stream) is the primary; a second one (a second positional, or
@@ -93,6 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="a running engine's publisher to attach to (royalegym.viser.ViserPublisher)",
     )
     p.add_argument(
+        "--learning",
+        type=parse_endpoint,
+        metavar="HOST:PORT",
+        help="where a learner publishes its training status (default: the stream's port plus one)",
+    )
+    p.add_argument(
         "--compare",
         metavar="SOURCE",
         help="a second capture/trace/host:port ghosted onto the board at the same tick",
@@ -114,7 +120,7 @@ def source_specs(args: argparse.Namespace) -> list[tuple[str, Any]]:
 def open_sources(args: argparse.Namespace) -> list[Source]:
     """The primary and, when given, the compare source; every opened source is closed when a
     later one fails to open."""
-    from .sources import StreamSource, open_source
+    from .sources import StreamSource, learning_endpoint, open_source
 
     specs = source_specs(args)
     names = Names.live()
@@ -124,7 +130,8 @@ def open_sources(args: argparse.Namespace) -> list[Source]:
             if kind == "path":
                 sources.append(open_source(spec, names))
             else:
-                sources.append(StreamSource(*spec))
+                learner = getattr(args, "learning", None) or learning_endpoint(*spec)
+                sources.append(StreamSource(*spec, learner))
     except BaseException:
         for s in sources:
             s.close()

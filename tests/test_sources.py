@@ -13,6 +13,7 @@ without them those tests SKIP, and say so; a skip there is not a pass."""
 from __future__ import annotations
 
 import os
+import socket
 import sys
 import time
 from collections import Counter
@@ -33,7 +34,7 @@ from royalegym.selfplay import RandomLegalOpponent
 from royalegym.state_mutator import DefaultStateMutator
 from royalegym.viser import ViserPublisher
 from royaleviser import model, sources
-from royaleviser.model import Frame, Names, Source
+from royaleviser.model import Frame, Learning, Names, Source
 
 # The synthetic recordings, committed: A is seat 0's, B is seat 1's, of one scripted battle.
 SYNTH_A, SYNTH_B = synthetic.fixture_paths()
@@ -759,4 +760,118 @@ def test_stream_round_trip_with_the_frame_publisher() -> None:
 def test_open_source_by_shape() -> None:
     src = sources.open_source("127.0.0.1:9999")
     assert isinstance(src, sources.StreamSource) and src.name == "127.0.0.1:9999"
+    assert src.learning_peer == ("127.0.0.1", 10000)  # a learner sits one port up
+    src.close()
+
+
+# --- LearningPublisher: the learner's status on the same socket -----------------------
+
+
+def status_of(
+    src: sources.StreamSource, learner: sources.LearningPublisher | None = None
+) -> Learning | None:
+    """The status the viewer is holding once one arrives, pumping the learner meanwhile."""
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end:
+        if learner is not None:
+            learner.pump()
+        src.frame()
+        if src.learning is not None:
+            return src.learning
+        time.sleep(0.01)
+    return None
+
+
+def a_status() -> Learning:
+    return Learning(
+        run="ppo-0007", iteration=1420, policy_loss=0.0, kl=0.0094, env_steps_per_s=18400.0
+    )
+
+
+def test_a_learning_status_and_frames_share_one_socket() -> None:
+    """Two senders on two ports, one socket at the viewer: the status lands in ``learning``
+    and the frames keep being frames."""
+    frames = sources.Publisher(port=0)
+    learner = sources.LearningPublisher(port=0, pump_thread=False)
+    src = sources.StreamSource(*frames.address, learner.address)
+    time.sleep(0.05)
+    frames._pub._last_poll = 0.0
+    assert frames.attached
+    eng = MockEngine()
+    eng.reset(
+        1, DefaultStateMutator(decks=[ALL_TYPES] * 2).build(np.random.default_rng(0), eng.cards())
+    )
+    frame = sources.frame_from_state(eng.state(), Names.from_cards(eng.cards()), 18000)
+    assert frames.publish(frame)
+    assert learner.pump() is False  # nothing published yet: nothing to tell a viewer
+    assert learner.publish(a_status()) and learner.sent == 1
+    assert status_of(src, learner) == a_status()
+    assert wait_for(src) is not None
+    assert src.index == 1 and src.rejected == 0  # the status is not a frame
+    assert "frames 1" in src.status() and "rejected" not in src.status()
+    src.close()
+    frames.close()
+    learner.close()
+
+
+def test_a_viewer_attaching_mid_run_is_sent_the_last_status() -> None:
+    """The numbers are minutes apart, so the last ones are the truth until the next ones. A
+    viewer that says hello between two iterations is told them rather than left blank."""
+    frames = sources.Publisher(port=0)  # a battle is running; no frame is needed here
+    learner = sources.LearningPublisher(port=0, pump_thread=False)
+    assert learner.publish(a_status()) is False and learner.sent == 0  # nobody watching
+    assert learner.status == a_status()  # kept all the same
+    src = sources.StreamSource(*frames.address, learner.address)
+    assert status_of(src, learner) == a_status()
+    assert learner.sent == 1
+    learner.pump()
+    src.frame()
+    assert learner.sent == 1  # told once, not once a second
+    src.close()
+    frames.close()
+    learner.close()
+
+
+def test_the_learner_answers_a_new_viewer_without_being_called() -> None:
+    """A learner deep in an optimisation step calls nothing for minutes; its own thread
+    answers the hello, so the panel fills within a heartbeat either way."""
+    frames = sources.Publisher(port=0)
+    learner = sources.LearningPublisher(port=0)
+    assert learner.publish(a_status()) is False
+    src = sources.StreamSource(*frames.address, learner.address)
+    assert status_of(src) == a_status()  # nobody pumped it: the thread did
+    src.close()
+    frames.close()
+    learner.close()
+
+
+def test_a_second_status_replaces_the_first_whole() -> None:
+    learner = sources.LearningPublisher(port=0, pump_thread=False)
+    src = sources.StreamSource("127.0.0.1", 9999, learner.address)  # a learner, no engine
+    time.sleep(0.05)
+    assert learner.publish(a_status()) and status_of(src, learner) == a_status()
+    later = Learning(run="ppo-0007", iteration=1421, elo=1183.0)
+    assert learner.publish(later)
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end and src.learning != later:
+        src.frame()
+        time.sleep(0.01)
+    assert src.learning == later
+    assert src.learning.kl is None  # dropped by the learner, so unset again, not the old 0.0094
+    src.close()
+    learner.close()
+
+
+def test_a_datagram_that_is_neither_is_counted_not_raised() -> None:
+    src = sources.StreamSource("127.0.0.1", 9999)
+    junk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    junk.sendto(b"not a frame", src.address)
+    junk.sendto(model.LEARNING_PREFIX + b"\xc0", src.address)  # a status of nothing
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end and src.rejected < 2:
+        src.frame()
+        time.sleep(0.01)
+    assert src.rejected == 2 and src.frame() is None and src.learning is None
+    assert "rejected 2" in src.status()
+    junk.close()
     src.close()

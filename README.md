@@ -121,6 +121,29 @@ python -m royaleviser --stream 127.0.0.1:9870                   # in another pro
 
 <p align="center"><img src="docs/media/live-training-env.svg" width="100%" alt="Video placeholder: a training environment in one terminal, the viewer attached from another"></p>
 
+The learner can report too, on its own port, and the dashboard's learning panel fills in:
+
+```python
+from royaleviser.model import Learning
+from royaleviser.sources import LearningPublisher
+
+learner = LearningPublisher()                     # 127.0.0.1:9871, the stream's port plus one
+for it in range(iterations):
+    ...                                           # rollout, then optimise
+    learner.publish(Learning(run="ppo-0007", iteration=it, policy_loss=0.0241, elo=1183))
+```
+
+<p align="center"><img src="docs/viewer-learning.png" width="100%" alt="The viewer on a streamed battle with the learning panel filled: run ppo-0007, iteration 1423, its losses, rollout throughput and ladder standing"></p>
+
+The same window, attached to a stream: the panel under the event log is the learner's, and
+every number in it came off the socket. It is a separate message on a separate clock, sent
+once per iteration rather than once per step, so it keeps arriving while the environment is
+between rollouts and nothing on the board moves, and a viewer that attaches mid-run is sent
+the last status instead of waiting for the next iteration. A field the learner does not send
+stays an em dash — the panel never invents a zero for a number nobody reported. A learner that
+would rather not import this package sends the same small msgpack datagram itself; the format
+is in [`docs/internals.md`](docs/internals.md).
+
 Setup, shared by the whole stack: the repos are cloned side by side into one folder with one
 venv at its root.
 
@@ -154,6 +177,8 @@ Working end to end:
 - Traces from the engine: a 2001-frame self-play trace draws with every frame passing the
   viewer's own consistency check.
 - Streaming from a running environment: 360 environment steps, 329 frames sent, 0 dropped.
+- The learning panel filled from a live stream: a learner's status on its own port, whole per
+  message, re-sent to a viewer that attaches mid-run (`docs/viewer-learning.png`).
 - Every draw is a full repaint and costs 2-5 ms at 24 px per tile, far inside the 20 frames a
   second a replay needs, which is why the viewer is Python and pygame rather than a Rust
   process.
@@ -175,13 +200,13 @@ draw:
 Tests:
 
 ```
-cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 56 passed, 3 skipped as of 2026-09-21
+cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 68 passed, 3 skipped as of 2026-09-21
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
 The three skips are the tests that need a recording of a real battle, which the repo does not
 ship; the run names them so they are not mistaken for passes. With the recordings present the
-result is 59 passed.
+result is 71 passed.
 
 Read next: [`docs/internals.md`](docs/internals.md) for the frame model, the recording format,
 the stream protocol, the command line, the layout, the tests and the performance table;

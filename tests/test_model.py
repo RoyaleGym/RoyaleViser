@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 
+import msgspec
 import pytest
 
 from royalegym.protocol import CardInfo, EntityKind, Placement, SpellMotion
@@ -106,7 +107,7 @@ def test_kinds_are_the_protocols() -> None:
 
 
 def test_dataclasses_use_slots() -> None:
-    for cls in (Frame, Player, Unit, Spell, ViewState):
+    for cls in (Frame, Player, Unit, Spell, model.Learning, ViewState):
         assert "__slots__" in cls.__dict__, cls
     f = frame()
     with pytest.raises(AttributeError):
@@ -146,6 +147,44 @@ def test_wire_round_trip() -> None:
     assert back == f
     assert back.units[0].path == [(3500, 14500), (3500, 17500), (3500, 25500)]
     assert back.units[0].direction == (0, 256)
+
+
+def test_a_status_datagram_is_told_from_a_frame_by_its_first_bytes() -> None:
+    """The two kinds share one socket, so the viewer sorts them before decoding anything: a
+    status is the one-key map {"learning": ...}, a frame the twelve of a Frame."""
+    assert msgspec.msgpack.encode({model.LEARNING_TAG: None})[:-1] == model.LEARNING_PREFIX
+    status = model.encode_learning(model.Learning(run="ppo-0007"))
+    assert model.is_learning(status) and status.startswith(model.LEARNING_PREFIX)
+    assert not model.is_learning(model.encode_frame(frame()))
+    assert not model.is_learning(b"") and not model.is_learning(b"royaleviser 1")
+
+
+def test_a_status_round_trips_and_what_was_not_sent_stays_unset() -> None:
+    full = model.Learning(
+        run="ppo-0007",
+        iteration=1420,
+        policy_loss=0.0,  # a real zero: the learner said so
+        kl=0.0094,
+        env_steps_per_s=18400.0,
+        elo=1183.0,
+        pool_size=6,
+    )
+    back = model.decode_learning(model.encode_learning(full))
+    assert back == full and back.policy_loss == 0.0
+    assert back.value_loss is None and back.win_rate is None  # never sent: still unset
+    # A learner that writes the datagram itself sends only the keys it has; the rest are the
+    # dataclass's None, never a zero.
+    sparse = msgspec.msgpack.encode({model.LEARNING_TAG: {"run": "r", "iteration": 7}})
+    assert model.is_learning(sparse)
+    lean = model.decode_learning(sparse)
+    assert (lean.run, lean.iteration) == ("r", 7)
+    assert all(
+        getattr(lean, f) is None
+        for f in ("policy_loss", "kl", "env_steps_per_s", "elo", "games_vs_pool")
+    )
+    for bad in (b"", b"\x81\xa8learning", model.encode_learning(full)[:-4]):
+        with pytest.raises((msgspec.DecodeError, msgspec.ValidationError)):
+            model.decode_learning(bad)
 
 
 def test_live_names_table() -> None:
@@ -285,6 +324,9 @@ def test_cli_parser() -> None:
     assert (a.shot, a.seconds, a.speed, a.start_tick, a.scale) == ("s.png", 2.0, 4.0, 600, 12)
     a = p.parse_args(["--stream", "127.0.0.1:9870", "--geometry", "712x1029+604+0"])
     assert a.stream == ("127.0.0.1", 9870) and a.geometry == (712, 1029, 604, 0)
+    assert a.learning is None  # unset: the stream's port plus one (sources.learning_endpoint)
+    moved = p.parse_args(["--stream", ":9870", "--learning", ":9999"])
+    assert moved.learning == ("127.0.0.1", 9999)
     # The view options are one group a front end can add to its own parser (RoyaleLive's
     # viser_live.py does): the same names, the same defaults.
     q = cli.argparse.ArgumentParser()
@@ -292,7 +334,9 @@ def test_cli_parser() -> None:
     b = q.parse_args(["--seat", "1", "--geometry", "800x600"])
     assert (b.seat, b.geometry, b.speed, b.scale) == (1, (800, 600, None, None), 1.0, None)
     assert vars(q.parse_args([])) == {
-        k: v for k, v in vars(p.parse_args([])).items() if k not in ("sources", "stream", "compare")
+        k: v
+        for k, v in vars(p.parse_args([])).items()
+        if k not in ("sources", "stream", "compare", "learning")
     }
     assert p.parse_args([]).seat == "local"
     for key, action in cli.KEYS:
