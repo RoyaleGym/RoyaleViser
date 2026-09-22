@@ -41,11 +41,11 @@ from royalegym.env import ClashParallelEnv
 from royalegym.replay import ReplayRecorder, save_trace
 from royalegym.rust_engine import RustEngine
 from royalegym.selfplay import RandomLegalOpponent
-from royalegym.terminal import GameOverCondition, StepLimitCondition
+from royalegym.done_condition import GameOverCondition, StepLimitCondition
 
 rec = ReplayRecorder(frame_every_tick=True)
 env = ClashParallelEnv(RustEngine(), recorder=rec,
-                       terminal_conditions=[GameOverCondition(), StepLimitCondition(200)])
+                       termination_cond=GameOverCondition(), truncation_cond=StepLimitCondition(200))
 obs, _ = env.reset(seed=2026)
 rng, opp = np.random.default_rng(0), RandomLegalOpponent(noop_prob=0.3)
 while env.agents:

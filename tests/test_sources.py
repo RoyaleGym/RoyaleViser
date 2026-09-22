@@ -13,13 +13,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from royalegym.done_condition import GameOverCondition, StepLimitCondition
 from royalegym.env import ClashParallelEnv
 from royalegym.mock_engine import MockEngine
 from royalegym.protocol import EntityKind, ShuffleMode
 from royalegym.replay import ReplayRecorder, save_trace
 from royalegym.selfplay import RandomLegalOpponent
-from royalegym.state_setter import DefaultStateSetter
-from royalegym.terminal import GameOverCondition, StepLimitCondition
+from royalegym.state_mutator import DefaultStateMutator
 from royalegym.viser import ViserPublisher
 from royaleviser import model, sources
 from royaleviser.model import Frame, Names, Source
@@ -439,13 +439,14 @@ def test_capture_drill_surfacing_line() -> None:
 # --- TraceSource ------------------------------------------------------------------
 
 
-def record(steps: int = 60, frame_every_tick: bool = True, **setter_kwargs: object):
+def record(steps: int = 60, frame_every_tick: bool = True, **mutator_kwargs: object):
     """test_env_render._record: a 60-step MockEngine battle with random legal deploys."""
     rec = ReplayRecorder(frame_every_tick=frame_every_tick)
     env = ClashParallelEnv(
         recorder=rec,
-        state_setter=DefaultStateSetter(decks=[ALL_TYPES, ALL_TYPES[::-1]], **setter_kwargs),
-        terminal_conditions=[GameOverCondition(), StepLimitCondition(steps)],
+        state_mutator=DefaultStateMutator(decks=[ALL_TYPES, ALL_TYPES[::-1]], **mutator_kwargs),
+        termination_cond=GameOverCondition(),
+        truncation_cond=StepLimitCondition(steps),
     )
     obs, _ = env.reset(seed=2026)
     rng = np.random.default_rng(0)
@@ -513,7 +514,7 @@ def test_trace_source_per_decision(tmp_path: Path) -> None:
 
 def test_frame_from_state_matches_the_publisher_rows() -> None:
     eng = MockEngine()
-    setup = DefaultStateSetter(decks=[ALL_TYPES, ALL_TYPES]).build(
+    setup = DefaultStateMutator(decks=[ALL_TYPES, ALL_TYPES]).build(
         np.random.default_rng(1), eng.cards()
     )
     eng.reset(7, setup)
@@ -538,7 +539,7 @@ def wait_for(src: sources.StreamSource, timeout: float = 2.0) -> Frame | None:
 
 def test_stream_round_trip_with_the_env_publisher() -> None:
     pub = ViserPublisher(port=0)
-    env = ClashParallelEnv(viser=pub, state_setter=DefaultStateSetter(decks=[ALL_TYPES] * 2))
+    env = ClashParallelEnv(viser=pub, state_mutator=DefaultStateMutator(decks=[ALL_TYPES] * 2))
     env.reset(seed=3)
     assert not pub.attached and pub.sent == 0  # nobody watching: nothing sent
     src = sources.StreamSource(*pub.address)
@@ -566,7 +567,7 @@ def test_stream_round_trip_with_the_frame_publisher() -> None:
     assert pub.attached
     eng = MockEngine()
     eng.reset(
-        1, DefaultStateSetter(decks=[ALL_TYPES] * 2).build(np.random.default_rng(0), eng.cards())
+        1, DefaultStateMutator(decks=[ALL_TYPES] * 2).build(np.random.default_rng(0), eng.cards())
     )
     frame = sources.frame_from_state(eng.state(), Names.from_cards(eng.cards()), 18000, ["e1"])
     assert pub.publish(frame) and pub.sent == 1
