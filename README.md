@@ -248,10 +248,14 @@ While a viewer is attached, one msgpack datagram goes out per step. Measured: 2.
 
 That is a real stream, not the scripted battle. Another process is stepping four self-play
 battles on the engine and publishing game 0, and everything in the window arrived over the
-socket. Two things in it are worth reading. The learner panel is empty because nothing is training:
-that is today's honest picture and it is the gap listed below. And the status line admits 86
-dropped frames out of 116, which is what a busy machine looks like. Four other jobs were running when this was taken. The viewer drops frames rather than
-slowing the environment down, which is the trade it is built to make.
+socket.
+
+Two things in it are worth reading, and both are properties rather than measurements. The
+learner panel is empty because nothing is training, which is today's honest picture and the gap
+listed below. And the status line admits dropped frames: the viewer drops them rather than
+slowing the environment down, which is the trade it is built to make, and it tells you when it
+has. On the occasion this shot was taken, with four other jobs running, that was 86 frames of
+116.
 
 ### Showing your training numbers next to the battle
 
