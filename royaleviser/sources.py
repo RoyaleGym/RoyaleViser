@@ -940,7 +940,7 @@ class Publisher:
     """The engine side of StreamSource for a script that has a ``Frame``: sends ONLY while
     a viewer is attached.
 
-    rlviser's rule: a separate process, never in the tick loop,
+    The rule the viewer is built on: a separate process, never in the tick loop,
     zero cost when nobody is watching. It is royalegym.viser.ViserPublisher (the env's
     publisher, which takes a BattleState) under one socket: ``publish(frame)`` costs one
     clock read while detached, and while attached encodes the frame with msgspec and sends

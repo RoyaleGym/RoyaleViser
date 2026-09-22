@@ -1,6 +1,6 @@
-"""RoyaleViser: the rlviser analog -- an out-of-process viewer for RoyaleSim and RoyaleLive.
+"""RoyaleViser: an out-of-process viewer for Clash Royale battles.
 
-One window, three sources (``royaleviser.sources``: captures, traces, a running engine), one
+One window, three sources (``royaleviser.sources``: recordings, traces, a running engine), one
 frame model (``royaleviser.model``), one renderer (``royaleviser.render``) with the old
 simulator's layout (``royaleviser.theme``). Never in the tick loop: a running engine sends
 frames only while a viewer is attached.

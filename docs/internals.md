@@ -57,7 +57,8 @@ already holds a `Frame`.
 2. The env calls `publish` once per `reset()` / `step()`, and only when a publisher is set
    (`viser=` or the `ROYALEVISER` environment variable; the default `None` costs one `if`).
    While no heartbeat has arrived in `ATTACH_TIMEOUT_S` (3 s), `publish` returns after one
-   clock read, and it polls its socket for heartbeats at most once a second.
+   clock read — 193 ns per call, measured 2026-09-21 over 200k calls, best of three — and it
+   polls its socket for heartbeats at most once a second.
 3. While attached it sends one msgpack datagram per call to the last heartbeat's address:
    measured 2.6 KB for 12 units and 6 towers, 11 KB for 60 entities. A datagram over 65507
    bytes is resent with the unit paths emptied, then dropped and counted
@@ -93,8 +94,11 @@ always the first draw, which builds the board surface and the fonts.
 | the same with `--compare` on the other seat, `--speed 8 --seconds 28` (the whole battle) | 1685 | 2.25 ms | - |
 | a MockEngine trace, 60 steps / 601 frames, `--seconds 5` | 101 | 2.49 ms | 6.6 ms |
 | `--stream` from a MockEngine env stepping at ~43 steps/s for 7 s | 262 | 4.19 ms | 185.8 ms |
+| a RustEngine trace, 2001 frames, `--start-tick 800 --speed 4 --seconds 6` | 336 | 5.17 ms | 75.9 ms |
+| `--stream` from a RustEngine env stepping at ~30 steps/s for 12 s | 335 | 5.06 ms | 654.4 ms |
 
-Measured on Windows 10 with the SDL dummy driver on a machine with other work running. The
+Measured on Windows 10 with the SDL dummy driver on a machine with other work running (the
+last two rows, 2026-09-21, with several other jobs on the box). The MockEngine
 stream run sent 256 datagrams over 300 env steps with 0 dropped; the first ~44 steps ran
 before the once-a-second heartbeat poll noticed the viewer. A capture opens in 0.1-0.2 s (a
 4047-frame gzipped file in 0.10 s: a line index plus a parse cache, so a seek is one
@@ -106,9 +110,10 @@ buffer.
 
 ## Limitations
 
-- **Engine sources are exercised only on `MockEngine` so far.** A `RustEngine` trace or
-  stream should draw identically — both go through `frame_from_state` — but it has not been
-  run end to end.
+- **Both engines have been drawn** (2026-09-21): a 2001-frame `RustEngine` trace passes
+  `model.problems` on every frame, and a `RustEngine` env streaming live sent 329 datagrams
+  over 360 env steps with 0 dropped. Trace and stream go through the same
+  `frame_from_state`, so the two draw identically.
 - **Per-tick engine frames** are not available over the stream (one frame per env step); use
   a `frame_every_tick` trace instead.
 - **Units in a capture carry no radius and no flying flag**, so every one of them is drawn at

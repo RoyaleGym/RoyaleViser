@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "royaleviser"
 version = "0.1.0"
-description = "RoyaleViser: the rlviser-style out-of-process viewer for RoyaleLive captures, engine traces and a running RoyaleSim"
+description = "RoyaleViser: an out-of-process viewer for Clash Royale battles - recorded matches, RoyaleSim traces and a running engine"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [

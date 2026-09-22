@@ -13,8 +13,10 @@ __pycache__/
 build/
 dist/
 
-# Regenerable outputs: window shots (S / F12, --shot) and traces saved beside the viewer
+# Regenerable outputs: window shots (S / F12, --shot) and traces saved beside the viewer,
+# except the two screenshots the README shows
 *.png
+!docs/*.png
 *.msgpack
 logs/
 
