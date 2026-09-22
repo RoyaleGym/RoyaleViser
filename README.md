@@ -349,8 +349,15 @@ As of 2026-09-22, this works end to end:
   tests gives 395 ticks compared, 0 differ.
 - Drawing a building at the size the source says it stands on. When a source does not carry that
   size, the viewer marks what it drew rather than guessing quietly: red corner ticks and a count
-  of how many sizes on screen are guesses. Live frames carry no size yet, so today they are all
-  guesses.
+  of how many sizes on screen are guesses. Since 2026-09-22 frames and traces carry the size, so a
+  Cannon is the 3 by 3 building it is in the game, and the marking is there for older files and
+  for sources that do not carry one.
+- A building is drawn as two shapes, because it has two different sizes and they are easy to
+  confuse. The box is the ground it stands on, which is what decides whether you may place it
+  there. The circle inside is its collision radius, which is what other units bump into. On the
+  engine a Cannon stands on 3 tiles with a radius of 0.6 of a tile, a princess tower 3 and 1.0,
+  and a king tower 4 and 1.4 (2026-09-22). A source that carries no radius gets no circle rather
+  than a guessed one.
 - Traces from the engine. A 2001-frame self-play trace draws, and every frame of it passes the
   viewer's own consistency check.
 - Streaming from a running environment. 360 environment steps, 329 frames sent, 0 dropped.
