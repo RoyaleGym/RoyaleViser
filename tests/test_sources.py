@@ -1173,3 +1173,29 @@ def test_the_engine_s_own_footprints_reach_the_frame_and_the_drawn_rectangle() -
         rect = r.unit_rect_px(cannon, 18000, seat)
         assert (rect.width, rect.height) == (3 * 24, 3 * 24), seat
     assert footprint_note(frame) == "", "a frame with every box carried must mark nothing"
+
+
+def test_a_run_id_travels_from_the_env_to_the_panel_s_mismatch_line() -> None:
+    """The other half of the port collision: two runs on one machine share the fixed ports,
+    and the frame publisher can get its port while the learner does not, so another run's
+    numbers under a moving board look like one run. Both ends carry a run id; this is the
+    whole path, from the publisher that stamps it to the line that flags a disagreement."""
+    from royaleviser.render import Renderer, Transport
+
+    pub = ViserPublisher(port=0, run="ppo-0007")
+    env = ClashParallelEnv(viser=pub, state_mutator=DefaultStateMutator(decks=[ALL_TYPES] * 2))
+    env.reset(seed=3)
+    src = sources.StreamSource(*pub.address)
+    time.sleep(0.05)
+    pub._last_poll = 0.0
+    env.step({"blue": 0, "red": 0})
+    frame = wait_for(src)
+    assert frame is not None and frame.meta.get("run") == "ppo-0007"
+
+    r = Renderer(scale=24)
+    agrees = r.notes(frame, Transport(learning=Learning(run="ppo-0007")))
+    disagrees = r.notes(frame, Transport(learning=Learning(run="ppo-0008")))
+    assert not [n for n in agrees if "learner" in n]
+    assert "frames ppo-0007 / learner ppo-0008" in disagrees
+    src.close()
+    env.close()
