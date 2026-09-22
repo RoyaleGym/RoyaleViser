@@ -145,6 +145,24 @@ LEARNING_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
 UNSET = "—"  # what a field with no value shows
 
 
+def field_text(value: float | int | None, fmt: str) -> str:
+    """One fixed row's value, in its own format.
+
+    Two things the plain format gets wrong on a real run. A number that rounds away to
+    nothing would print as "0.000" or, worse, "-0.000" -- which reads as a bug and hides
+    whether it was a millionth or a thousandth, so a value that is not zero but formats as
+    though it were is shown to one significant figure instead (measured on a real PPO
+    iteration, 2026-09-22: a policy loss of -3e-05 drew as "-0.000"). And a value that IS
+    zero never carries a minus sign, however the float is signed: an honest zero is "0.000".
+    """
+    if value is None:
+        return UNSET
+    if value == 0:
+        return format(abs(value), fmt)
+    text = format(value, fmt)
+    return f"{value:.1e}" if not text.strip("0.,-%") else text
+
+
 def extra_text(value: Any) -> str:
     """One of the learner's own ``Learning.extra`` rows, which has no format of its own: an
     integer with thousands, a float to four significant figures, anything else as it stands.
@@ -865,7 +883,7 @@ class Renderer:
             block = [(heading, "")]
             for label, attr, fmt in fields:
                 v = getattr(ln, attr, None) if ln is not None else None
-                block.append((label, UNSET if v is None else format(v, fmt)))
+                block.append((label, field_text(v, fmt)))
             blocks.append(block)
         extra = getattr(ln, "extra", None) or {}
         if extra:

@@ -454,3 +454,23 @@ def test_run_accepts_geometry_and_scale(tmp_path: Path) -> None:
     lw, lh = layout(theme, scale, (18, 32)).window
     assert pygame.image.load(str(shot)).get_size() == (max(lw, 700 - dw), max(lh, 600 - dh))
     assert os.environ.get("SDL_VIDEO_WINDOW_POS") == "10,10"
+
+
+def test_a_number_that_rounds_away_to_nothing_says_how_small_it_is() -> None:
+    """From the first real training run to fill the panel: a policy loss of -3e-05 drew as
+    "-0.000", which reads as a bug and hides the magnitude. A true zero still draws as a
+    zero, and never with a minus sign."""
+    from royaleviser.render import field_text
+
+    assert field_text(-3.2e-05, ".3f") == "-3.2e-05"
+    assert field_text(4e-07, ".4f") == "4.0e-07"
+    assert field_text(1e-05, ".1%") == "1.0e-05"
+    assert field_text(0.0, ".3f") == "0.000"  # an honest zero is a zero
+    assert field_text(-0.0, ".3f") == "0.000"  # and never a negative one
+    assert field_text(0, "d") == "0"
+    assert field_text(None, ".3f") == UNSET  # unset is still unset
+    assert field_text(0.0241, ".3f") == "0.024" and field_text(1161.5, ",.0f") == "1,162"
+    r = Renderer(scale=24)
+    lines = dict(r.learning_lines(Learning(policy_loss=-3.2e-05, kl=0.0, value_loss=0.0131)))
+    got = (lines["policy loss"], lines["KL"], lines["value loss"])
+    assert got == ("-3.2e-05", "0.0000", "0.013")
