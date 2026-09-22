@@ -202,13 +202,13 @@ draw:
 Tests:
 
 ```
-cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 72 passed, 3 skipped as of 2026-09-21
+cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 73 passed, 3 skipped as of 2026-09-21
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
 The three skips are the tests that need a recording of a real battle, which the repo does not
 ship; the run names them so they are not mistaken for passes. With the recordings present the
-result is 75 passed.
+result is 76 passed.
 
 Read next: [`docs/internals.md`](docs/internals.md) for the frame model, the recording format,
 the stream protocol, the command line, the layout, the tests and the performance table;

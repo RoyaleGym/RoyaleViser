@@ -865,6 +865,24 @@ def test_a_viewer_attaching_mid_run_is_sent_the_last_status() -> None:
     learner.close()
 
 
+def test_a_viewer_that_was_away_is_told_again() -> None:
+    """A viewer gone longer than the attach timeout has either restarted or lost what it
+    held, so the next hello is answered even when it comes from the same address."""
+    learner = sources.LearningPublisher(port=0, pump_thread=False)
+    src = sources.StreamSource("127.0.0.1", 9999, learner.address)  # a learner, no engine
+    learner.publish(a_status())
+    assert status_of(src, learner) == a_status() and learner.sent == 1
+    learner._last_hello -= 2 * sources.STREAM_ATTACH_TIMEOUT_S  # away, then back on one port
+    src.heartbeat()
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end and learner.sent < 2:
+        learner.pump()
+        time.sleep(0.01)
+    assert learner.sent == 2 and learner.pump() is False  # once for coming back, not again
+    src.close()
+    learner.close()
+
+
 def test_the_learner_answers_a_new_viewer_without_being_called() -> None:
     """A learner deep in an optimisation step calls nothing for minutes; its own thread
     answers the hello, so the panel fills within a heartbeat either way."""

@@ -1177,8 +1177,10 @@ class LearningPublisher:
                 return
             if data == STREAM_HELLO:
                 peer = (addr[0], addr[1])
-                if peer != self._peer:
-                    self._sent_to = None  # a different viewer: it has not been told anything
+                if peer != self._peer or now - self._last_hello >= STREAM_ATTACH_TIMEOUT_S:
+                    # Another viewer, or one that has been away long enough to have been
+                    # restarted: either way it holds no status, so send it the standing one.
+                    self._sent_to = None
                 self._peer, self._last_hello = peer, now
 
     def _send(self) -> bool:
