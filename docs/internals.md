@@ -257,6 +257,18 @@ A key that is neither a field name nor `extra` is **ignored**: a misspelled fiel
 em dash of the field that stayed unset, rather than showing up as a wrong number somewhere
 else.
 
+**Two runs on one machine collide, and the panel cannot tell you so.** The ports are fixed,
+so the second run's learner finds the status port taken and publishes nothing — while its
+frame publisher may well get its own port and stream the battle normally. The window then
+shows a live battle under a panel reading "no learner attached", which is indistinguishable
+from a run with no learner at all: the learner that failed to bind has no socket to say so
+on. Measured on 2026-09-22, one run holding 9871 while another streamed frames on 9870.
+Give a second run its own pair — the learner's sink takes a host and port, and the viewer
+takes `--learning HOST:PORT` — and check the learner's own log if a panel stays empty while
+a battle plays. A related consequence of the same fixed-peer design: each publisher keeps
+ONE peer, the address of the last heartbeat, so a second viewer saying hello to a run
+silently takes the stream from the first.
+
 A learner that would rather not import this package sends the same datagram itself, and
 needs these six constants to match:
 

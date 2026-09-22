@@ -308,6 +308,7 @@ cd RoyaleSim && ..\.venv\Scripts\maturin develop --release && cd ..     # builds
 .venv\Scripts\python -m pip install -e RoyaleGym
 .venv\Scripts\python -m pip install -e RoyaleViser
 .venv\Scripts\python -m pip install -e RoyaleLearn
+.venv\Scripts\python -m pip install -e "RoyaleLearn[torch]"   # only if you want to train; it is a big download
 ```
 
 You do not need all of that to use the viewer.
