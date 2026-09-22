@@ -109,14 +109,23 @@ while env.agents:
 save_trace(rec.trace, "battle.msgpack")      # 200 steps -> 2001 frames, one per tick
 ```
 
-A running environment streams instead of recording: give it a publisher, or set one environment
-variable and change no code, then attach from another process. The environment sends nothing
+A running environment streams instead of recording: set one environment variable and change no
+code, or hand it a publisher, then attach from another process. The environment sends nothing
 until a viewer says hello, and stops three seconds after the last viewer goes away.
 
 ```
-env = ClashParallelEnv(RustEngine(), viser=ViserPublisher())   # from royalegym.viser; 127.0.0.1:9870
-set ROYALEVISER=127.0.0.1:9870                                  # the same, without touching the constructor
+set ROYALEVISER=127.0.0.1:9870                                  # before the training run starts
+env = ClashSelfPlayVecEnv(8)                                    # binds one publisher, watches game 0
 python -m royaleviser --stream 127.0.0.1:9870                   # in another process
+```
+
+A viewer watches one battle, so the vectorised environment is where that is decided: it binds
+the publisher once and hands it to game 0, because eight games each reaching for the viewer's
+one UDP port is an error rather than eight streams. A single environment is handed one
+explicitly and reads no environment variable of its own:
+
+```
+env = ClashParallelEnv(RustEngine(), viser=ViserPublisher())   # from royalegym.viser; 127.0.0.1:9870
 ```
 
 <p align="center"><img src="docs/media/live-training-env.svg" width="100%" alt="Video placeholder: a training environment in one terminal, the viewer attached from another"></p>

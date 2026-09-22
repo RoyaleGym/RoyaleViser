@@ -163,8 +163,13 @@ already holds a `Frame`.
 
 1. The viewer binds a UDP socket and sends the heartbeat datagram `royaleviser 1` to the
    publisher's `host:port` (default `127.0.0.1:9870`) once a second while it is open.
-2. The env calls `publish` once per `reset()` / `step()`, and only when a publisher is set
-   (`viser=` or the `ROYALEVISER` environment variable; the default `None` costs one `if`).
+2. An environment calls `publish` once per `reset()` / `step()`, and only when it has been
+   handed a publisher: `ClashParallelEnv(..., viser=ViserPublisher())`, which reads no
+   environment variable of its own, the default `None` costing one `if`. The vectorised env
+   is what reads `ROYALEVISER=host:port` — `ClashSelfPlayVecEnv(..., viser="env")`, the
+   default, binds one publisher from it and hands it to game 0 (`None` never publishes, and
+   a `ViserPublisher` is used as given). A viewer watches one battle, and N games each
+   binding its one fixed port is an `OSError`, so the choice belongs where the games are.
    While no heartbeat has arrived in `ATTACH_TIMEOUT_S` (3 s), `publish` returns after one
    clock read — 193 ns per call, measured 2026-09-21 over 200k calls, best of three — and it
    polls its socket for heartbeats at most once a second.
