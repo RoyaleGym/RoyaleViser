@@ -72,7 +72,17 @@ KIND_NAMES = {
     KIND_KING_TOWER: "king tower",
     KIND_PRINCESS_TOWER: "princess tower",
 }
-# arena.json king_blocks are 3x3 tiles, princess towers 2x2 (RoyaleSim/data/derived/arena.json)
+# WHAT A BUILDING IS DRAWN AS
+#
+# A building and a tower stand on a BOX of whole tiles, and the box is the one thing about
+# them a watcher can see: a Cannon covers three tiles by three. When a frame carries that box
+# (``Unit.footprint``) the renderer draws it and nothing else decides the size.
+#
+# Everything below is the fallback for a frame that carries none, which every recording and
+# every trace written before the field did. They are GUESSES, and a unit drawn from one is
+# marked (``_draw_fallback_marks``) so that a wrong size on the board is visible as a wrong
+# size rather than read as the engine's answer. The guess from the collision radius is what
+# the viewer showed everywhere before 2026-09-22, and it drew a Cannon about one tile wide.
 KING_TILES = 3
 PRINCESS_TILES = 2
 BUILDING_DEFAULT_TILES_X10 = 14  # a building with radius 0 draws 1.4 tiles wide
@@ -89,6 +99,7 @@ class ViewState:
     show_targets: bool = True  # a line from each unit to its target
     show_grid: bool = False  # tile grid lines
     show_debug: bool = False  # raw numbers on the board: hp, state, deploy/stun ticks
+    show_footprints: bool = False  # shade each carried footprint and the taps it refuses
     hover_uid: str | int | None = None  # the unit under the mouse, for the inspector
     compare_frame: Frame | None = None  # a second source's frame at the same tick (ghosted)
     selected_uid: str | int | None = None  # a clicked unit: the inspector sticks to it
@@ -346,6 +357,41 @@ def split_name(name: str, limit: int) -> list[str]:
     return lines
 
 
+def footprint_note(frame: Frame) -> str:
+    """What the status block says about the sizes on the board, or "" when nothing is guessed.
+
+    Counting the guessed units is the whole of it: "3 of 9" is a fact about THIS frame that a
+    reader can act on, where a fixed sentence about which sources carry footprints would be a
+    claim about every frame the viewer will ever open, and would go stale the day a source
+    starts carrying them.
+    """
+    solid = [u for u in frame.units if u.kind != KIND_TROOP]
+    guessed = sum(1 for u in solid if u.footprint is None)
+    if not guessed:
+        return ""
+    return f"{guessed} of {len(solid)} sizes guessed"
+
+
+def footprint_line(unit: Unit, units_per_tile: int) -> str:
+    """The inspector's footprint row: the box in tiles, or why there is not one.
+
+    A troop has none and says so; a building without one says the size on the board is the
+    viewer's guess, in the same place a reader looks for the number.
+    """
+    if unit.footprint is None:
+        return "-" if unit.kind == KIND_TROOP else "none in this frame (size guessed)"
+    x0, y0, x1, y1 = unit.footprint
+    w = tiles_x10(x1 - x0, units_per_tile)
+    h = tiles_x10(y1 - y0, units_per_tile)
+    return f"{w} x {h} tiles at ({tiles_x10(x0, units_per_tile)}, {tiles_x10(y0, units_per_tile)})"
+
+
+def tiles_x10(v: int, units_per_tile: int) -> str:
+    """Raw units as tiles to a tenth, without a float (sources.tiles_text's rule)."""
+    tenths = (v * 10 + units_per_tile // 2) // units_per_tile
+    return f"{tenths // 10}.{tenths % 10}"
+
+
 def clock_text(tick: int, tick_ms: int) -> str:
     s = tick * tick_ms // 1000
     return f"{s // 60}:{s % 60:02d}"
@@ -428,7 +474,12 @@ class Renderer:
         return raw * self.layout.scale // units_per_tile
 
     def unit_radius_px(self, unit: Unit, units_per_tile: int) -> int:
-        """Half the drawn size: the circle radius or half the square side, in pixels."""
+        """Half the drawn size: the circle radius or half the square side, in pixels.
+
+        For a building or a tower this is the FALLBACK size, used only when the frame carries
+        no footprint (see ``footprint_px``); the numbers it reads are the collision radius and
+        the two tower constants, none of which is the box the unit stands on.
+        """
         s = self.layout.scale
         if unit.kind == KIND_KING_TOWER:
             return KING_TILES * s // 2
@@ -442,15 +493,54 @@ class Renderer:
             r = self.theme.unit_default_radius_tiles_x100 * s // 100
         return max(r, self.theme.unit_min_px)
 
+    def box_px(self, box: tuple[int, int, int, int], units_per_tile: int, seat: int) -> pygame.Rect:
+        """A raw-unit box [x0, y0, x1, y1] as a window rect, whatever the seat.
+
+        The seat turns the board 180 degrees, which swaps which corner is which, so both
+        corners are projected and the rect is taken from their extremes rather than from one
+        corner and a width. A box of three tiles comes out three tiles wide on either seat.
+        """
+        x0, y0, x1, y1 = box
+        ax, ay = self.to_px(x0, y0, units_per_tile, seat)
+        bx, by = self.to_px(x1, y1, units_per_tile, seat)
+        left, right = min(ax, bx), max(ax, bx)
+        top, bottom = min(ay, by), max(ay, by)
+        return pygame.Rect(left, top, right - left, bottom - top)
+
+    def footprint_px(self, unit: Unit, units_per_tile: int, seat: int) -> pygame.Rect | None:
+        """The box the frame says ``unit`` stands on, in window pixels, or None if it carries
+        none. Nothing here invents a size: a unit without a footprint gets the marked fallback."""
+        if unit.footprint is None:
+            return None
+        return self.box_px(tuple(unit.footprint), units_per_tile, seat)
+
+    def unit_rect_px(self, unit: Unit, units_per_tile: int, seat: int) -> pygame.Rect:
+        """Where a non-troop unit is drawn: its carried footprint, else the fallback square."""
+        rect = self.footprint_px(unit, units_per_tile, seat)
+        if rect is not None:
+            return rect
+        px, py = self.to_px(unit.x, unit.y, units_per_tile, seat)
+        r = self.unit_radius_px(unit, units_per_tile)
+        return pygame.Rect(px - r, py - r, 2 * r, 2 * r)
+
     def unit_at(self, px: int, py: int, frame: Frame, view: ViewState) -> str | int | None:
-        """The uid of the unit whose drawn disc contains the pixel, nearest centre first."""
+        """The uid of the unit under the pixel: the shape it is DRAWN as, nearest centre first.
+
+        A troop is its disc. A building or tower is the rect it was drawn as, so a 3x3 Cannon
+        is clickable over all nine tiles and a unit standing on the pocket behind a tower is
+        not picked up from the tower's far corner.
+        """
         best: tuple[int, str | int] | None = None
         upt = frame.units_per_tile
         for u in frame.units:
             ux, uy = self.to_px(u.x, u.y, upt, view.seat)
-            r = self.unit_radius_px(u, upt) + 3
             d2 = (ux - px) ** 2 + (uy - py) ** 2
-            if d2 <= r * r and (best is None or d2 < best[0]):
+            if u.kind == KIND_TROOP:
+                r = self.unit_radius_px(u, upt) + 3
+                hit = d2 <= r * r
+            else:
+                hit = self.unit_rect_px(u, upt, view.seat).inflate(6, 6).collidepoint(px, py)
+            if hit and (best is None or d2 < best[0]):
                 best = (d2, u.uid)
         return best[1] if best is not None else None
 
@@ -592,6 +682,10 @@ class Renderer:
         self.surface.blit(self.board_surface(view.seat, view.show_grid), self.layout.arena[:2])
         self.surface.set_clip(pygame.Rect(self.layout.arena))
         self._draw_units(frame, view)
+        # Over the units, not under them: a building is drawn ON its own footprint, so an
+        # overlay underneath would be covered by the very thing it is there to describe.
+        if view.show_footprints:
+            self._draw_footprint_overlay(frame, view)
         self._draw_spells(frame, view)
         if view.compare_frame is not None and view.show_compare:
             self._draw_compare(view.compare_frame, view.seat)
@@ -618,6 +712,14 @@ class Renderer:
         for u in frame.units:
             pos[u.uid] = to_px(u.x, u.y, upt, seat)
             radii[u.uid] = self.unit_radius_px(u, upt)
+        # The hp bar, the labels and the overlays hang off the drawn shape, so a building's
+        # half-height comes from the rect it is actually drawn as, not from the fallback radius.
+        half: dict[str | int, int] = {
+            u.uid: radii[u.uid]
+            if u.kind == KIND_TROOP
+            else self.unit_rect_px(u, upt, seat).height // 2
+            for u in frame.units
+        }
         # Paths and target lines under everything so units stay readable.
         if view.show_paths:
             for u in frame.units:
@@ -651,12 +753,16 @@ class Renderer:
                     end = (px + dx * (r + 4) // 256, py + dy * (r + 4) // 256)
                     pygame.draw.line(surface, t.direction_line, (px, py), end, 2)
             else:
-                rect = (px - r, py - r, 2 * r, 2 * r)
+                rect = self.unit_rect_px(u, upt, seat)
                 pygame.draw.rect(surface, color, rect)
                 pygame.draw.rect(surface, t.building_outline, rect, 2)
                 if u.kind in TOWER_KINDS:
-                    inner = (px - r // 2, py - r // 2, r, r)
-                    pygame.draw.rect(surface, t.building_outline, inner, 1)
+                    pygame.draw.rect(
+                        surface, t.building_outline, rect.inflate(-rect.w // 2, -rect.h // 2), 1
+                    )
+                if u.footprint is None:
+                    self._draw_fallback_marks(rect)
+            h = half[u.uid]
             if u.deploy_ticks > 0:
                 surface.blit(self.disc(r + 1, (*t.deploy_overlay, 140)), (px - r - 2, py - r - 2))
             if u.deploy_ticks > 1:
@@ -670,12 +776,17 @@ class Renderer:
                     "center",
                 )
             if u.stun_ticks > 0:
-                pygame.draw.circle(surface, t.stun_overlay, (px, py), r + 3, 2)
+                pygame.draw.circle(surface, t.stun_overlay, (px, py), h + 3, 2)
             if u.uid == view.selected_uid or u.uid == view.hover_uid:
-                pygame.draw.circle(surface, t.hover, (px, py), r + 6, 2)
+                if u.kind == KIND_TROOP:
+                    pygame.draw.circle(surface, t.hover, (px, py), r + 6, 2)
+                else:
+                    pygame.draw.rect(
+                        surface, t.hover, self.unit_rect_px(u, upt, seat).inflate(10, 10), 2
+                    )
             if u.max_hp > 0 and 0 <= u.hp < u.max_hp:
                 w = max(16, 2 * r)
-                bar = (px - w // 2, py - r - 3 - t.hp_bar_h, w, t.hp_bar_h)
+                bar = (px - w // 2, py - h - 3 - t.hp_bar_h, w, t.hp_bar_h)
                 pygame.draw.rect(surface, t.hp_bg, bar)
                 fill = w * u.hp // u.max_hp
                 if fill > 0:
@@ -686,7 +797,7 @@ class Renderer:
                 label = u.name if s >= 16 else ""
                 if label:
                     self.blit_text(
-                        label, (px, py + r + 2), "tiny", t.ui_text, "midtop", shadow=True
+                        label, (px, py + h + 2), "tiny", t.ui_text, "midtop", shadow=True
                     )
             if view.show_debug:
                 hp = "?" if u.hp == UNKNOWN_HP else str(u.hp)
@@ -695,12 +806,69 @@ class Renderer:
                     dbg += f" d{u.deploy_ticks} k{u.stun_ticks}"
                 self.blit_text(
                     dbg,
-                    (px, py + r + 2 + self.line_h["tiny"]),
+                    (px, py + h + 2 + self.line_h["tiny"]),
                     "tiny",
                     t.hover,
                     "midtop",
                     shadow=True,
                 )
+
+    def _draw_fallback_marks(self, rect: pygame.Rect) -> None:
+        """The corner ticks on a building drawn at a GUESSED size (no footprint in the frame).
+
+        A wrong size drawn plainly is indistinguishable from the right one, and the Cannon
+        this viewer drew one tile wide sat on the board for days looking like a fact. The
+        marks cost four short lines and say "this rectangle is not from the frame" at a glance;
+        the status line counts them, so the reason is one look away and not a guess.
+        """
+        t = self.theme
+        n = max(3, min(rect.w, rect.h) // 3)
+        line = pygame.draw.line
+        for cx, sx in ((rect.left, 1), (rect.right - 1, -1)):
+            for cy, sy in ((rect.top, 1), (rect.bottom - 1, -1)):
+                line(self.surface, t.footprint_guess, (cx, cy), (cx + sx * n, cy), 2)
+                line(self.surface, t.footprint_guess, (cx, cy), (cx, cy + sy * n), 2)
+
+    def _draw_footprint_overlay(self, frame: Frame, view: ViewState) -> None:
+        """Under the units: every carried footprint shaded, and the tile taps it refuses.
+
+        A tile is drawn as refused when its CENTRE lies inside a footprint, which is the rule
+        the engine applies to the tap point itself. It is not the whole of deploy legality:
+        a building also brings its own size to the test, and the viewer does not know which
+        card a player is about to play. So this is the part of the answer that the frame
+        alone settles, and the status line says which frame it came from. Towers count as
+        much as buildings, because their box is what a placement runs into around the bridge.
+        """
+        t = self.theme
+        upt = frame.units_per_tile
+        s = self.layout.scale
+        boxes = [
+            (u, self.box_px(tuple(u.footprint), upt, view.seat))
+            for u in frame.units
+            if u.footprint is not None
+        ]
+        for u, rect in boxes:
+            shade = pygame.Surface(rect.size, pygame.SRCALPHA)
+            shade.fill((*t.team_color(u.team), 70))
+            self.surface.blit(shade, rect.topleft)
+            pygame.draw.rect(self.surface, t.footprint_edge, rect, 1)
+        if not boxes:
+            return
+        # Tile centres, in the same pixel frame the boxes are in: the arena is a whole number
+        # of tiles, so the centre of tile (tx, ty) is half a tile in from its corner.
+        ax, ay, aw, ah = self.layout.arena
+        # Opaque, not blended: this mark is the overlay's answer about one tile, and a
+        # translucent one takes the colour of whatever it lands on, which is a building.
+        side = max(2, s // 4)
+        for ty in range(ah // s):
+            for tx in range(aw // s):
+                cx, cy = ax + tx * s + s // 2, ay + ty * s + s // 2
+                if any(r.collidepoint(cx, cy) for _, r in boxes):
+                    pygame.draw.rect(
+                        self.surface,
+                        t.footprint_refused,
+                        (cx - side // 2, cy - side // 2, side, side),
+                    )
 
     def _draw_spells(self, frame: Frame, view: ViewState) -> None:
         t = self.theme
@@ -725,12 +893,11 @@ class Renderer:
         upt = other.units_per_tile
         white = (255, 255, 255)
         for u in other.units:
-            px, py = self.to_px(u.x, u.y, upt, seat)
-            r = self.unit_radius_px(u, upt)
             if u.kind == KIND_TROOP:
-                pygame.draw.circle(self.surface, white, (px, py), r, 1)
+                px, py = self.to_px(u.x, u.y, upt, seat)
+                pygame.draw.circle(self.surface, white, (px, py), self.unit_radius_px(u, upt), 1)
             else:
-                pygame.draw.rect(self.surface, white, (px - r, py - r, 2 * r, 2 * r), 1)
+                pygame.draw.rect(self.surface, white, self.unit_rect_px(u, upt, seat), 1)
 
     def _draw_arena_hud(self, frame: Frame, view: ViewState) -> None:
         """Timer + crowns box top right, OVERTIME / GAME OVER centred (the old HUD)."""
@@ -856,15 +1023,55 @@ class Renderer:
                 p.next_card or "?", (rx, y + 2 + self.line_h["tiny"] - 3), "tiny", t.ui_text
             )
 
+    def outside_arena(self, frame: Frame) -> list[str]:
+        """One line per unit whose CARRIED box runs off the board, newest board geometry.
+
+        This is the shape of the defect the owner found by looking at the window: a building
+        standing where its own box does not fit. Whether a placement was legal is the engine's
+        answer, and the viewer does not have the rule -- but "this box is not inside the arena"
+        needs only the box and the board, both of which are in front of it, so the window can
+        say it instead of drawing it and leaving it to be noticed.
+        """
+        b = self.board
+        upt = frame.units_per_tile
+        w, h = b.tiles_x * upt, b.tiles_y * upt
+        out = []
+        for u in frame.units:
+            if u.footprint is None:
+                continue
+            x0, y0, x1, y1 = u.footprint
+            if min(x0, x1) < 0 or max(x0, x1) > w or min(y0, y1) < 0 or max(y0, y1) > h:
+                out.append(f"{u.name}'s box leaves the arena")
+        return out
+
+    def notes(self, frame: Frame, tr: Transport) -> list[str]:
+        """The status block's warning lines for this frame: what the board cannot be trusted on.
+
+        Both are about the window lying quietly rather than loudly. A guessed size looks like a
+        measured one, and frames from one run under a status from another look like one run.
+        """
+        out = []
+        note = footprint_note(frame)
+        if note:
+            out.append(note)
+        out.extend(self.outside_arena(frame))
+        frame_run = str(frame.meta.get("run") or "")
+        status_run = tr.learning.run if tr.learning is not None else ""
+        if frame_run and status_run and frame_run != status_run:
+            out.append(f"frames {frame_run} / learner {status_run}")
+        return out
+
     def _draw_status_block(self, frame: Frame, rect: Rect, tr: Transport, view: ViewState) -> int:
         """Draws the source, the transport lines and the match log; returns its bottom y."""
         t = self.theme
         x, y, w, h = rect
         lh = self.line_h["tiny"]
         mono_h = self.line_h["mono"]
+        notes = self.notes(frame, tr)
         # The panel is as tall as its content, not the column: the source, three status lines,
-        # a rule, and at most ``events_lines`` events. What the column has left stays dark.
-        head_h = 4 + self.line_h["small"] + 4 * lh + 6 + 4 + lh
+        # any warning line, a rule, and at most ``events_lines`` events. What the column has
+        # left stays dark.
+        head_h = 4 + self.line_h["small"] + (4 + len(notes)) * lh + 6 + 4 + lh
         n = max(0, min(t.events_lines, (h - head_h) // mono_h))
         if not self.layout.inspector[2] and view.compare_name:
             n = max(0, min(n, (h - head_h - 2 * lh) // mono_h))
@@ -900,6 +1107,11 @@ class Renderer:
             f"draw {tr.draw_ms:.1f} ms   {tr.fps:.0f} fps", (x + 4, cy), "tiny", t.ui_dim
         )
         cy += lh
+        for line in notes:
+            self.blit_text(
+                fit_text(line, self.fonts["tiny"], w - 8), (x + 4, cy), "tiny", t.ui_warn
+            )
+            cy += lh
         if not self.layout.inspector[2] and view.compare_name:  # compact: no footer for it
             cy = self._draw_compare_lines(view, x, cy, w)
         cy += 6
@@ -1095,6 +1307,7 @@ class Renderer:
             f"tiles    {unit.x / upt:.2f}, {unit.y / upt:.2f}",
             f"hp       {unit.hp} / {unit.max_hp}",
             f"radius   {unit.radius}",
+            f"box      {footprint_line(unit, upt)}",
             f"flying   {unit.flying}",
             f"deploy   {unit.deploy_ticks} ticks",
             f"stun     {unit.stun_ticks} ticks",

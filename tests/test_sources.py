@@ -19,6 +19,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import msgspec
 import numpy as np
 import pytest
 
@@ -34,7 +35,7 @@ from royalegym.selfplay import RandomLegalOpponent
 from royalegym.state_mutator import DefaultStateMutator
 from royalegym.viser import ViserPublisher
 from royaleviser import model, sources
-from royaleviser.model import Frame, Learning, Names, Source
+from royaleviser.model import Frame, Learning, Names, Source, decode_frame, encode_frame
 
 # The synthetic recordings, committed: A is seat 0's, B is seat 1's, of one scripted battle.
 SYNTH_A, SYNTH_B = synthetic.fixture_paths()
@@ -977,3 +978,50 @@ def test_a_stream_on_the_last_port_asks_no_learner() -> None:
     src = sources.open_source(f"127.0.0.1:{sources.MAX_PORT}")
     assert src.learning_peer is None and src.frame() is None  # says hello, does not raise
     src.close()
+
+
+def test_a_footprint_survives_every_way_a_frame_reaches_the_viewer() -> None:
+    """The box a building stands on has to arrive from the engine, over the wire and out of a
+    file unchanged, or the viewer draws a wrong size somewhere in the chain and looks right
+    everywhere else. Each hop is checked against the SAME box, and the box is not square, so a
+    hop that swaps x for y fails instead of agreeing with itself."""
+    box = (5 * 18000, 9 * 18000, 8 * 18000, 11 * 18000)  # 3 tiles by 2, engine subtiles
+    eng = MockEngine()
+    eng.reset(
+        1, DefaultStateMutator(decks=[ALL_TYPES] * 2).build(np.random.default_rng(0), eng.cards())
+    )
+    frame = sources.frame_from_state(eng.state(), Names.from_cards(eng.cards()), 18000)
+    assert frame.units and all(u.footprint is None for u in frame.units)  # nothing invented
+    frame.units[0].footprint = box
+
+    # msgpack, which is what a running engine sends and what the stream source decodes.
+    assert decode_frame(encode_frame(frame)).units[0].footprint == box
+    # A dict with the key, which is the shape royalegym.viser.unit_dict publishes.
+    d = msgspec.to_builtins(frame)
+    assert tuple(d["units"][0]["footprint"]) == box
+    assert msgspec.convert(d, Frame).units[0].footprint == box
+    # A frame written before the field: the key is absent, and nothing guesses one in.
+    del d["units"][0]["footprint"]
+    assert msgspec.convert(d, Frame).units[0].footprint is None
+
+    # ... and over the socket, the whole way a running engine reaches a window.
+    pub = sources.Publisher(port=0)
+    src = sources.StreamSource(*pub.address)
+    time.sleep(0.05)
+    pub._pub._last_poll = 0.0
+    assert pub.publish(frame)
+    back = wait_for(src)
+    assert back is not None and back.units[0].footprint == box
+    src.close()
+    pub.close()
+
+
+def test_a_recording_carries_no_footprint_and_says_nothing_about_one(
+    capture_a: sources.CaptureSource,
+) -> None:
+    """A recording of a real battle gives positions and a collision radius, and no box. The
+    source leaves the field None rather than deriving one from the radius, which is how the
+    window came to draw a Cannon one tile wide."""
+    f = capture_a.frame()
+    assert f is not None and f.units
+    assert all(u.footprint is None for u in f.units)

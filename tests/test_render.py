@@ -574,3 +574,233 @@ def test_nothing_a_learner_names_can_take_the_window_down() -> None:
     assert "\x00" not in fit_text("a\x00b", r.fonts["tiny"], 500)
     assert extra_text("") == UNSET  # an empty value would draw as a group heading
     assert extra_text({"a": 1}) == "{'a': 1}"
+
+
+# ---------------------------------------------------------------------- footprints
+
+
+def building(
+    uid: str, kind: int, x: float, y: float, upt: int, box_tiles: float | None
+) -> model.Unit:
+    """One building or tower at (x, y) tiles, with a square footprint of ``box_tiles`` tiles
+    centred on it, or none at all. ``radius`` is the Cannon's real CollisionRadius scaled to
+    ``upt``: the number the viewer used to size the square with, so a test that passes on the
+    footprint cannot be passing on the radius by coincidence."""
+    box = None
+    if box_tiles is not None:
+        half = int(box_tiles * upt / 2)
+        box = (int(x * upt) - half, int(y * upt) - half, int(x * upt) + half, int(y * upt) + half)
+    return model.Unit(
+        uid=uid,
+        team=0,
+        kind=kind,
+        name="Cannon",
+        x=int(x * upt),
+        y=int(y * upt),
+        hp=380,
+        max_hp=380,
+        radius=600 * upt // 1000,  # 1.2 tiles across, the model this viewer used to draw
+        flying=False,
+        deploy_ticks=0,
+        stun_ticks=0,
+        target=None,
+        path=[],
+        direction=None,
+        state=None,
+        footprint=box,
+    )
+
+
+def one_unit_frame(unit: model.Unit, upt: int = model.LIVE_UNITS_PER_TILE) -> model.Frame:
+    """A contract-sound frame holding one unit and nothing else, so anything drawn on the
+    board is that unit."""
+    f = copy.deepcopy(FRAMES[0])
+    f.units = [unit]
+    f.spells = []
+    f.events = []
+    f.units_per_tile = upt
+    assert model.problems(f) == []
+    return f
+
+
+def drawn_box(r: Renderer, frame: model.Frame, view: ViewState) -> tuple[int, int, int, int]:
+    """The bounding box, in ARENA pixels, of everything the frame put on the empty board.
+
+    Graded against the pixels rather than against the renderer's own geometry helper: a
+    helper that returns the right rectangle and a draw call that uses a different one is
+    exactly the bug this is here to catch.
+    """
+    ax, ay, aw, ah = r.layout.arena
+    board = r.board_surface(view.seat, view.show_grid).copy()
+    r.draw(frame, view, Transport(source_name="t"))
+    xs, ys = [], []
+    for py in range(ah):
+        for px in range(aw):
+            if r.surface.get_at((ax + px, ay + py))[:3] != board.get_at((px, py))[:3]:
+                xs.append(px)
+                ys.append(py)
+    assert xs, "nothing was drawn on the board"
+    return min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+
+
+@pytest.mark.parametrize("seat", [0, 1])
+@pytest.mark.parametrize("scale", [24, 12])
+def test_a_3x3_cannon_is_drawn_three_tiles_wide(seat: int, scale: int) -> None:
+    """The P0 the owner found by looking at the window: a Cannon is 3x3 in the game, and the
+    viewer drew every building as a square of twice its collision radius -- 1.2 tiles for a
+    Cannon. The size now comes from the box the frame carries, and from nothing else."""
+    r = Renderer(scale=scale, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    cannon = building("cannon", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0)
+    frame = one_unit_frame(cannon, upt)
+    view = ViewState(seat=seat)
+    rect = r.unit_rect_px(cannon, upt, seat)
+    assert (rect.width, rect.height) == (3 * scale, 3 * scale)
+    x, _, w, h = drawn_box(r, frame, view)
+    ax, ay, aw, _ = r.layout.arena
+    # The name label under the unit can be wider than the box, so the box fixes the left edge
+    # and the whole extent is at least three tiles.
+    assert ax + x == rect.left and w >= 3 * scale and h >= 3 * scale
+    # ... and the fill spans three whole tiles on the row through its middle, rather than one
+    # tile of building inside a wide label.
+    board = r.board_surface(seat, view.show_grid)
+    mid = rect.top + rect.height // 2
+    row = [
+        px
+        for px in range(aw)
+        if r.surface.get_at((ax + px, mid))[:3] != board.get_at((px, mid - ay))[:3]
+    ]
+    assert max(row) - min(row) + 1 == 3 * scale
+
+
+def test_a_frame_without_a_footprint_says_so_rather_than_drawing_a_guess_plainly() -> None:
+    """Every recording and every trace written before the field carries no footprint. The
+    viewer still has to draw something; what it must not do is draw a guess that looks like
+    a measurement."""
+    from royaleviser.render import footprint_line, footprint_note
+
+    r = Renderer(scale=24, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    guessed = one_unit_frame(building("c", model.KIND_BUILDING, 6.5, 10.5, upt, None), upt)
+    carried = one_unit_frame(building("c", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0), upt)
+
+    assert footprint_note(guessed) == "1 of 1 sizes guessed"
+    assert footprint_note(carried) == ""
+    assert footprint_note(FRAMES[600]).endswith("sizes guessed")  # the synthetic battle
+    assert "guessed" in footprint_line(guessed.units[0], upt)
+    assert footprint_line(carried.units[0], upt) == "3.0 x 3.0 tiles at (5.0, 9.0)"
+    assert footprint_line(FRAMES[600].unit("knight"), upt) == "-"  # a troop has no box
+
+    def marks(frame: model.Frame) -> int:
+        r.surface.fill((0, 0, 0))
+        r.draw(frame, ViewState(), Transport(source_name="t"))
+        ax, ay, aw, ah = r.layout.arena
+        return sum(
+            r.surface.get_at((ax + px, ay + py))[:3] == DEFAULT.footprint_guess
+            for py in range(ah)
+            for px in range(aw)
+        )
+
+    assert marks(guessed) > 0, "a guessed size was drawn with nothing to say so"
+    assert marks(carried) == 0, "a carried footprint must not be marked as a guess"
+    # The note reaches the status block, where a reader looks for it.
+    assert r.notes(guessed, Transport()) == ["1 of 1 sizes guessed"]
+    assert r.notes(carried, Transport()) == []
+
+
+def test_the_overlay_shades_the_carried_box_and_the_taps_it_refuses() -> None:
+    """B: the footprint cells, and the tile taps whose centre lands inside one. It draws the
+    carried boxes and nothing else -- a building's own size is a property of the card being
+    played, which no frame carries, so the overlay shows the part the frame settles."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    frame = one_unit_frame(building("c", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0), upt)
+    ax, ay, _, _ = r.layout.arena
+    on = ViewState(show_footprints=True)
+
+    def refused_tiles() -> list[tuple[int, int]]:
+        return sorted(
+            (tx, ty)
+            for ty in range(32)
+            for tx in range(18)
+            if r.surface.get_at((ax + tx * 24 + 12, ay + (31 - ty) * 24 + 12))[:3]
+            == DEFAULT.footprint_refused
+        )
+
+    r.draw(frame, on, Transport(source_name="t"))
+    # Nine tile centres lie inside a 3x3 box on a tile centre: 5, 6, 7 by 9, 10, 11.
+    assert refused_tiles() == sorted((tx, ty) for tx in (5, 6, 7) for ty in (9, 10, 11))
+    # A frame that carries no box shades nothing: the overlay never invents one.
+    bare = one_unit_frame(building("c", model.KIND_BUILDING, 6.5, 10.5, upt, None), upt)
+    r.draw(bare, on, Transport(source_name="t"))
+    assert refused_tiles() == []
+    # And nothing is shaded while the overlay is off.
+    r.draw(frame, ViewState(), Transport(source_name="t"))
+    assert refused_tiles() == []
+
+
+def test_a_building_is_clickable_over_its_whole_footprint() -> None:
+    """The inspector is how anyone checks a building, and the hit test used to be a disc of
+    the collision radius: the corners of a 3x3 Cannon were not clickable at all."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    frame = one_unit_frame(building("cannon", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0), upt)
+    for seat in (0, 1):
+        view = ViewState(seat=seat)
+        rect = r.unit_rect_px(frame.units[0], upt, seat)
+        assert r.unit_at(rect.centerx, rect.centery, frame, view) == "cannon"
+        assert r.unit_at(rect.left + 2, rect.top + 2, frame, view) == "cannon"
+        assert r.unit_at(rect.right - 2, rect.bottom - 2, frame, view) == "cannon"
+        assert r.unit_at(rect.centerx, rect.top - 30, frame, view) is None
+
+
+def test_the_panel_flags_frames_and_a_status_from_different_runs() -> None:
+    """Two runs on one machine collide on the fixed ports. The frame publisher may get its
+    port while the learner does not, so a moving board under another run's numbers looks
+    exactly like one run. The run ids are carried; the window says when they disagree."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    frame = copy.deepcopy(FRAMES[600])
+    frame.meta["run"] = "ppo-0007"
+    same = Transport(learning=Learning(run="ppo-0007"))
+    other = Transport(learning=Learning(run="ppo-0008"))
+    assert "frames ppo-0007 / learner ppo-0008" in r.notes(frame, other)
+    assert not [n for n in r.notes(frame, same) if "learner" in n]
+    # Neither half alone is a mismatch: a source that carries no run id says nothing.
+    assert not [n for n in r.notes(FRAMES[600], other) if "learner" in n]
+    frame.meta["run"] = ""
+    assert not [n for n in r.notes(frame, other) if "learner" in n]
+    r.draw(frame, ViewState(), other)  # the line fits the panel
+
+
+def test_b_toggles_the_footprint_overlay() -> None:
+    pygame.init()
+    a = App([ListSource(FRAMES, "synthetic")], ViewState())
+    assert not a.view.show_footprints
+    a.key(pygame.K_b, 0)
+    assert a.view.show_footprints
+    a.key(pygame.K_b, 0)
+    assert not a.view.show_footprints
+    assert ("b", "building footprints") in KEYS
+
+
+def test_the_window_says_when_a_carried_box_runs_off_the_board() -> None:
+    """What the owner saw was a building standing where its own box does not fit. Whether the
+    placement was legal is the engine's answer and the viewer does not hold the rule, but a
+    box against the board is two comparisons, and both are in front of the window."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    inside = one_unit_frame(building("c", model.KIND_BUILDING, 1.5, 14.5, upt, 3.0), upt)
+    off = one_unit_frame(building("c", model.KIND_BUILDING, 1.0, 14.5, upt, 3.0), upt)
+    assert r.outside_arena(inside) == []  # x 0.0 to 3.0: flush against the wall, but on it
+    assert r.outside_arena(off) == ["Cannon's box leaves the arena"]  # x -0.5 to 2.5
+    top = one_unit_frame(building("c", model.KIND_BUILDING, 9.0, 31.5, upt, 3.0), upt)
+    assert r.outside_arena(top) == ["Cannon's box leaves the arena"]  # y 30.0 to 33.0 of 32
+    # A unit with no box makes no claim either way, and the line reaches the panel.
+    assert (
+        r.outside_arena(
+            one_unit_frame(building("c", model.KIND_BUILDING, 1.0, 14.5, upt, None), upt)
+        )
+        == []
+    )
+    assert "Cannon's box leaves the arena" in r.notes(off, Transport())
+    r.draw(off, ViewState(), Transport(source_name="t"))

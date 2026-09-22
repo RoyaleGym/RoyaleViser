@@ -69,6 +69,7 @@ KEYS: list[tuple[str, str]] = [
     ("t", "target lines"),
     ("g", "tile grid"),
     ("d", "debug numbers"),
+    ("b", "building footprints"),
     ("c", "compare ghost"),
     ("h", "this help"),
     ("s / F12", "save a PNG"),
@@ -495,6 +496,8 @@ class App:
             view.show_grid = not view.show_grid
         elif key == pygame.K_d:
             view.show_debug = not view.show_debug
+        elif key == pygame.K_b:
+            view.show_footprints = not view.show_footprints
         elif key == pygame.K_c:
             view.show_compare = not view.show_compare
         elif key == pygame.K_h:
