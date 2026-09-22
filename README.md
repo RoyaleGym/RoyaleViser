@@ -1,268 +1,128 @@
 # RoyaleViser
 
-Watch a Clash Royale battle tick by tick — a recorded match, an engine trace, or a self-play
-training run happening right now — in a window that is a separate process from whatever
-produced the battle. The viewer draws the arena, both players' hands, elixir and cycle, every
-unit with its hp bar, path and target, spells and projectiles, an event log and an inspector
-with every raw field of the unit you click. It can also put two recordings of the same battle
-on one board and tell you, tick by tick, where they disagree.
+**The window for the Royale stack**: watch a Clash Royale battle tick by tick, whether it is a
+recorded real match, a battle saved from the engine, or a bot training right now.
 
-![The viewer on a RustEngine self-play battle](docs/viewer-trace.png)
+<p align="center"><img src="docs/viewer-trace.png" width="100%" alt="The viewer on a self-play battle from the engine, with the Blue Valkyrie pinned in the inspector"></p>
 
-A self-play battle on the RoyaleSim engine, recorded to a trace and reopened in the viewer: the
-Blue Valkyrie is pinned (click a unit), so the inspector on the right lists everything the
-source carries for it — position in raw engine units and in tiles, hp, radius, flying, deploy
-and stun counters, target, path, and the per-source extras. The left column is the event log
-and both players' hands, elixir (to a thousandth) and next card; the bar under the board seeks
-the replay. This image was rendered headless, with `SDL_VIDEODRIVER=dummy` and `--shot`.
+A self-play battle on RoyaleSim, the stack's battle engine, saved to a file and reopened
+here. Left: both hands, elixir to a thousandth, the next card and the event log. Right:
+everything the file knows about the clicked Blue Valkyrie. The bar below seeks the replay.
 
-## Open a battle
+RoyaleViser exists so that what a bot does, and where the engine differs from the real game,
+can be seen instead of guessed from numbers. It draws one frame per *tick*, the game's 50 ms
+step (20 a second), from three kinds of source: a **recording** of a real battle, a **trace**
+saved from the engine by RoyaleGym, or a **stream** from a training environment stepping in
+another process. It is always a separate process: the environment never waits for it, and
+when nobody is watching it costs the environment nothing.
+
+## What it does
+
+<table>
+  <tr>
+    <td width="33%" align="center"><img src="docs/media/replay-scrubbed-4x.svg" width="100%" alt="Video placeholder: a recorded match replayed at 4x"><br><b>Replay a recorded match</b><br><sub>A real battle recorded at 20 frames a second: play, pause, step one frame, seek by clicking the bar.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/engine-trace.svg" width="100%" alt="Video placeholder: an engine trace opened at tick 900"><br><b>Open an engine trace</b><br><sub>A battle saved from the engine with one frame per tick; open it at any tick.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/tile-live-stream.png" width="100%" alt="The viewer attached to a running training environment: LIVE, 31 fps, events arriving"><br><b>Watch a training run live</b><br><sub>Attach to an environment stepping in another process; unwatched, it pays 193 ns a step (2026-09-21).</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="docs/media/tile-compare.png" width="100%" alt="The compare panel at GAME OVER: 2407 ticks compared, 3 differ"><br><b>Compare two recordings of one battle</b><br><sub>Both players recorded one match: 2407 ticks compared, 3 differ (2026-09-21), each for a single frame.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/compare-ghost.svg" width="100%" alt="Video placeholder: the second recording ghosted onto the first"><br><b>See where they disagree</b><br><sub>The second source is drawn as hollow ghosts on the first; on a differing tick the ghost steps off the unit.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/tile-inspector.png" width="100%" alt="The inspector listing every raw field of the pinned Valkyrie"><br><b>Inspect any unit</b><br><sub>Click a unit to list every field the source carries, raw and unrounded.</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="docs/media/tile-event-log.png" width="100%" alt="The event log: plays, spawns and deaths with tick and tile"><br><b>Follow the event log</b><br><sub>Plays, spawns, deaths and tunnel trips (Miner, Goblin Drill), each with its tick and tile, newest last.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/tile-paths-and-targets.png" width="100%" alt="Goblins and a Knight with their paths and target lines drawn"><br><b>Paths and target lines</b><br><sub>Recorded units carry the route they walk and the thing they attack; two keys draw both on the board.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/tile-synthetic-battle.png" width="100%" alt="A whole window rendered with no display on the scripted battle"><br><b>Render with no display</b><br><sub>Save the window as a PNG with no screen; a scripted battle ships with the tests, so nothing else is needed.</sub></td>
+  </tr>
+</table>
+
+## Try it
+
+Two recordings of one scripted battle, one per player, are committed with the tests (20 KB
+each). From the repo folder, with the shared venv from [Setup](#with-the-rest-of-the-stack)
+and only this package installed:
 
 ```
-python -m royaleviser frames-<label>-<stamp>.jsonl.gz            # a recorded match, 20 Hz
-python -m royaleviser trace.msgpack --start-tick 904             # an engine trace
-python -m royaleviser --stream 127.0.0.1:9870                    # an engine running right now
-python -m royaleviser a.jsonl.gz --compare b.jsonl.gz --speed 4  # two recordings, one board
+..\.venv\Scripts\python -m royaleviser tests\fixtures\frames-synthetic-A.jsonl.gz --compare tests\fixtures\frames-synthetic-B.jsonl.gz --speed 4 --seconds 8
 ```
 
-One window reads all three, because every source is converted to the same frame model before
-anything is drawn (`royaleviser.model.Frame`, [below](#the-three-sources)). A recorded match
-opens in 0.1-0.2 s — a 4047-frame gzipped recording in 0.10 s, via a line index and a parse
-cache, so a seek is one `json.loads`.
+The window opens at 4x with the second recording drawn on the first as hollow ghosts, which
+sit exactly on the units because nothing differs; the compare panel ends at `395 ticks
+compared, 0 differ` under a `GAME OVER  Blue wins` banner, and after eight seconds the
+process closes and prints what every draw cost (2026-09-21):
 
-Nothing to watch yet? With only this repo installed (`pip install -e .` — pygame, msgspec,
-numpy), `python tests/run_synthetic.py --seconds 8` opens the window on a scripted two-minute
-battle, and `tests/fixtures/frames-synthetic-A.jsonl.gz` is that battle as a recording (both
-seats: `--compare tests/fixtures/frames-synthetic-B.jsonl.gz`). With
-[RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) and the engine installed too, this records a
-self-play battle on the engine and writes a trace like the one above:
+```
+royaleviser: 290 draws, mean 4.08 ms, max 370.22 ms
+```
+
+Drop `--seconds` to keep the window open. The same command opens real battles:
+
+```
+python -m royaleviser frames-demo-20260920-120752-A.jsonl.gz       # a recording of a real battle
+python -m royaleviser battle.msgpack --start-tick 900              # a trace saved from the engine
+python -m royaleviser --stream 127.0.0.1:9870                      # an environment running right now
+```
+
+In the window: space plays and pauses, the arrow keys step one frame, a click pins a unit or
+seeks the timeline, `c` toggles the compare ghost, `s` saves a PNG and `h` lists every key.
+With `SDL_VIDEODRIVER=dummy` no window opens at all, which is how the images on this page were
+made. The seat, the window geometry, `--seconds`, `--shot` and the rest of the command line are
+in [`docs/internals.md`](docs/internals.md).
+
+## With the rest of the stack
+
+<p align="center"><img src="docs/media/family.svg" width="100%" alt="The five Royale repos and how they depend on each other; RoyaleViser highlighted"></p>
+
+| Repo | What it is | To the viewer |
+|---|---|---|
+| [RoyaleSim](https://github.com/RoyaleGym/RoyaleSim) | the battle engine: deterministic, integer-only Rust, its movement rules measured against recordings of real battles | every trace and stream comes from it; the compare view is how its differences from the real game are looked at |
+| [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) | the environment API: observations, actions, rewards; Gymnasium, PettingZoo and self-play envs | the only sibling this package imports: the trace format (`royalegym.replay`), the engine-side publisher (`royalegym.viser.ViserPublisher`) and the arena geometry |
+| [RoyaleLearn](https://github.com/RoyaleGym/RoyaleLearn) | the training harness: self-play rollouts, PPO, a ladder of frozen opponents, checkpoints | a training run streams to the viewer like any environment |
+| **RoyaleViser** (this repo) | the viewer: recordings, engine traces and running environments in its own window | the window |
+| RoyaleLive | the private client instrument that records real battles | writes the recordings the viewer replays and compares |
+
+If you know RLGym, RocketSim and rlviser: it is the same split, an environment API over an
+engine with a learner on top and the viewer in its own process.
+
+**In**: recordings (`frames-*.jsonl` or `.jsonl.gz`, one JSON line per frame at 20 a second),
+traces (`.msgpack` or `.json`, written by `royalegym.replay.ReplayRecorder`) and streams (UDP
+datagrams from a `ViserPublisher`, one frame per environment step). **Out**: PNG shots, the
+compare totals, and one frame model (`royaleviser.model.Frame`) that any other front end can
+draw from. The three formats, the rules every frame follows and the stream protocol are in
+[`docs/internals.md`](docs/internals.md).
+
+A trace is recorded by RoyaleGym's `ReplayRecorder`; with `frame_every_tick=True` it keeps
+every engine tick, not only one frame per environment step:
 
 ```python
 import numpy as np
-from royalegym.env import ClashParallelEnv
-from royalegym.replay import ReplayRecorder, save_trace
-from royalegym.rust_engine import RustEngine
-from royalegym.selfplay import RandomLegalOpponent
-from royalegym.done_condition import GameOverCondition, StepLimitCondition
+from royalegym import (ClashParallelEnv, RandomLegalOpponent, ReplayRecorder,
+                       RustEngine, StepLimitCondition, save_trace)
 
 rec = ReplayRecorder(frame_every_tick=True)
-env = ClashParallelEnv(RustEngine(), recorder=rec,
-                       termination_cond=GameOverCondition(), truncation_cond=StepLimitCondition(200))
+env = ClashParallelEnv(RustEngine(),          # RustEngine: the RoyaleSim engine, from Python
+                       recorder=rec, truncation_cond=StepLimitCondition(200))
 obs, _ = env.reset(seed=2026)
 rng, opp = np.random.default_rng(0), RandomLegalOpponent(noop_prob=0.3)
 while env.agents:
     obs, *_ = env.step({a: opp.act(obs[a], obs[a]["action_mask"], rng) for a in env.agents})
-save_trace(rec.trace, "battle.msgpack")      # 200 steps -> 2001 frames, one per engine tick
+save_trace(rec.trace, "battle.msgpack")      # 200 steps -> 2001 frames, one per tick
 ```
 
-```
-python -m royaleviser battle.msgpack --start-tick 900
-```
-
-What the window gives you:
-
-- **The board** at 18 x 32 tiles: towers, troops, buildings, hp bars, names, unit paths, target
-  lines, spells and projectiles, tower and no-deploy zones, the match timer, crowns, `OVERTIME`,
-  and a `GAME OVER` banner with the winner.
-- **Both players**: hand with card costs (dimmed when they cost more elixir than you have), the
-  elixir bar in thousandths, the next card and the rest of the cycle, tower hp, and the king's
-  activation state.
-- **An inspector** on the hovered unit, pinned by clicking it: every field the source carries,
-  raw, with no rounding and no interpretation.
-- **An event log**: plays, spawns, deaths, and a line per underground trip for the cards that
-  tunnel.
-- **Transport**: play/pause, step one frame or twenty, seek by clicking the bar, speed x2 / x0.5,
-  first/last frame, flip which side sits at the bottom, and `S` for a PNG of the window.
-- **Honest gaps.** A source says what it does not know instead of guessing: an opponent's hand a
-  recording does not carry prints as "hand: not in this source", not as a plausible guess.
-
-## Compare two recordings of one battle
-
-Give a second source (a second path, or `--compare`) and it is ghosted onto the board as hollow
-white shapes at the primary's tick and compared with it tick by tick. The comparison is on the
-multiset of `(team, name, x, y, hp)` over one tick's units: for two recordings of one battle
-that multiset must be equal, since entity ids differ between clients but nothing else does. The
-panel prints `tick T: N entities, M differ` and the running `K ticks compared, D differ`
-(`app.Compare`; a replay seeks the second source to the exact tick, live sources are matched
-through a 60-tick buffer).
-
-Measured on the two seats of one recorded battle (client 16.402): **2404 ticks compared, 3
-differ** — all three on tap ticks, where the two recordings disagree for a single frame. An
-engine trace is compared against the recording it was calibrated on in exactly the same way, in
-milli-tiles: this is how the engine's divergence from the real game is found and watched.
-
-## Watch a training run live
-
-![The viewer attached to a running engine](docs/viewer-stream.png)
-
-The same window, attached to a self-play environment stepping in another process: `LIVE`, the
-frame rate it is receiving, a felled princess tower (the empty square), and a crown on the
-scoreboard.
+A running environment streams instead of recording: give it a publisher, or set one environment
+variable and change no code, then attach from another process. The environment sends nothing
+until a viewer says hello, and stops three seconds after the last viewer goes away.
 
 ```
-env = ClashParallelEnv(viser=ViserPublisher())        # 127.0.0.1:9870
-set ROYALEVISER=127.0.0.1:9870                        # the same, without touching the constructor
-python -m royaleviser --stream 127.0.0.1:9870         # in another process
+env = ClashParallelEnv(RustEngine(), viser=ViserPublisher())   # from royalegym.viser; 127.0.0.1:9870
+set ROYALEVISER=127.0.0.1:9870                                  # the same, without touching the constructor
+python -m royaleviser --stream 127.0.0.1:9870                   # in another process
 ```
 
-The viewer must never be in the tick loop and must cost nothing when nobody is watching, so the
-engine side is a UDP publisher that only speaks while a viewer's heartbeat is fresh:
+<p align="center"><img src="docs/media/live-training-env.svg" width="100%" alt="Video placeholder: a training environment in one terminal, the viewer attached from another"></p>
 
-1. The viewer binds a UDP socket and sends `STREAM_HELLO` to the publisher's `host:port`
-   (default `127.0.0.1:9870`) once a second while it is open (from `StreamSource.frame()`).
-2. The env calls `publish` once per `reset()` / `step()`, and only when a publisher is set
-   (`viser=` or the environment variable; `None` costs one `if`). While no heartbeat has arrived
-   in `ATTACH_TIMEOUT_S` (3 s), `publish` returns after one clock read — **193 ns per call**,
-   measured 2026-09-21 over 200k calls — and it polls its socket for heartbeats at most once a
-   second.
-3. While attached it sends one msgpack datagram per call to the last heartbeat's address
-   (measured: 2.6 KB for 12 units and 6 towers, 11 KB for 60 entities). A datagram over 65507
-   bytes is resent with unit paths emptied, then dropped and counted.
-4. `royalegym.viser.frame_dict` builds the wire dict from a `BattleState`;
-   `sources.frame_from_state` turns it into a `Frame`, and `TraceSource` uses the same unit and
-   spell rows — so a trace and a stream of one battle draw identically. Spawn, death and play
-   lines come from the publisher (uid diffing, accepted deploys).
-
-Measured on a RustEngine self-play run (2026-09-21): 360 env steps in 11.9 s, 329 datagrams
-sent, 0 dropped; the viewer drew 335 frames of it. The ~31 steps that ran before the publisher's
-once-a-second heartbeat poll noticed the viewer are the difference. The stream carries **one
-frame per env step** (`decision_ms` worth of ticks, 10 at the defaults), not one per engine
-tick; for a per-tick view, record with `ReplayRecorder(frame_every_tick=True)` and open the
-trace.
-
-## Cost
-
-Every draw is a full repaint of the window, and it costs single-digit milliseconds at 24
-px/tile: 2.2-2.7 ms mean over recorded matches, traces and streams measured 2026-09-20, and
-5.1 ms mean on the RustEngine trace and stream runs quoted above, which ran with several other
-jobs on the same machine. The per-run table is in [`docs/internals.md`](docs/internals.md).
-That is far inside both the 20 Hz replay budget and the 60 Hz window cap, which is why the
-viewer is still Python and pygame rather than a Rust process on a shared buffer.
-
-The window is redrawn only when the frame or the view changed (60 fps cap). A replay is paced
-by the frame's `tick_ms` times the speed and steps through every frame it skips, so the events
-and the compare totals see them all. On exit the process prints
-`royaleviser: N draws, mean X ms, max Y ms`; the max is always the first draw, which builds the
-board surface and the fonts.
-
-## Keys
-
-| Key | Action |
-|---|---|
-| space | play / pause (replays) |
-| left / right | step a frame (shift: 20) |
-| home / end | first / last frame |
-| + / - | speed x2 / x0.5 (also ] [) |
-| wheel | step frames |
-| f | flip the seat |
-| p | unit paths |
-| t | target lines |
-| g | tile grid |
-| d | debug numbers |
-| c | compare ghost |
-| h | this help |
-| s / F12 | save a PNG |
-| click | pin a unit / seek the timeline |
-| escape / q | quit |
-
-The list is `royaleviser.app.KEYS` (`--help` and the H footer print it). For unattended runs,
-`--seconds N` quits by itself and `--shot PATH` writes the last drawn window as a PNG;
-`SDL_VIDEODRIVER=dummy` makes both work with no display at all, which is how this page's images
-and the render tests are produced.
-
-`--seat local` (the default) seats the primary source's local player at the bottom once the
-source knows it; `0` and `1` pin a team. `--geometry WxH+X+Y` places the window and picks the
-largest tile scale whose layout fits (under 16 px/tile the inspector column is dropped and the
-compare lines move into the dashboard: the compact layout a narrow slot gets); the window then
-fills the whole rectangle.
-
-## The three sources
-
-`royaleviser/sources.py`. The first source given is the primary; the second is the compared one.
-
-| Source | Argument | Format | Units per tile | Timeline |
-|---|---|---|---|---|
-| `CaptureSource` | `frames-*.jsonl` / `.jsonl.gz` | a recording of a real battle: one JSON object per line, one battle frame at 20 Hz | 1000 (native milli-tiles) | yes |
-| `TraceSource` | `trace.msgpack` / `.json` | `royalegym.replay.Trace` | the header's `subtile` (18000) | yes |
-| `StreamSource` | `--stream host:port` | msgpack `Frame` datagrams from a `Publisher` | the first frame's | no (latest frame) |
-
-A recording, as data: a frame line is `{"event": "frame", "active", "seq", "tick", "players",
-"entities", "effects"}` plus a few timing and bookkeeping fields the viewer keeps in
-`Frame.meta`. A player row carries `side`, `elixir_raw` (ten-thousandths), `deck` (8 card ids or
-`[]`), `hand` (4 deck indices, -1 when not known) and `cycle`; an entity row `id` (an opaque
-string, reused within a battle), `card_id` (-1 for a tower), `side`, `x`/`y` in native
-milli-tiles, `hp`/`max_hp`, `behavior_state`, `target`, `movement_direction_x`/`_y` and
-`path_nodes` (half-tile cells, goal first); an effect row is a projectile or a spell with its
-position this tick and last tick and its aim. The converters (`sources.capture_*`,
-`CaptureEvents`) are exported, so another front end can build the same `Frame` rows from the
-same fields.
-
-All sources produce `royaleviser.model.Frame`: positions in the source's raw integer units in
-the NATIVE / ENGINE frame (team 0's back edge at `y=0`), elixir in thousandths, card names
-already resolved (`model.Names`: `royaleviser/cards.json`, register name -> [id, cost], the
-card table with the hero-form Musketeer 203000014 folded in; `ROYALEVISER_CARDS` points at
-another table; or a trace header's `CardInfo` list). What a source cannot know it says so:
-`Player.hand_known` is False for a live opponent, and the dashboard prints "hand: not in this
-source" instead of a guess. `model.problems(frame)` lists contract violations for tests.
-
-## The layout
-
-```
-+------------------+-----------------------------+---------------+
-| top hand: 4 cards| arena, 18 x 32 tiles at     | inspector:    |
-| 80x100, cost,    | 24 px/tile (--scale):       | hovered unit, |
-| dimmed if too    | checkerboard grass, river   | every raw     |
-| dear; elixir bar | band, bridges, tower zones, | field         |
-| + next card      | troops (circles), buildings |               |
-| debug column:    | and towers (squares), hp    | events,       |
-| king activation, | bars, names, paths, target  | newest last   |
-| pending deploys  | lines, spells, projectiles; |               |
-| bottom elixir +  | timer + crowns top right,   |               |
-| next; bottom hand| OVERTIME centred; status    |               |
-|                  | line, scrub bar underneath  |               |
-+------------------+-----------------------------+---------------+
-   340 px             18*24 = 432 px                300 px
-```
-
-`royaleviser/theme.py`. Colours are carried over from the project's earlier Python renderer:
-grass (188,195,55)/(217,215,47), river (106,230,237), bridge (255,175,120), team 0 blue
-(71,204,218), team 1 red (224,73,41), UI (30,30,40). Every rect comes from
-`theme.layout(theme, scale, tiles)`; the renderer computes no size of its own. The bottom player
-is `ViewState.seat` (`--seat local` = the recording's local player, `0`, `1`); seat 1 draws the
-board rotated 180 degrees, which is what that client shows (measured 2026-09-18).
-
-## Where it sits in the family
-
-Five sibling repos under the GitHub organization [RoyaleGym](https://github.com/RoyaleGym), one
-workspace folder, one venv ([Setup](#setup-the-shared-workspace-venv) below):
-
-| Repo | What it is to the viewer |
-|---|---|
-| [RoyaleSim](https://github.com/RoyaleGym/RoyaleSim) | the Clash Royale battle engine, deterministic and integer-only; its traces and streams reach the viewer through RoyaleGym |
-| [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) | the environment API bots are written against. `royalegym.replay` (the trace format), `royalegym.viser.ViserPublisher` (the engine-side publisher), `royalegym.protocol` (the arena geometry); the only sibling this package imports. `royalegym.render`, the offline HTML page of a trace, stays there as the replay that needs no dependencies at all |
-| [RoyaleLearn](https://github.com/RoyaleGym/RoyaleLearn) | the self-play learner; a training run streams through `ViserPublisher` like any env |
-| **RoyaleViser** | this package: the window |
-| RoyaleLive (private) | the client instrument that records ground-truth traces from the real game: it writes the recordings the viewer replays and imports this package, never the other way round |
-
-The layering will look familiar if you know RLGym, RocketSim and rlviser: an environment API
-over an engine, a learner on top, the viewer in its own process. That shape is good prior art.
-
-Dependency direction: `RoyaleViser -> RoyaleGym` (traces, the publisher, the arena) and
-`RoyaleLive -> RoyaleViser`. `royaleviser` imports without RoyaleLive present: a recording is a
-data format (above), and the card table ships with the package.
-
-## Reusing the window from another front end
-
-`royaleviser.__main__` exports the pieces a second front end needs: `add_view_arguments` adds
-this package's view options to any `argparse` parser, `run_sources` builds and runs the window
-over already opened sources, and `TITLE` is the window title. RoyaleLive uses them; it also
-keeps the two tables the viewer copies from it equal (the tunnel-speed table
-`sources.LIVE_TUNNEL_SPEED`, the card table `cards.json`).
-
-## Setup: the shared workspace venv
-
-The five repos are cloned as siblings into one folder with one venv at that folder's root
-(Python 3.12; Rust 1.80+ with cargo for RoyaleSim):
+Setup, shared by the whole stack: the repos are cloned side by side into one folder with one
+venv at its root.
 
 ```
 mkdir Royale && cd Royale
@@ -270,89 +130,63 @@ git clone https://github.com/RoyaleGym/RoyaleSim.git
 git clone https://github.com/RoyaleGym/RoyaleGym.git
 git clone https://github.com/RoyaleGym/RoyaleViser.git
 git clone https://github.com/RoyaleGym/RoyaleLearn.git
-python -m venv .venv
+python -m venv .venv                                                    # Python 3.12
 .venv\Scripts\python -m pip install maturin pytest hypothesis ruff
-cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py && ..\.venv\Scripts\python tools\extract_globals.py && cd ..     # 0. RoyaleSim/data/derived/ (gitignored; the crate compiles arena.json in)
-cd RoyaleSim && ..\.venv\Scripts\maturin develop --release && cd ..     # 1. the engine (~1 min, ~1.5 GB RAM)
-.venv\Scripts\python -m pip install -e RoyaleGym                          # 2. the env layer (numpy, gymnasium, pettingzoo, msgspec)
-.venv\Scripts\python -m pip install -e RoyaleViser                        # 3. this package (pygame, msgspec, numpy)
-.venv\Scripts\python -m pip install -e RoyaleLearn                        # 4. the learner
-                                                                          # RoyaleLive (private): not needed for anything here
+cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py && ..\.venv\Scripts\python tools\extract_globals.py && cd ..   # generates RoyaleSim/data/derived/
+cd RoyaleSim && ..\.venv\Scripts\maturin develop --release && cd ..     # builds the engine into the venv (~1 min, ~1.5 GB RAM)
+.venv\Scripts\python -m pip install -e RoyaleGym
+.venv\Scripts\python -m pip install -e RoyaleViser
+.venv\Scripts\python -m pip install -e RoyaleLearn
 ```
 
-Run from inside a repo folder as `..\.venv\Scripts\python`. Only steps 1-3 are needed to view
-recordings, traces and streams.
+Recordings, streams and the scripted battle need only the venv and `pip install -e RoyaleViser`
+(pygame, msgspec, numpy); without RoyaleGym the board comes from a built-in copy of the arena.
+Opening a trace needs RoyaleGym, which then reads the arena from the RoyaleSim checkout
+(`data/derived/`, the `extract_*` line), not the engine build; recording a trace yourself needs
+the build too.
 
-## Tests
+## Status (2026-09-21)
+
+Working end to end:
+
+- Replaying a recording, and comparing two recordings of one battle (2407 ticks compared, 3
+  differ).
+- Traces from the engine: a 2001-frame self-play trace draws with every frame passing the
+  viewer's own consistency check.
+- Streaming from a running environment: 360 environment steps, 329 frames sent, 0 dropped.
+- Every draw is a full repaint and costs 2-5 ms at 24 px per tile, far inside the 20 frames a
+  second a replay needs, which is why the viewer is Python and pygame rather than a Rust
+  process.
+
+Known gaps, all of them things a source does not carry rather than things the window will not
+draw:
+
+- A stream carries one frame per environment step (10 ticks at the defaults), not one per
+  tick; for a per-tick view, record a trace with `frame_every_tick=True` and open that.
+- A recording gives no unit a radius or a flying flag, so every unit is drawn at one default
+  size and air units look like ground units.
+- A trace or stream gives no unit a path or a target, so the path and target overlays draw nothing for them.
+- Spells in a recording are projectiles and the few whose effect is tagged with its card
+  (Fireball, Arrows, Rocket, Log, Barbarian Barrel); there are no rage, poison or freeze zones.
+- A recording holds only the recording player's hand: the opponent's shows as "hand: not in
+  this source" until the results screen. A trace's cycle beyond the revealed cards shows as
+  "next ?".
+
+Tests:
 
 ```
 cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 56 passed, 3 skipped as of 2026-09-21
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
-Two results are correct, and the run tells you which one you got:
+The three skips are the tests that need a recording of a real battle, which the repo does not
+ship; the run names them so they are not mistaken for passes. With the recordings present the
+result is 59 passed.
 
-- **A fresh clone: `56 passed, 3 skipped`.** The three skips are printed by name under a
-  `recorded-battle tests SKIPPED, NOT PASSED` banner. They pin numbers only a recording of a
-  real battle has (how many ticks the two seats' recordings of one battle differ on, a Goblin
-  Drill's tunnel), and those recordings are not published. A skip there is not a pass.
-- **With the recordings: `59 passed`.** `ROYALELIVE_REPORTS` names the folder holding
-  `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
-  `frames-auto-20260920-083112-A.jsonl` (`.jsonl.gz` resolves too); the default is
-  `tests/captures`, gitignored and empty in a fresh clone.
-
-Every other capture test runs on `tests/fixtures/frames-synthetic-{A,B}.jsonl.gz`: the scripted
-battle of `tests/synthetic.py` written out in the recording format, once per seat (394 ticks,
-one seat's hand known per file, the seats' own entity ids, a 20 KB gzip each). They test
-properties of the source — parsing, frame conversion against the script the file came from,
-the seat compare (394 ticks, 0 differ), the CLI — so they hold in a fresh clone.
-`python tests/synthetic.py --check` confirms the committed files are what the generator
-writes; `--write` regenerates them after a change to the script, and a test fails until you do.
-The fixtures open in the viewer like any recording:
-
-```
-..\.venv\Scripts\python -m royaleviser tests\fixtures\frames-synthetic-A.jsonl.gz --compare tests\fixtures\frames-synthetic-B.jsonl.gz --speed 4
-```
-
-`tests/test_model.py` (the contract, the theme, the layout, the CLI parser),
-`tests/test_sources.py` (the capture source on the synthetic and the recorded battles, MockEngine
-traces, the UDP round trip), `tests/test_render.py` (headless draws of every panel and toggle, the
-pixel positions of both kings, the compact layout, the compare totals, the app's keys and pacing,
-`run` with `--shot` and `--geometry`), `tests/test_cli.py` (`python -m royaleviser` end to end,
-headless). `RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's
-decoder.
-
-`tests/run_synthetic.py` opens the window on the same scripted two-minute battle straight from
-the script, with no sibling repo and no recording needed — the look check for the renderer:
-
-```
-..\.venv\Scripts\python tests\run_synthetic.py --seconds 8 --shot shot.png
-```
-
-## Status
-
-Working end to end: replaying a recorded match, the two-seat compare (2404 ticks compared, 3
-differ), traces from both engines (a 2001-frame RustEngine trace draws with zero contract
-violations on every frame), and a self-play env streaming through `ViserPublisher` — MockEngine
-(201 frames, 0 dropped) and RustEngine (360 env steps, 329 datagrams, 0 dropped).
-
-Known gaps, all of them things a source does not carry rather than things the window will not
-draw:
-
-- The stream carries one frame per env step, not one per engine tick; use a `frame_every_tick`
-  trace for a per-tick view.
-- Units in a recording carry no radius and no flying flag, so all of them are drawn at the
-  renderer's default radius and air units look like ground units.
-- Engine units carry no path and no target in a `BattleState`, so `p` and `t` draw nothing for
-  traces and streams.
-- Spells in a recording are limited to projectiles and the few that leave an effect carrying
-  their card id (Fireball, Arrows, Rocket, Log, Barbarian Barrel); there are no rage, poison or
-  freeze zones.
-- An opponent's hand and deck are not in a recording, and a trace's cycle beyond the revealed
-  cards shows as "next ?".
-
-[`docs/internals.md`](docs/internals.md) has the full list, the frame contract, the stream
-protocol and the performance table.
+Read next: [`docs/internals.md`](docs/internals.md) for the frame model, the recording format,
+the stream protocol, the command line, the layout, the tests and the performance table;
+[RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) for the trace format and the publisher;
+[RoyaleSim](https://github.com/RoyaleGym/RoyaleSim) for the engine the traces come from.
 
 ## Community
 

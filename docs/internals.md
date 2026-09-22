@@ -1,14 +1,17 @@
 # Internals
 
 The frame model, the recording format, the stream protocol, the command line, the window
-layout, what the viewer costs, how it is tested and what it cannot draw. The README covers
-usage and the key table; this page is for people changing the viewer or writing something
-that feeds it.
+layout, the key table, what the viewer costs, how it is tested and what it cannot draw. The
+README covers usage; this page is for people changing the viewer or writing something that
+feeds it.
 
 ## One frame model, three sources
 
 Every source produces the same `royaleviser.model.Frame`, so the renderer never learns where
 a battle came from.
+
+`royalegym.render`, the offline HTML page of a trace, stays in RoyaleGym as the replay that
+needs none of this package.
 
 | Source | Given as | Format | Raw units per tile | Timeline |
 |---|---|---|---|---|
@@ -78,8 +81,19 @@ through a 60-tick buffer).
 Measured on the two seats of one recorded battle (client 16.402): 2404 ticks compared, 3
 differ — all three on tap ticks, where the two recordings disagree for a single frame. An
 engine trace is compared against the recording it was calibrated on in exactly the same way,
-in milli-tiles. On the two synthetic recordings below the same comparison gives 394 ticks
-compared, 0 differ, which is what the tests pin.
+in milli-tiles.
+
+Re-run 2026-09-21 headless over the whole battle (`--speed 8 --seconds 32`, the two
+`demo-20260920-1207*` recordings under `tests/captures`): the panel ends at `GAME OVER` with
+`2407 ticks compared, 3 differ`, after 1910 draws at 2.80 ms mean. The test that pins the
+same battle counts 2407 ticks both recordings hold, 2404 equal and 3 differing (the 2404
+above is that count from a 28 s run on 2026-09-20). The results screen at the end of a
+recording fills in the opponent's deck and hand, so the last frame is the one where both
+hands are known.
+
+On the two synthetic recordings below the same comparison gives 0 differing ticks over the
+whole battle (ticks 0..394, so the panel prints `395 ticks compared, 0 differ`), which is
+what the tests pin.
 
 ## The synthetic recordings
 
@@ -110,7 +124,24 @@ runs the check, so a change to the script fails the suite until the fixtures are
 the script's own `Frame` (positions, hp, kinds, targets, paths, hand, cycle, elixir, tower hp,
 crowns), so the converters are tested against a known answer rather than against themselves.
 
-## Test counts
+## Tests
+
+`..\.venv\Scripts\python -m pytest -q` from the repo folder, and
+`..\.venv\Scripts\python -m ruff check royaleviser tests`.
+
+- `tests/test_model.py`: the frame contract, the theme, the layout, the CLI parser.
+- `tests/test_sources.py`: the capture source on the synthetic and the recorded battles,
+  MockEngine traces, the UDP round trip through `Publisher` and `StreamSource`.
+- `tests/test_render.py`: headless draws of every panel and toggle, the pixel positions of
+  both kings, the compact layout, the compare totals, the app's keys and pacing, `run` with
+  `--shot` and `--geometry`.
+- `tests/test_cli.py`: `python -m royaleviser` end to end, headless.
+
+`RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's decoder,
+so a drift between the publisher and the viewer fails there. `tests/run_synthetic.py` opens
+the real window on the scripted battle straight from the script, with no sibling repo and no
+recording needed: the look check for the renderer, and its `--compare` ghosts a
+half-tile-shifted copy of the same battle to exercise the compare panel.
 
 The suite has two correct results. In a fresh clone, `pytest -q` gives **56 passed, 3
 skipped**: the capture tests run on the synthetic recordings, and the three tests that pin
@@ -152,6 +183,58 @@ The stream carries **one frame per env step** (`decision_ms` worth of ticks, 10 
 defaults), not one per engine tick. For a per-tick view, record with
 `ReplayRecorder(frame_every_tick=True)` and open the trace.
 
+## The command line
+
+`python -m royaleviser [SOURCE [SOURCE]] [--stream HOST:PORT] [--compare SOURCE]` plus the
+view options below, which `__main__.add_view_arguments` adds to any parser. The first
+source is the primary; a second positional, `--compare` or `--stream` is the compared one,
+and more than two is an error.
+
+| Option | Meaning |
+|---|---|
+| `--seat local\|0\|1` | who sits at the bottom. `local` (the default) seats the primary source's local player once the source knows it (the side whose hand a recording holds; team 0 for a trace or a stream); `0` and `1` pin a team. Seat 1 draws the board rotated 180 degrees, which is what that player's own screen shows. |
+| `--geometry WxH+X+Y` | the window's outer rectangle in physical pixels, for a caller that places the window itself. Without `--scale` it picks the largest tile scale whose layout fits; under 16 px/tile (`COMPACT_BELOW`) the inspector column is dropped and the compare lines move into the dashboard, and the window then fills the whole rectangle. On Windows the process is made per-monitor DPI aware first so the pixels are physical. |
+| `--scale N` | pixels per tile (24). |
+| `--speed F` | replay speed (1.0); `+`/`-` step through `SPEEDS` = 0.25 ... 8. |
+| `--start-tick T` | the first frame shown (replays). |
+| `--seconds N` | quit by itself after N seconds (unattended runs). |
+| `--shot PATH` | save the last drawn window as a PNG before quitting. |
+
+`SDL_VIDEODRIVER=dummy` makes `--seconds` and `--shot` work with no display at all, which is
+how the README's images and the render tests are produced. `--help` prints the key list
+(`app.KEYS`, the same list the `H` footer shows):
+
+| Key | Action |
+|---|---|
+| space | play / pause (replays) |
+| left / right, wheel | step a frame (shift: 20) |
+| home / end | first / last frame |
+| + / - (also ] [) | speed x2 / x0.5, through `SPEEDS` |
+| f | flip the seat |
+| p, t, g | unit paths, target lines, tile grid |
+| d | debug numbers |
+| c | compare ghost |
+| s / F12 | save a PNG |
+| click | pin a unit / seek the timeline |
+| h | the help footer |
+| escape / q | quit |
+
+## The layout
+
+Three columns, every rectangle from `theme.layout(theme, scale, tiles)` (`royaleviser/theme.py`);
+the renderer computes no size of its own and everything is an integer.
+
+| Column | Width at 24 px/tile | Contents |
+|---|---|---|
+| dashboard (left) | 340 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 + a gutter) | the top player's hand (80 x 100 px cards with their cost, dimmed when it is more than the player's elixir), elixir bar (thousandths) and next card, then that team's line: the rest of the cycle or the deck, crowns, tower hp and whether the king tower is awake; the status block (source name, tick and clock, playing/live, the source's own status line, draw time and fps); the events list, newest last; the bottom player's line, elixir, next card and hand |
+| arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, the crown towers' no-deploy rectangles, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the timer and crowns top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
+| inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, then whatever else the source carries under "extra"), then the compare lines and the `H` help footer |
+
+The palette is carried over from the project's earlier Python renderer: grass
+(188,195,55)/(217,215,47), river (106,230,237), bridge (255,175,120), team 0 blue
+(71,204,218), team 1 red (224,73,41), UI (30,30,40). The bottom player is `ViewState.seat`;
+the board surface is built once per seat and grid setting and blitted on every draw.
+
 ## The public surface other front ends use
 
 `royaleviser.__main__` exports the pieces a second front end needs: `add_view_arguments`
@@ -178,9 +261,20 @@ always the first draw, which builds the board surface and the fonts.
 Measured on Windows 10 with the SDL dummy driver on a machine with other work running (the
 last two rows, 2026-09-21, with several other jobs on the box). The MockEngine
 stream run sent 256 datagrams over 300 env steps with 0 dropped; the first ~44 steps ran
-before the once-a-second heartbeat poll noticed the viewer. A capture opens in 0.1-0.2 s (a
-4047-frame gzipped file in 0.10 s: a line index plus a parse cache, so a seek is one
-`json.loads`).
+before the once-a-second heartbeat poll noticed the viewer. The RustEngine stream run
+stepped 360 env steps in 11.9 s and sent 329 datagrams with 0 dropped; the viewer drew 335
+frames of it, and the ~31 steps that ran before the heartbeat poll noticed the viewer are
+the difference. A capture opens in 0.1-0.2 s (a 4047-frame gzipped file in 0.10 s: a line
+index plus a parse cache, so a seek is one `json.loads`).
+
+The window is redrawn only when the frame or the view changed, capped at `FPS_CAP` = 60. A
+replay is paced by the frame's `tick_ms` times the speed (`App.advance`): it steps through
+every frame it is due, one at a time, so the event log and the compare totals see every
+frame even at 8x. A live source redraws its status line every `LIVE_REFRESH_S` = 0.5 s
+without a new frame, so the fps and "drops" counters stay current.
+
+The scripted battle (`tests/run_synthetic.py --seconds 8`, a real window, 2026-09-21): 158
+draws, 3.53 ms mean, 219.84 ms max.
 
 At 2-4 ms per draw the viewer is far below both the 20 Hz replay budget and the 60 Hz window
 cap, which is why it is still Python and pygame rather than a Rust process on a shared
