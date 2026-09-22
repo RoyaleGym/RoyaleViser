@@ -370,6 +370,15 @@ every eighth tick, is a 1.0 MB gif; the same range every fourth tick is a 0.74 M
 (`pip install royaleviser[media]`) and PNG needs nothing beyond this package, so nobody has
 to install a video encoder to look at a frame.
 
+**What the tool cannot check for you.** `capture` takes any `Source`, so it will happily
+draw a recording of a real battle — and those are private and are not a source for published
+media. Media that goes into a README comes from an engine trace or from `tests/synthetic.py`,
+and that guarantee lives in whoever writes the shot list, not in this function. Two things
+worth saying in a caption while you are there: the scripted battle is a *script*, whose units
+move at six times their scripted speed in the recording form, so it is honest as "the window"
+and dishonest as "how the engine plays"; and a capture with `live_timing=True` is the one
+output that is not reproducible, by design.
+
 ## The public surface other front ends use
 
 `royaleviser.__main__` exports the pieces a second front end needs: `add_view_arguments`
