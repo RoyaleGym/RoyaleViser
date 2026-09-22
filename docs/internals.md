@@ -143,7 +143,7 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results. In a fresh clone, `pytest -q` gives **73 passed, 3
+The suite has two correct results. In a fresh clone, `pytest -q` gives **76 passed, 3
 skipped**: the capture tests run on the synthetic recordings, and the three tests that pin
 numbers only a recording of a real battle has (2407 ticks both seats hold, 2404 equal, 3
 differ; the Goblin Drill of tick 2974 surfacing 73 ticks later) skip, each with a reason
@@ -151,7 +151,7 @@ beginning `SKIPPED, NOT PASSED`, and `tests/conftest.py` prints them by name at 
 run. With `ROYALELIVE_REPORTS` pointing at a folder that holds
 `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
 `frames-auto-20260920-083112-A.jsonl` (or their `.jsonl.gz`; the default folder is
-`tests/captures`, gitignored) the result is **76 passed**.
+`tests/captures`, gitignored) the result is **79 passed**.
 
 ## The stream protocol
 
@@ -214,7 +214,16 @@ whenever the board did.
    that attaches between two iterations fills its panel within a heartbeat instead of
    waiting minutes for the next one. A daemon thread waking once a second answers that
    hello, because a learner inside an optimisation step calls nothing for a long time
-   (`pump_thread=False` hands that to the caller's own `pump()`).
+   (`pump_thread=False` hands that to the caller's own `pump()`). A hello after longer than
+   the attach timeout counts as a fresh attachment whatever its address, since a viewer away
+   that long may have been restarted.
+6. **Nothing acknowledges a datagram.** A lost frame is replaced a few milliseconds later; a
+   lost status is the panel standing still for a whole iteration, and a rollout publishing
+   faster than the viewer's loop drains can fill the receive queue exactly as the one status
+   of that minute arrives. Two things answer that: the viewer's socket asks for a megabyte of
+   receive buffer (`sources.STREAM_RCVBUF`, a few hundred frames, against the 64 KB default
+   that is two dozen), and each viewer is sent the standing status `LEARNING_REPEATS` (3)
+   times a heartbeat apart before the sender falls silent.
 
 ```python
 from royaleviser.model import Learning
@@ -226,20 +235,23 @@ for it in range(iterations):
     learner.publish(Learning(run="ppo-0007", iteration=it, policy_loss=0.0241, elo=1183))
 ```
 
-6. `Learning.extra` is the open tail: `{name: number or string}`, drawn under the fixed rows
+7. `Learning.extra` is the open tail: `{name: number or string}`, drawn under the fixed rows
    in the order the learner sent them, so a number the fixed list has no place for needs no
    change on this side. The viewer only formats them (`render.extra_text`: an integer with
    thousands, a float to four significant figures, anything else as it stands, `None` as an
    em dash); the names and their meaning are the learner's. The panel leaves out the rows
    that do not fit its column, extras first, and a status too big for one datagram is
-   counted in `LearningPublisher.dropped` rather than truncated.
+   counted in `LearningPublisher.dropped` rather than truncated. A value msgpack has no type
+   for is counted there too, after one attempt to read it as the number it holds
+   (`model.scalar_of`, which is what makes a numpy float a float); the learner's own thread
+   survives it either way.
 
 A key that is neither a field name nor `extra` is **ignored**: a misspelled field leaves the
 em dash of the field that stayed unset, rather than showing up as a wrong number somewhere
 else.
 
 A learner that would rather not import this package sends the same datagram itself, and
-needs these five constants to match:
+needs these six constants to match:
 
 | Constant | Value | What it is |
 |---|---|---|
@@ -248,12 +260,13 @@ needs these five constants to match:
 | `sources.STREAM_ATTACH_TIMEOUT_S` | `3` | no hello for this long: detached, send nothing |
 | `model.LEARNING_PREFIX` | `b"\x81\xa8learning"` | the first bytes of every status datagram (msgpack for a one-key map named `learning`) |
 | `sources.STREAM_MAX_DATAGRAM` | `65507` | one datagram, UDP over IPv4 |
+| `sources.LEARNING_REPEATS` | `3` | copies of one status per viewer, a heartbeat apart, because nothing is acknowledged |
 
 So: bind `host:port`, read heartbeats, and when one arrives from an address that has not had
 the standing status, send one msgpack map `{"learning": {...}}` — any subset of `Learning`'s
 field names, plus `extra` — to that address. Keeping the last status and re-sending it on a
-fresh hello is the sender's job; without it a viewer attaching mid-run waits for the next
-iteration. `tests/run_stream.py` is the end to end check — it
+fresh hello is the sender's job, and so is sending it more than once; without either, a
+viewer attaching mid-run waits for the next iteration. `tests/run_stream.py` is the end to end check — it
 publishes the scripted battle and a moving status from one process and draws them in the
 real window (`docs/viewer-learning.png` was made with it).
 

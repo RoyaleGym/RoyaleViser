@@ -36,6 +36,7 @@ from royaleviser.render import (
     elixir_text,
     extra_text,
     fit_text,
+    learning_run,
     split_name,
 )
 from royaleviser.theme import DEFAULT, layout
@@ -363,14 +364,26 @@ def test_a_status_off_the_wire_fills_the_panel_through_the_app() -> None:
         a.pull()
         time.sleep(0.01)
     assert a.frame is not None and a.transport.learning == status
-    assert a.dirty  # a status arriving redraws the window, though the board did not move
     lines = dict(a.renderer.learning_lines(a.transport.learning))
     assert (lines["iteration"], lines["KL"], lines["ELO vs pool"]) == ("1420", "0.0094", "1183")
     assert lines["policy loss"] == "0.000"  # the learner said zero, so the panel says zero
     assert lines["value loss"] == lines["win rate"] == UNSET  # never sent, so never a number
     assert lines["rating"] == "1192"  # the learner's own row, off the same datagram
+    assert learning_run(status) == "ppo-0007" and learning_run(None) == "no learner attached"
+    assert learning_run(model.Learning(iteration=7)) == UNSET  # a learner with no name is one
+
     a.draw(time.perf_counter())  # the real draw, with a status that came off the wire
-    assert a.transport.draw_ms > 0
+    assert a.transport.draw_ms > 0 and not a.dirty
+    later = model.Learning(run="ppo-0007", iteration=1421)
+    learner.publish(later)
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end and a.transport.learning != later:
+        learner.pump()
+        a.pull()
+        time.sleep(0.01)
+    # The next iteration redraws the window, though the board has not moved since the draw.
+    assert a.transport.learning == later and a.dirty
+    assert dict(a.renderer.learning_lines(later))["ELO vs pool"] == UNSET  # replaced, not merged
     src.close()
     frames.close()
     learner.close()

@@ -160,6 +160,16 @@ def extra_text(value: Any) -> str:
     return str(value)
 
 
+def learning_run(ln: Learning | None) -> str:
+    """What the panel writes beside its "learning" heading.
+
+    Whether a learner is attached and what it calls itself are two questions: a status with
+    no run name is still a learner, so it gets the em dash of any unset field rather than
+    the "nothing here" line standing over its own numbers.
+    """
+    return "no learner attached" if ln is None else (ln.run or UNSET)
+
+
 @dataclass(slots=True)
 class Transport:
     """Playback and source facts for the status line and the timeline; owned by the app."""
@@ -908,9 +918,8 @@ class Renderer:
         pygame.draw.rect(self.surface, t.ui_panel, (x, top, w, avail))
         cy = top + 4
         self.blit_text("learning", (x + 4, cy), "tiny", t.ui_dim)
-        run = ln.run if ln is not None and ln.run else "no learner attached"
         self.blit_text(
-            fit_text(run, self.fonts["tiny"], w // 2),
+            fit_text(learning_run(ln), self.fonts["tiny"], w // 2),
             (x + w - 4, cy),
             "tiny",
             t.ui_text if ln is not None else t.ui_dim,

@@ -789,13 +789,14 @@ def a_status() -> Learning:
 
 
 def test_the_constants_a_foreign_sender_needs_are_the_documented_ones() -> None:
-    """docs/internals.md prints these five for a learner that does not import this package;
+    """docs/internals.md prints these six for a learner that does not import this package;
     a change here without a change there silently breaks that sender."""
     assert sources.STREAM_HELLO == b"royaleviser 1"
     assert sources.STREAM_HEARTBEAT_S == 1.0
     assert sources.STREAM_ATTACH_TIMEOUT_S == 3
     assert model.LEARNING_PREFIX == b"\x81\xa8learning"
     assert sources.STREAM_MAX_DATAGRAM == 65507
+    assert sources.LEARNING_REPEATS == 3
     assert sources.learning_endpoint("127.0.0.1", 9870) == ("127.0.0.1", 9871)
     learner = sources.LearningPublisher(port=0, pump_thread=False)
     assert learner.address[0] == "127.0.0.1"  # the default host, not every interface
@@ -856,10 +857,10 @@ def test_a_viewer_attaching_mid_run_is_sent_the_last_status() -> None:
     assert learner.status == a_status()  # kept all the same
     src = sources.StreamSource(*frames.address, learner.address)
     assert status_of(src, learner) == a_status()
-    assert learner.sent == 1
-    learner.pump()
-    src.frame()
-    assert learner.sent == 1  # told once, not once a second
+    while learner.pump():  # a few copies, because a datagram can be lost on the way
+        src.frame()
+    assert learner.sent == sources.LEARNING_REPEATS
+    assert learner.pump() is False  # then quiet until the next status or the next viewer
     src.close()
     frames.close()
     learner.close()
@@ -871,14 +872,17 @@ def test_a_viewer_that_was_away_is_told_again() -> None:
     learner = sources.LearningPublisher(port=0, pump_thread=False)
     src = sources.StreamSource("127.0.0.1", 9999, learner.address)  # a learner, no engine
     learner.publish(a_status())
-    assert status_of(src, learner) == a_status() and learner.sent == 1
+    assert status_of(src, learner) == a_status()
+    while learner.pump():  # everything this viewer is owed
+        pass
+    told = learner.sent
     learner._last_hello -= 2 * sources.STREAM_ATTACH_TIMEOUT_S  # away, then back on one port
     src.heartbeat()
     end = time.monotonic() + 2.0
-    while time.monotonic() < end and learner.sent < 2:
+    while time.monotonic() < end and learner.sent == told:
         learner.pump()
         time.sleep(0.01)
-    assert learner.sent == 2 and learner.pump() is False  # once for coming back, not again
+    assert learner.sent > told  # the same address, told again
     src.close()
     learner.close()
 
@@ -914,15 +918,56 @@ def test_a_second_status_replaces_the_first_whole() -> None:
 
 
 def test_a_datagram_that_is_neither_is_counted_not_raised() -> None:
+    """Anything at all can reach a UDP port, and the viewer must survive all of it: the
+    window is the one thing a bad datagram must not take down."""
     src = sources.StreamSource("127.0.0.1", 9999)
     junk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    junk.sendto(b"not a frame", src.address)
-    junk.sendto(model.LEARNING_PREFIX + b"\xc0", src.address)  # a status of nothing
-    end = time.monotonic() + 2.0
-    while time.monotonic() < end and src.rejected < 2:
-        src.frame()
-        time.sleep(0.01)
-    assert src.rejected == 2 and src.frame() is None and src.learning is None
-    assert "rejected 2" in src.status()
+    bad = [
+        b"not a frame",
+        model.LEARNING_PREFIX + b"\xc0",  # a status of nothing
+        model.LEARNING_PREFIX + b"\x81\xa3run\xa3\xff\xfe\xfd",  # a name that is not UTF-8
+        model.encode_frame(synthetic.frame_at(600)).replace(b"Knight", b"\xff\xfe\xfd\xff\xfe\xfd"),
+    ]
+    for i, datagram in enumerate(bad, start=1):
+        junk.sendto(datagram, src.address)  # one at a time: a drain decodes only the newest
+        end = time.monotonic() + 2.0
+        while time.monotonic() < end and src.rejected < i:
+            src.frame()
+            time.sleep(0.01)
+        assert src.rejected == i, datagram[:16]
+    assert src.frame() is None and src.learning is None
+    assert f"rejected {len(bad)}" in src.status()
     junk.close()
+    src.close()
+
+
+def test_a_number_the_learner_computed_in_numpy_still_goes_out() -> None:
+    """A PPO loop hands over whatever its framework returns. A numpy float is a float here;
+    a value that is no number at all costs that status, not the learner's thread."""
+    learner = sources.LearningPublisher(port=0)
+    src = sources.StreamSource("127.0.0.1", 9999, learner.address)  # a learner, no engine
+    status = Learning(run="ppo-0007", explained_var=np.float32(0.62), pool_size=np.int64(6))
+    learner.publish(status)
+    got = status_of(src)
+    assert got is not None and (got.explained_var, got.pool_size) == (
+        pytest.approx(0.62, abs=1e-6),
+        6,
+    )
+    assert learner.dropped == 0
+    learner.publish(Learning(run="ppo-0007", extra={"gate": object()}))
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end and learner.dropped == 0:
+        learner.pump()
+        time.sleep(0.01)
+    assert learner.dropped == 1
+    assert learner._thread is not None and learner._thread.is_alive()  # not taken down by it
+    assert learner.publish(status)  # and the next good one goes out as usual
+    src.close()
+    learner.close()
+
+
+def test_a_stream_on_the_last_port_asks_no_learner() -> None:
+    assert sources.learning_endpoint("127.0.0.1", sources.MAX_PORT) is None
+    src = sources.open_source(f"127.0.0.1:{sources.MAX_PORT}")
+    assert src.learning_peer is None and src.frame() is None  # says hello, does not raise
     src.close()

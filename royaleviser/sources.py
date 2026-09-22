@@ -73,34 +73,38 @@ STREAM_HELLO = b"royaleviser 1"  # the viewer's heartbeat datagram, once a secon
 STREAM_HEARTBEAT_S = 1.0
 STREAM_ATTACH_TIMEOUT_S = 3  # no heartbeat for this long: the publisher stops sending
 STREAM_MAX_DATAGRAM = 65507  # UDP over IPv4; a bigger frame is resent without unit paths
+STREAM_RCVBUF = 1 << 20  # the viewer's receive queue: a burst of frames must not push a status out
+MAX_PORT = 65535
 # The learner publishes its status on its own port, one above the frames' (``learning_endpoint``),
 # because it is a different process on a different clock: see LearningPublisher.
 LEARNING_PORT_OFFSET = 1
 STREAM_LEARNING_PORT = STREAM_PORT + LEARNING_PORT_OFFSET
+LEARNING_REPEATS = 3  # how often one status is sent to one viewer: UDP acknowledges nothing
 
 
-def learning_endpoint(host: str, port: int) -> tuple[str, int]:
+def learning_endpoint(host: str, port: int) -> tuple[str, int] | None:
     """Where a learner's status publisher is by default for a stream at ``host:port``: the
-    same host, one port up. ``open_source`` and the command line pair them this way."""
+    same host, one port up. ``open_source`` and the command line pair them this way. None
+    when there is no port above this one, which is a stream on 65535 and nothing else."""
+    if port + LEARNING_PORT_OFFSET > MAX_PORT:
+        return None
     return (host, port + LEARNING_PORT_OFFSET)
 
 
 def udp_socket(host: str, port: int) -> socket.socket:
-    """A bound non-blocking UDP socket that ignores ICMP "port unreachable".
+    """A bound non-blocking UDP socket with room to queue a burst.
 
-    Windows turns that ICMP into WSAECONNRESET on the NEXT ``recvfrom``, which would throw
-    away a datagram that had already arrived -- and both ends here send to ports that are
-    routinely closed (the viewer says hello to a publisher and to a learner, either of which
-    may not be running). SIO_UDP_CONNRESET exists on Windows only; elsewhere there is
-    nothing to turn off.
+    The default receive buffer is 64 KB on Windows, some two dozen frames of a busy battle:
+    a rollout publishing faster than the viewer's loop drains overruns it, and what the
+    kernel throws away is whatever arrived last -- which can be the one status datagram a
+    learner sends that minute. A megabyte is a few hundred frames of slack and costs
+    nothing while the queue is empty.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((host, port))
     sock.setblocking(False)
-    reset_flag = getattr(socket, "SIO_UDP_CONNRESET", None)
-    if reset_flag is not None:
-        with contextlib.suppress(OSError, ValueError):
-            sock.ioctl(reset_flag, False)
+    with contextlib.suppress(OSError):  # a platform that will not grow it keeps its default
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, STREAM_RCVBUF)
     return sock
 
 
@@ -143,12 +147,14 @@ _ACTIVE = b'"active":true'
 _TICK = re.compile(rb'"tick":(\d+)')  # "replay_tick" has an underscore before "tick"
 
 
-def open_source(spec: str, names: Names | None = None) -> Any:
+def open_source(
+    spec: str, names: Names | None = None, learning: tuple[str, int] | None = None
+) -> Any:
     """A source for one command-line argument, by shape.
 
     ``*.jsonl`` / ``*.jsonl.gz`` -> CaptureSource; ``*.msgpack`` / ``*.json`` -> TraceSource;
-    ``host:port`` -> StreamSource, listening for a learner at ``learning_endpoint`` of the
-    same pair. Anything else raises ValueError naming the spec.
+    ``host:port`` -> StreamSource, listening for a learner at ``learning`` or, unset, at
+    ``learning_endpoint`` of the same pair. Anything else raises ValueError naming the spec.
     """
     lower = spec.lower()
     if lower.endswith((".jsonl", ".jsonl.gz")):
@@ -158,7 +164,7 @@ def open_source(spec: str, names: Names | None = None) -> Any:
     host, sep, port = spec.rpartition(":")
     if sep and port.isdigit():
         host, port_n = host or STREAM_HOST, int(port)
-        return StreamSource(host, port_n, learning_endpoint(host, port_n))
+        return StreamSource(host, port_n, learning or learning_endpoint(host, port_n))
     raise ValueError(f"{spec!r}: not a capture (.jsonl[.gz]), trace (.msgpack/.json) or host:port")
 
 
@@ -927,8 +933,11 @@ class StreamSource:
         self.drops = 0
         self.rejected = 0
         self.learning: Learning | None = None
-        # Loopback stays on loopback (no firewall prompt); anything else needs any-address.
-        self._sock = udp_socket("127.0.0.1" if host in ("127.0.0.1", "localhost") else "0.0.0.0", 0)
+        # Loopback stays on loopback (no firewall prompt); either peer off it needs
+        # any-address, or that one's datagrams never reach this socket.
+        local = {"127.0.0.1", "localhost"}
+        peers = {host, learning_peer[0] if learning_peer is not None else host}
+        self._sock = udp_socket("127.0.0.1" if peers <= local else "0.0.0.0", 0)
         self.address: tuple[str, int] = self._sock.getsockname()[:2]
         self._last_hello = 0.0
         self._last: Frame | None = None
@@ -942,7 +951,9 @@ class StreamSource:
         ends learn where to send from it, so a hello is also how a viewer attaches."""
         for peer in (self.peer, self.learning_peer):
             if peer is not None:
-                with contextlib.suppress(OSError):  # nobody there yet: the next one tries again
+                # Nobody there yet: the next one tries again. A port outside the range (a
+                # mistyped --learning) is an OverflowError, and must not end the loop either.
+                with contextlib.suppress(OSError, OverflowError):
                     self._sock.sendto(STREAM_HELLO, peer)
         self._last_hello = time.monotonic()
 
@@ -979,7 +990,7 @@ class StreamSource:
         """Decode one frame datagram into ``_last``, counting the sequence gaps before it."""
         try:
             f = decode_frame(data)
-        except (msgspec.DecodeError, msgspec.ValidationError):
+        except ValueError:  # msgspec's DecodeError and ValidationError, and a bad UTF-8 name
             self.rejected += 1
             return
         seq = f.meta.get("seq")
@@ -996,7 +1007,7 @@ class StreamSource:
         whole status: a field the learner left out is unset, never the last value it had."""
         try:
             self.learning = decode_learning(data)
-        except (msgspec.DecodeError, msgspec.ValidationError):
+        except ValueError:  # msgspec's DecodeError and ValidationError, and a bad UTF-8 name
             self.rejected += 1
 
     def seek(self, index: int) -> None:
@@ -1085,6 +1096,13 @@ class LearningPublisher:
         that hello, because a learner deep in an optimisation step calls nothing for minutes;
         ``pump_thread=False`` leaves that to the caller's own ``pump()``.
 
+    UDP ACKNOWLEDGES NOTHING
+        A frame lost on the way is replaced a few milliseconds later; a status lost on the
+        way is the panel standing still for a whole iteration, and a rollout can fill the
+        viewer's receive queue with frames just as the one status of that minute arrives. So
+        each viewer is sent the standing status LEARNING_REPEATS times, a heartbeat apart,
+        and then the sender falls silent until the next status or the next viewer.
+
     One message is the whole status (``model.Learning``): the viewer replaces rather than
     merges, so a field the learner stops sending goes back to an em dash rather than standing
     as a stale number. ``Learning.extra`` carries whatever the fixed rows cannot hold; a
@@ -1101,11 +1119,12 @@ class LearningPublisher:
         self._sock = udp_socket(host, port)
         self.address: tuple[str, int] = self._sock.getsockname()[:2]
         self.sent = 0
-        self.dropped = 0  # statuses too big for one datagram
+        self.dropped = 0  # statuses no datagram could carry: too big, or not encodable
         self._lock = threading.RLock()
         self._status: Learning | None = None
         self._peer: tuple[str, int] | None = None
         self._sent_to: tuple[str, int] | None = None  # where the standing status last went
+        self._repeats = 0  # sends of the standing status still owed to that viewer
         self._last_hello = 0.0
         self._last_poll = 0.0
         self._closed = False
@@ -1137,18 +1156,18 @@ class LearningPublisher:
         whether a datagram went out."""
         with self._lock:
             self._status = status
-            self._sent_to = None
+            self._sent_to, self._repeats = None, LEARNING_REPEATS
             return self._send() if self.attached else False
 
     def pump(self) -> bool:
-        """Look at the socket now and send the standing status to a viewer that has not been
-        told it. Returns whether a datagram went out; the thread calls it once a second."""
+        """Look at the socket now and send the standing status to a viewer that is still owed
+        it. Returns whether a datagram went out; the thread calls it once a second."""
         now = time.monotonic()
         with self._lock:
             self._poll(now)
             fresh = self._peer is not None and now - self._last_hello < STREAM_ATTACH_TIMEOUT_S
-            if not fresh or self._sent_to == self._peer:
-                return False  # nobody watching, or this viewer already has the standing status
+            if not fresh or (self._sent_to == self._peer and self._repeats <= 0):
+                return False  # nobody watching, or that viewer has had its copies
             return self._send()
 
     def close(self) -> None:
@@ -1164,7 +1183,9 @@ class LearningPublisher:
 
     def _run(self) -> None:
         while not self._stop.wait(STREAM_HEARTBEAT_S):
-            with contextlib.suppress(OSError, ValueError):
+            # One bad status costs that status, never the thread: a learner whose panel
+            # stops updating is a nuisance, a learner that dies in this thread is not.
+            with contextlib.suppress(Exception):
                 self.pump()
 
     def _poll(self, now: float) -> None:
@@ -1180,7 +1201,7 @@ class LearningPublisher:
                 if peer != self._peer or now - self._last_hello >= STREAM_ATTACH_TIMEOUT_S:
                     # Another viewer, or one that has been away long enough to have been
                     # restarted: either way it holds no status, so send it the standing one.
-                    self._sent_to = None
+                    self._sent_to, self._repeats = None, LEARNING_REPEATS
                 self._peer, self._last_hello = peer, now
 
     def _send(self) -> bool:
@@ -1188,15 +1209,22 @@ class LearningPublisher:
         already decided that a viewer is there."""
         if self._closed or self._peer is None or self._status is None:
             return False
-        data = encode_learning(self._status)
+        try:
+            data = encode_learning(self._status)
+        except (TypeError, ValueError):  # a value no msgpack type fits: the learner's bug
+            self.dropped += 1
+            self._repeats = 0
+            return False
         if len(data) > STREAM_MAX_DATAGRAM:  # a status this big is an ``extra`` gone wrong
             self.dropped += 1
+            self._repeats = 0
             return False
         try:
             self._sock.sendto(data, self._peer)
         except OSError:
             return False  # the viewer went away between its hello and this send
         self._sent_to = self._peer
+        self._repeats = max(0, self._repeats - 1)
         self.sent += 1
         return True
 

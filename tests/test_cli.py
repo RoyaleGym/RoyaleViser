@@ -138,3 +138,15 @@ def test_the_learning_endpoint_is_paired_with_the_stream() -> None:
     (src,) = cli.open_sources(args)
     assert src.learning_peer == ("127.0.0.1", 9999)
     src.close()
+
+
+def test_the_learning_endpoint_follows_a_positional_stream_too() -> None:
+    """--stream and a bare host:port are the same source, so --learning must reach both."""
+    args = cli.build_parser().parse_args(["127.0.0.1:9870", "--learning", "127.0.0.1:9999"])
+    (src,) = cli.open_sources(args)
+    assert isinstance(src, StreamSource) and src.learning_peer == ("127.0.0.1", 9999)
+    src.close()
+    args = cli.build_parser().parse_args(["127.0.0.1:9870"])
+    (src,) = cli.open_sources(args)
+    assert src.learning_peer == ("127.0.0.1", 9871)
+    src.close()

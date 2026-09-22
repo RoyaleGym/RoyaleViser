@@ -325,9 +325,24 @@ class _LearningMessage:
     learning: Learning
 
 
+def scalar_of(obj: Any) -> Any:
+    """A value msgpack has no type of its own for, as a number it does.
+
+    A learner computes in whatever its framework returns, and a one-element array or a numpy
+    float is not a float to msgpack. Anything with ``item()`` is the value it holds; anything
+    else is the sender's mistake and says so rather than going out as something wrong.
+    """
+    item = getattr(obj, "item", None)
+    value = item() if callable(item) else None
+    if isinstance(value, bool | int | float | str):
+        return value
+    # TypeError, which is what msgspec itself raises for a type it cannot encode.
+    raise TypeError(f"a learning status cannot carry a {type(obj).__name__}")
+
+
 def encode_learning(status: Learning) -> bytes:
     """msgpack bytes of a Learning: what a learner sends once per iteration."""
-    return msgspec.msgpack.encode({LEARNING_TAG: status})
+    return msgspec.msgpack.encode({LEARNING_TAG: status}, enc_hook=scalar_of)
 
 
 def decode_learning(data: bytes) -> Learning:

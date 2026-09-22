@@ -124,14 +124,14 @@ def open_sources(args: argparse.Namespace) -> list[Source]:
 
     specs = source_specs(args)
     names = Names.live()
+    learner = getattr(args, "learning", None)  # a stream can also be a positional source
     sources: list[Source] = []
     try:
         for kind, spec in specs[:2]:
             if kind == "path":
-                sources.append(open_source(spec, names))
+                sources.append(open_source(spec, names, learner))
             else:
-                learner = getattr(args, "learning", None) or learning_endpoint(*spec)
-                sources.append(StreamSource(*spec, learner))
+                sources.append(StreamSource(*spec, learner or learning_endpoint(*spec)))
     except BaseException:
         for s in sources:
             s.close()
