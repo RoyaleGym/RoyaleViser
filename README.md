@@ -18,7 +18,7 @@ engine, or a bot that is training right now in another program.
   &nbsp;&middot;&nbsp; <a href="#what-it-does">What it does</a>
   &nbsp;&middot;&nbsp; <a href="#save-a-picture-or-a-clip">Save a picture</a>
   &nbsp;&middot;&nbsp; <a href="#with-the-rest-of-the-stack">The rest of the stack</a>
-  &nbsp;&middot;&nbsp; <a href="#status-2026-09-22">Status</a>
+  &nbsp;&middot;&nbsp; <a href="#status">Status</a>
   &nbsp;&middot;&nbsp; <a href="#community">Community</a>
 </p>
 
@@ -33,8 +33,8 @@ of what happened. On the right you get every single thing the file knows about t
 that was clicked. The bar underneath scrubs through the replay.
 
 The point of the viewer is simple. You can see what your bot did instead of guessing it from
-numbers, and you can see where the engine and the real game disagree instead of reading it off a
-table.
+numbers. And you can lay two sources of one battle over each other and see the ticks where they
+disagree.
 
 It draws one picture per *tick*. A tick is the game's own 50 ms step, so 20 of them go by every
 second.
@@ -79,7 +79,7 @@ Drop `--seconds` and the window stays open until you close it. The same command 
 kinds of source:
 
 ```
-python -m royaleviser frames-demo-20260920-120752-A.jsonl.gz       # a recording of a real battle
+python -m royaleviser frames-my-match.jsonl.gz                     # a recording of a real battle
 python -m royaleviser battle.msgpack --start-tick 900              # a trace saved from the engine
 python -m royaleviser --stream 127.0.0.1:9870                      # an environment running right now
 ```
@@ -103,13 +103,13 @@ The seat, the window size, `--seconds`, `--shot` and the rest of the command lin
     <td width="33%" align="center"><img src="docs/media/tile-live-stream.png" width="100%" alt="The viewer attached to a running training environment: LIVE, 31 fps, events arriving"><br><b>Watch a training run live</b><br><sub>Attach to a training run in another program. With nobody watching it costs that run 193 ns a step (2026-09-21).</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/tile-compare.png" width="100%" alt="The compare panel at GAME OVER: 2407 ticks compared, 3 differ"><br><b>Compare two recordings of one battle</b><br><sub>Both players recorded one real match: 2407 ticks compared, 3 differ (2026-09-21), each for a single frame.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/tile-compare.png" width="100%" alt="The compare panel at GAME OVER: 395 ticks compared, 0 differ"><br><b>Compare two recordings of one battle</b><br><sub>Two recordings of one battle should agree, and the viewer says so tick by tick. Here both players recorded the scripted battle that ships with the tests: 395 ticks compared, 0 differ.</sub></td>
     <td width="33%" align="center"><img src="docs/media/compare-ghost.gif" width="100%" alt="Two recordings of one battle, the second drawn on the first as hollow ghosts"><br><b>See where they disagree</b><br><sub>The second source is drawn as hollow ghosts on the first. On a tick where they differ, the ghost steps off the unit. The two recordings in this clip are identical, so nothing steps off here.</sub></td>
     <td width="33%" align="center"><img src="docs/media/tile-inspector.png" width="100%" alt="The inspector listing every raw field of the pinned Valkyrie"><br><b>Inspect any unit</b><br><sub>Click a unit to list every field the source carries, raw and unrounded.</sub></td>
   </tr>
   <tr>
     <td width="33%" align="center"><img src="docs/media/tile-event-log.png" width="100%" alt="The event log: plays, spawns and deaths with tick and tile"><br><b>Follow the event log</b><br><sub>Plays, spawns, deaths and tunnel trips (Miner, Goblin Drill), each with its tick and tile, newest last.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/tile-paths-and-targets.png" width="100%" alt="Goblins and a Knight with their paths and target lines drawn"><br><b>Paths and target lines</b><br><sub>Recorded units carry the route they walk and the thing they attack. Two keys draw both on the board.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/tile-paths-and-targets.png" width="100%" alt="A Baby Dragon with the route it walks drawn, and a dashed target line from the Cannon"><br><b>Paths and target lines</b><br><sub>Recorded units carry the route they walk and the thing they attack. Two keys draw both on the board. Here a Baby Dragon is walking its route while the Cannon aims at it.</sub></td>
     <td width="33%" align="center"><img src="docs/media/tile-synthetic-battle.png" width="100%" alt="A whole window rendered with no display on the scripted battle"><br><b>Render with no display</b><br><sub>Save the window as a PNG with no screen. A scripted battle ships with the tests, so nothing else is needed.</sub></td>
   </tr>
 </table>
@@ -124,13 +124,16 @@ The seat, the window size, `--seconds`, `--shot` and the rest of the command lin
 
 You can take a picture of any of this for your own write-up. `capture` writes what the window
 would show straight to a file, with no window, no display and no clock. It is what made the
-images on this page.
+images on this page. This example opens the recording that came with your clone, so it runs
+from the repo folder with nothing else set up. Swap in your own file or an engine trace, which
+[Saving a battle to a file](#saving-a-battle-to-a-file) makes.
 
 ```python
 from royaleviser.capture import capture
 from royaleviser.sources import open_source
 
-capture(open_source("battle.msgpack"), "shot.png", ticks=(900, 901, 1), scale=24, crop="left")
+capture(open_source("tests/fixtures/frames-synthetic-A.jsonl.gz"), "shot.png",
+        ticks=(160, 161, 1), scale=24, crop="left")
 ```
 
 The whole signature:
@@ -145,9 +148,9 @@ The whole signature:
 - `crop` is `full`, `board`, `left`, or a rectangle. `left` drops the inspector column.
 - `compare` ghosts a second source at the same tick. `view` carries the seat, the overlays and
   `hover_uid`, which pins a unit in the inspector.
-- The same source and the same arguments give you the same bytes, always. The two numbers that
-  move with the wall clock — the draw time and the frame rate — are zero in every capture, and
-  the LIVE pill is never drawn: a capture replays a file. `live_timing=True` adds the source's
+- The same source and the same arguments give you the same bytes, always. Two numbers move with
+  the wall clock: the draw time and the frame rate. Both are zero in every capture, and the LIVE
+  pill is never drawn, because a capture replays a file. `live_timing=True` adds the source's
   own status line, which is built from the file, so it is reproducible too.
 - PNG needs nothing extra. mp4 and gif are encoded by ffmpeg, which comes with the optional
   `media` extra.
@@ -168,7 +171,7 @@ For a sense of size: a whole scripted battle cropped to `left` at scale 16, ever
 
 | Repo | What it is | To the viewer |
 |---|---|---|
-| [RoyaleSim](https://github.com/RoyaleGym/RoyaleSim) | the battle engine, written in Rust. It uses whole numbers only, and the same battle always plays out the same way. Its movement is measured against recordings of real battles | every trace and every stream starts here. The compare view is how you look at where it differs from the real game |
+| [RoyaleSim](https://github.com/RoyaleGym/RoyaleSim) | the battle engine, written in Rust. It uses whole numbers only, and the same battle always plays out the same way. Its movement is measured against recordings of real battles | every trace and every stream starts here |
 | [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) | the layer your bot plugs into: what it sees, what it can do, what it gets rewarded for. Gymnasium, PettingZoo and self-play flavours | the only sibling this package imports. It gives the viewer the trace format (`royalegym.replay`), the engine-side sender (`royalegym.viser.ViserPublisher`, a *publisher* in the code) and the shape of the arena |
 | [RoyaleLearn](https://github.com/RoyaleGym/RoyaleLearn) | the training side: bots playing themselves, PPO (a common training algorithm), a ladder of frozen past opponents, saved checkpoints | a training run streams to the viewer like any other environment |
 | **RoyaleViser** (this repo) | the viewer: recordings, engine traces and running environments, in its own window | the window |
@@ -251,11 +254,10 @@ battles on the engine and publishing game 0, and everything in the window arrive
 socket.
 
 Two things in it are worth reading, and both are properties rather than measurements. The
-learner panel is empty because nothing is training, which is today's honest picture and the gap
-listed below. And the status line admits dropped frames: the viewer drops them rather than
-slowing the environment down, which is the trade it is built to make, and it tells you when it
-has. On the occasion this shot was taken, with four other jobs running, that was 86 frames of
-116.
+learner panel is empty because nothing was training when the shot was taken. And the status line
+admits dropped frames: the viewer drops them rather than slowing the environment down, which is
+the trade it is built to make, and it tells you when it has. On the occasion this shot was taken,
+with four other jobs running, that was 86 frames of 116.
 
 ### Showing your training numbers next to the battle
 
@@ -274,12 +276,17 @@ for it in range(iterations):
 <p align="center"><img src="docs/viewer-learning.png" width="100%" alt="The viewer on a streamed battle with the learning panel filled: run ppo-0007, iteration 1423, its losses, rollout throughput and ladder standing"></p>
 
 That is the same window on a live battle. The panel under the event log is the learner's, and
-every number in it arrived over the network.
+every number in it arrived over the network. The numbers in this picture come from
+`tests/run_stream.py`, a test script that stands in for a learner. A real training run's status
+reached the viewer on 2026-09-22, on a laptop, but this picture is not from that run.
 
 It is sent separately from the battle frames and on its own clock, once per training iteration
 rather than once per step. So it keeps updating while the learner is busy and nothing on the
 board is moving. A viewer that attaches in the middle of a run is sent the last status right
 away, instead of waiting for the next iteration.
+
+The heading shows how long ago the last status arrived. On a real run the board stands still
+while the learner trains, and that age is how you tell a slow run from a dead one.
 
 One message is the whole status. That is the contract, not a matter of taste: the viewer replaces
 what it is holding rather than merging the new message into the old one, so the panel never shows
@@ -328,24 +335,28 @@ You do not need all of that to use the viewer.
 - **mp4 and gif out of `capture`** need the `media` extra, which brings ffmpeg with it. A PNG
   needs nothing beyond this package.
 
-## Status (2026-09-22)
+## Status
 
 <p align="center">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-87_passed%2C_3_skipped-2ea043?style=flat-square">
+  <img alt="Tests on a clone, 2026-09-22: 119 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--22-119_passed%2C_4_skipped-2ea043?style=flat-square">
   <img alt="Draw cost" src="https://img.shields.io/badge/draw-2--5_ms_per_frame-2ea043?style=flat-square">
   <img alt="Cost when unwatched" src="https://img.shields.io/badge/unwatched-193_ns_per_step-2ea043?style=flat-square">
 </p>
 
-Working end to end:
+As of 2026-09-22, this works end to end:
 
-- Replaying a recording, and comparing two recordings of one battle. 2407 ticks compared, 3
-  differ.
+- Replaying a recording, and comparing two recordings of one battle. The pair that ships with the
+  tests gives 395 ticks compared, 0 differ.
+- Drawing a building at the size the source says it stands on. When a source does not carry that
+  size, the viewer marks what it drew rather than guessing quietly: red corner ticks and a count
+  of how many sizes on screen are guesses. Live frames carry no size yet, so today they are all
+  guesses.
 - Traces from the engine. A 2001-frame self-play trace draws, and every frame of it passes the
   viewer's own consistency check.
 - Streaming from a running environment. 360 environment steps, 329 frames sent, 0 dropped.
-- The learning panel filled from a live stream. The status goes on its own port, whole in one
-  message, and is re-sent to a viewer that attaches in the middle of a run
-  (`docs/viewer-learning.png`).
+- The learning panel. A real training run's status reached the viewer on 2026-09-22. The status
+  goes on its own port, whole in one message, and is re-sent to a viewer that attaches in the
+  middle of a run.
 - Saving a picture or a clip to a file with no window, no display and no clock.
 - Every draw redraws the whole window and takes 2-5 ms at 24 pixels per tile. A replay needs 20
   a second, so that is far inside budget. That is why the viewer is Python and pygame and not a
@@ -357,9 +368,6 @@ window refusing to draw something.
 - A stream carries one frame per environment step, which is 10 ticks at the default settings, not
   one frame per tick. If you want every tick, record a trace with `frame_every_tick=True` and
   open that instead.
-- No training run has filled the learning panel yet. The path is tested end to end and the
-  screenshot above is a real live stream, but the numbers in it come from `tests/run_stream.py`,
-  which stands in for a learner. What is proven is the road, not the traffic.
 - A recording gives no unit a radius and no flying flag. So every unit is drawn at one default
   size, and air units look like ground units.
 - A trace or a stream gives no unit a path and no target. So the path and target overlays draw
@@ -373,14 +381,19 @@ window refusing to draw something.
 Tests:
 
 ```
-cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 94 passed, 3 skipped in a fresh clone (2026-09-22)
+cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 119 passed, 4 skipped on a clone (2026-09-22, 894cd10)
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
-The three skips are the tests that need a recording of a real battle, and the repo does not ship
-one. The run names them out loud so nobody mistakes a skip for a pass. With those recordings
-present the result is 97 passed. Without the `media` extra (`imageio-ffmpeg`, which
-`royaleviser.capture` needs only for mp4 and gif) two more tests skip.
+Three of those skips are tests that pin numbers only a recording of a real battle has. Those
+recordings are private, so your clone does not have them, and the run prints "SKIPPED, NOT
+PASSED" for each one so nobody mistakes a skip for a pass. The fourth needs a parity results
+file from RoyaleSim's replay harness. On the machine that has the recordings, the first three
+run and the count is 122 passed, 1 skipped.
+
+Without the `media` extra (`imageio-ffmpeg`), the mp4 and gif test skips as well, and it says so.
+Install it with `.venv\Scripts\python -m pip install -e "RoyaleViser[media]"` from the `Royale`
+folder. A PNG needs nothing extra.
 
 Read next: [`docs/internals.md`](docs/internals.md) for the frame model, the recording format,
 the stream protocol, the command line, the layout, the tests and the performance table;
