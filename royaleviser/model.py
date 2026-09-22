@@ -232,10 +232,9 @@ class Source(Protocol):
 # Card names
 # --------------------------------------------------------------------------
 
-# The live client's card table, register name -> [card id, elixir cost]: a copy of the one
-# RoyaleLive/cards.py generates from the 15.535.29 csv_logic (verified against client 16.402
-# for every card played on 2026-09-18/19). RoyaleLive/tests/test_viser_live.py keeps the two
-# files equal; ROYALEVISER_CARDS points ``Names.live()`` at another table.
+# The live client's card table, register name -> [card id, elixir cost], from the 15.535.29
+# card data and checked against client 16.402 for every card played on 2026-09-18/19
+# (RoyaleLive traces). ROYALEVISER_CARDS points ``Names.live()`` at another table.
 CARDS_JSON = Path(__file__).with_name("cards.json")
 CARDS_ENV = "ROYALEVISER_CARDS"
 # A card's other forms spawn under their own id while the hand keeps the register id. The one
@@ -354,7 +353,6 @@ def decode_learning(data: bytes) -> Learning:
 def is_learning(data: bytes) -> bool:
     """Whether a datagram is a learning status rather than a frame (see LEARNING_PREFIX)."""
     return data.startswith(LEARNING_PREFIX)
-
 
 
 def problems(frame: Frame) -> list[str]:

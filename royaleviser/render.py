@@ -856,9 +856,7 @@ class Renderer:
                 p.next_card or "?", (rx, y + 2 + self.line_h["tiny"] - 3), "tiny", t.ui_text
             )
 
-    def _draw_status_block(
-        self, frame: Frame, rect: Rect, tr: Transport, view: ViewState
-    ) -> int:
+    def _draw_status_block(self, frame: Frame, rect: Rect, tr: Transport, view: ViewState) -> int:
         """Draws the source, the transport lines and the match log; returns its bottom y."""
         t = self.theme
         x, y, w, h = rect

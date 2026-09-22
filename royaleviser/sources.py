@@ -120,9 +120,8 @@ LIVE_DEPLOY_STATE = 4  # behavior_state while a unit deploys (kind 14, ~18 ticks
 LIVE_UNDERGROUND_STATE = (
     6  # behavior_state while a unit tunnels from its king tower to the placement
 )
-# Tunnel speed in native units per tick, the same table as RoyaleLive's opponent tracker
-# (RoyaleLive/tests/test_viser_live.py keeps them equal), measured on
-# frames-auto-20260920-083112 (drill 300/tick, Miner 650/tick); the Mighty Miner's lane switch
+# Tunnel speed in native units per tick, measured on client 16.402 (RoyaleLive traces,
+# frames-auto-20260920-083112): drill 300/tick, Miner 650/tick. The Mighty Miner's lane switch
 # is given the Miner's speed and has not been seen in a capture yet.
 LIVE_TUNNEL_SPEED = {27000013: 300, 26000032: 650, 26000065: 650}
 LIVE_FROZEN_FRAMES = 20  # one second of the same tick at the end of a capture: results screen
