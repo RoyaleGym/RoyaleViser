@@ -816,6 +816,9 @@ def test_a_status_too_big_for_one_datagram_is_counted_not_truncated() -> None:
         time.sleep(0.01)
     assert src.learning == a_status()  # the small one arrived
     assert learner.publish(huge) is False and learner.dropped == 1
+    for _ in range(3):  # a status nobody can carry is spent, not re-counted every second
+        learner.pump()
+    assert learner.dropped == 1
     src.frame()
     assert src.learning == a_status()  # still the last one that fitted
     src.close()
@@ -857,7 +860,9 @@ def test_a_viewer_attaching_mid_run_is_sent_the_last_status() -> None:
     assert learner.status == a_status()  # kept all the same
     src = sources.StreamSource(*frames.address, learner.address)
     assert status_of(src, learner) == a_status()
-    while learner.pump():  # a few copies, because a datagram can be lost on the way
+    for _ in range(sources.LEARNING_REPEATS + 2):  # bounded: a spin here would hang the suite
+        if not learner.pump():
+            break
         src.frame()
     assert learner.sent == sources.LEARNING_REPEATS
     assert learner.pump() is False  # then quiet until the next status or the next viewer
@@ -873,8 +878,9 @@ def test_a_viewer_that_was_away_is_told_again() -> None:
     src = sources.StreamSource("127.0.0.1", 9999, learner.address)  # a learner, no engine
     learner.publish(a_status())
     assert status_of(src, learner) == a_status()
-    while learner.pump():  # everything this viewer is owed
-        pass
+    for _ in range(sources.LEARNING_REPEATS + 2):  # bounded, as above
+        if not learner.pump():
+            break
     told = learner.sent
     learner._last_hello -= 2 * sources.STREAM_ATTACH_TIMEOUT_S  # away, then back on one port
     src.heartbeat()

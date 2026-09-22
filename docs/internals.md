@@ -143,7 +143,7 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results. In a fresh clone, `pytest -q` gives **92 passed, 3
+The suite has two correct results. In a fresh clone, `pytest -q` gives **94 passed, 3
 skipped**: the capture tests run on the synthetic recordings, and the three tests that pin
 numbers only a recording of a real battle has (2407 ticks both seats hold, 2404 equal, 3
 differ; the Goblin Drill of tick 2974 surfacing 73 ticks later) skip, each with a reason
@@ -151,7 +151,7 @@ beginning `SKIPPED, NOT PASSED`, and `tests/conftest.py` prints them by name at 
 run. With `ROYALELIVE_REPORTS` pointing at a folder that holds
 `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
 `frames-auto-20260920-083112-A.jsonl` (or their `.jsonl.gz`; the default folder is
-`tests/captures`, gitignored) the result is **95 passed**. Without the `media` extra
+`tests/captures`, gitignored) the result is **97 passed**. Without the `media` extra
 (`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) two more skip.
 
 ## The stream protocol
@@ -257,16 +257,26 @@ A key that is neither a field name nor `extra` is **ignored**: a misspelled fiel
 em dash of the field that stayed unset, rather than showing up as a wrong number somewhere
 else.
 
-**How far apart the numbers really are.** Measured 2026-09-22 on the laptop profile
-(RustEngine, three worker processes), from both ends independently: an iteration is **518 to
-544 seconds** of wall clock over three of them, at 64 environment steps a second, and the
-environment publishes frames for only the first half minute — 228 frames, no drops — then
-nothing until the next rollout. The environment's own timers agree from the other side: the
-collection phase is 13 to 19 seconds and the update phase is 84 to 98 per cent of the
-iteration. So a viewer on a real run sees a board that stands still for eight minutes at a
-time, and a panel that moves once in that window. That is the separate datagram earning its keep, and it is also why the
-panel prints how old the status is beside its heading: at this cadence a run that is working
-and a run that died forty minutes ago look identical without it.
+**How far apart the numbers really are, and where the time goes.** Measured 2026-09-22 on
+the laptop profile (RustEngine, three worker processes), from both ends independently: an
+iteration is **518 to 544 seconds** of wall clock on a quiet machine, and **806 seconds** on
+a saturated one — two `cargo` builds, a `rustc` and 36 python processes, 212 MB free — so a
+cadence number is only a fact with the machine's state attached.
+
+The decomposition is the durable part, and it is the surprise. Timed from the viewer's side
+across two iterations: the environment published **228 frames over about 40 seconds**, then
+sent nothing for **765 seconds** before the next status arrived. The environment's own timers
+agree: collection is 13 to 19 seconds and the update is 84 to 98 per cent of the iteration,
+and the engine itself collects at roughly 1800 environment steps a second — the 64 steps a
+second an iteration averages is the UPDATE dragging the average down, not the engine being
+slow.
+
+So a viewer on a real run sees a board that stands still for eight to thirteen minutes at a
+time, and a panel that moves once in that window. **The board is still because the learner is
+thinking, not because the engine is slow** — different findings, owned by different people.
+That is the separate datagram earning its keep, and it is why the panel prints how old the
+status is beside its heading: at this cadence a run that is working and a run that died forty
+minutes ago look identical without it, and the still panel is the NORMAL case.
 
 **Two runs on one machine collide, and the panel cannot tell you so.** The ports are fixed,
 so the second run's learner finds the status port taken and publishes nothing — while its
@@ -348,7 +358,7 @@ the renderer computes no size of its own and everything is an integer.
 
 | Column | Width at 24 px/tile | Contents |
 |---|---|---|
-| dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px cards with their cost, dimmed when it is more than the player's elixir), its elixir bar (thousandths) and next card; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading reading "no learner attached" while none does, and the rows that do not fit the column left out); the bottom player's elixir bar and next card, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
+| dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px cards with their cost, dimmed when it is more than the player's elixir), its elixir bar (thousandths) and next card; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading naming the port it is listening on while nothing is there ("no learner on 127.0.0.1:9871" for a stream, "no learner attached" for a source that names no learner at all), and the rows that do not fit the column left out); the bottom player's elixir bar and next card, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
 | arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, the crown towers' no-deploy rectangles, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the crowns and clock in a small box top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
 | inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, then whatever else the source carries under "extra"), then the compare lines and the `H` help footer |
 
@@ -377,10 +387,13 @@ capture(src, "clip.gif", ticks=(0, 2400, 8), scale=16, crop="left", fps=20)
   through the source's `index_at_tick` — not frame indices. Without it the whole source is
   captured. Use a tick *step* rather than a low `fps` to shorten a long clip: stepping keeps
   the motion smooth where a low frame rate makes it stutter.
-- **The output is deterministic.** An image in a README that changes when nothing changed is
-  a diff nobody can review, so the two things on screen that follow the wall clock — the
-  draw time and the frame rate, and the LIVE pill with them — are frozen. `live_timing=True`
-  puts them back for a shot whose subject IS the timing.
+- **The output is deterministic, always.** An image in a README that changes when nothing
+  changed is a diff nobody can review, so the two things that follow the wall clock — the
+  draw time and the frame rate — are zero in every capture, and the LIVE pill is never
+  drawn: a capture replays a file rather than watching an engine. `live_timing=True` adds
+  the SOURCE's own status line ("frame 412/2400 ..."), which a replay builds from what it
+  read rather than from a clock, so that is reproducible too. A shot whose subject is the
+  timing of a live stream is not a capture; `tests/run_stream.py --shot` takes that one.
 - **`crop`** is `full`, `board` (the arena alone), `left` (everything up to where the
   inspector starts, which keeps the dashboard and the timeline), or a rectangle. A small
   `scale` does NOT drop the inspector by itself: the compact layout is chosen from a geometry
@@ -402,8 +415,7 @@ media. Media that goes into a README comes from an engine trace or from `tests/s
 and that guarantee lives in whoever writes the shot list, not in this function. Two things
 worth saying in a caption while you are there: the scripted battle is a *script*, whose units
 move at six times their scripted speed in the recording form, so it is honest as "the window"
-and dishonest as "how the engine plays"; and a capture with `live_timing=True` is the one
-output that is not reproducible, by design.
+and dishonest as "how the engine plays".
 
 ## The public surface other front ends use
 

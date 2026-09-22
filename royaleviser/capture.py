@@ -17,8 +17,11 @@ WHY THIS IS NOT ``app.run``
 WHAT IS FROZEN, AND WHY
     The status block prints the draw time and the frames per second, which differ every run.
     An image in a README that changes when nothing changed is a diff nobody can review, so a
-    capture zeroes both of those, and the LIVE pill with them. ``live_timing=True`` puts them
-    back, for the one shot whose subject IS the timing.
+    capture always zeroes both, and never draws the LIVE pill: a capture is a replay of a
+    file, not a window onto a running engine. Every capture is reproducible, including with
+    ``live_timing=True`` -- which restores only the SOURCE's own status line ("frame 412/2400
+    ...", built from the file rather than from a clock). A shot whose subject is the timing
+    of a live stream is not a capture at all; ``tests/run_stream.py --shot`` takes that one.
 
 WHAT IT COSTS TO CARRY
     PNG needs nothing beyond this package. mp4 and gif are encoded by ffmpeg, which arrives
@@ -33,6 +36,8 @@ to arrive; ``tests/run_stream.py --shot`` is the way to photograph a live stream
 
 from __future__ import annotations
 
+import dataclasses
+import errno
 import os
 import subprocess
 from collections.abc import Iterator, Sequence
@@ -122,11 +127,17 @@ def _renderer_for(source: Any, scale: int, theme: Theme) -> Renderer:
 
 
 def _transport(source: Any, index: int, live_timing: bool) -> Transport:
-    """What the status block reads. Timing is zero unless the shot is about the timing."""
+    """What the status block reads.
+
+    The draw time and the frame rate are ALWAYS zero here and the LIVE pill never drawn: a
+    capture reads a file, and a number that moves with the wall clock would make the same
+    capture produce different bytes. ``live_timing`` restores only the source's own status
+    line, which a replay builds from what it read rather than from a clock, so a capture
+    stays reproducible either way.
+    """
     return Transport(
         source_name=getattr(source, "name", ""),
         source_status=source.status() if live_timing else "",
-        live=live_timing and bool(getattr(source, "live", False)),
         index=index,
         length=getattr(source, "length", None),
         draw_ms=0.0,
@@ -175,7 +186,9 @@ def draw_frames(
             "seek; photograph one with tests/run_stream.py --shot, or record a trace and "
             "capture that"
         )
-    view = view or ViewState()
+    # A copy: a capture sets compare_frame and the compare text on it, and a caller that
+    # reuses one ViewState for several shots must not inherit the last one's ghost.
+    view = dataclasses.replace(view) if view is not None else ViewState()
     renderer = _renderer_for(source, scale, theme)
     rect = crop_rect(renderer.layout, crop)
     for index in indices:
@@ -239,9 +252,14 @@ def _encode(frames: Iterator[tuple[pygame.Surface, int]], out: Path, fps: int) -
         proc.stdin.write(_to_bytes(surface))
         for surf, _ in frames:
             proc.stdin.write(_to_bytes(surf))
-        proc.stdin.close()
-    except BrokenPipeError:  # ffmpeg died; its own words are more useful than ours
-        pass
+    except OSError as exc:
+        # ffmpeg died mid-stream, and how that reaches us depends on how it died: a clean
+        # exit gives BrokenPipeError, a killed or stdin-closed child gives EINVAL on Windows.
+        # Either way its own words are more useful than ours, so fall through to communicate.
+        if not isinstance(exc, BrokenPipeError) and exc.errno != errno.EINVAL:
+            raise
+    # communicate() closes stdin itself, on both platforms, guarding the flush and the close.
+    # Closing it here first would make its flush raise ValueError on POSIX.
     _, err = proc.communicate()
     if proc.returncode != 0:
         said = err.decode(errors="replace")[-600:]
@@ -273,8 +291,9 @@ def capture(
     tick, and ``view`` carries everything else the window can be told to show -- the seat,
     the overlays, and ``hover_uid`` to pin a unit in the inspector.
 
-    The same source and arguments give the same bytes: the only thing on screen that moves
-    with the wall clock is frozen (see ``live_timing``).
+    The same source and arguments give the same bytes, always: nothing on screen moves with
+    the wall clock. ``live_timing=True`` adds the source's own status line, which is built
+    from the file and is reproducible too.
     """
     out = Path(out)
     if out.suffix in MEDIA_SUFFIXES:
@@ -293,6 +312,8 @@ def capture(
     if out.suffix != ".png":
         raise ValueError(f"{out.name}: capture writes .png, .mp4 or .gif, not {out.suffix!r}")
     indices = tick_indices(source, ticks)
+    if not indices:
+        raise ValueError("nothing to capture: the tick range chose no frames")
     out.parent.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for n, (surface, _) in enumerate(

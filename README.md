@@ -145,8 +145,10 @@ The whole signature:
 - `crop` is `full`, `board`, `left`, or a rectangle. `left` drops the inspector column.
 - `compare` ghosts a second source at the same tick. `view` carries the seat, the overlays and
   `hover_uid`, which pins a unit in the inspector.
-- The same source and the same arguments give you the same bytes. The two numbers on screen that
-  move with the wall clock are frozen, unless you pass `live_timing=True`.
+- The same source and the same arguments give you the same bytes, always. The two numbers that
+  move with the wall clock — the draw time and the frame rate — are zero in every capture, and
+  the LIVE pill is never drawn: a capture replays a file. `live_timing=True` adds the source's
+  own status line, which is built from the file, so it is reproducible too.
 - PNG needs nothing extra. mp4 and gif are encoded by ffmpeg, which comes with the optional
   `media` extra.
 
@@ -246,8 +248,8 @@ While a viewer is attached, one msgpack datagram goes out per step. Measured: 2.
 
 That is a real stream, not the scripted battle. Another process is stepping four self-play
 battles on the engine and publishing game 0, and everything in the window arrived over the
-socket. Two things in it are worth reading. The learner panel says "no learner attached",
-because nothing is training: that is today's honest picture and it is the gap listed below.
+socket. Two things in it are worth reading. The learner panel names the port it is
+listening on and says nothing is there, because nothing is training: that is today's honest picture and it is the gap listed below.
 And the status line admits 86 dropped frames out of 116, which is what a busy machine looks
 like. Four other jobs were running when this was taken. The viewer drops frames rather than
 slowing the environment down, which is the trade it is built to make.
@@ -303,7 +305,7 @@ git clone https://github.com/RoyaleGym/RoyaleViser.git
 git clone https://github.com/RoyaleGym/RoyaleLearn.git
 python -m venv .venv                                                    # Python 3.12
 .venv\Scripts\python -m pip install maturin pytest hypothesis ruff
-cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py && ..\.venv\Scripts\python tools\extract_globals.py && cd ..   # generates RoyaleSim/data/derived/
+cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json && ..\.venv\Scripts\python tools\extract_globals.py && cd ..   # generates RoyaleSim/data/derived/
 cd RoyaleSim && ..\.venv\Scripts\maturin develop --release && cd ..     # builds the engine into the venv. Give it a few minutes and some free memory.
 .venv\Scripts\python -m pip install -e RoyaleGym
 .venv\Scripts\python -m pip install -e RoyaleViser
@@ -368,13 +370,13 @@ window refusing to draw something.
 Tests:
 
 ```
-cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 87 passed, 3 skipped in a fresh clone (2026-09-22)
+cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 94 passed, 3 skipped in a fresh clone (2026-09-22)
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
 The three skips are the tests that need a recording of a real battle, and the repo does not ship
 one. The run names them out loud so nobody mistakes a skip for a pass. With those recordings
-present the result is 95 passed. Without the `media` extra (`imageio-ffmpeg`, which
+present the result is 97 passed. Without the `media` extra (`imageio-ffmpeg`, which
 `royaleviser.capture` needs only for mp4 and gif) two more tests skip.
 
 Read next: [`docs/internals.md`](docs/internals.md) for the frame model, the recording format,

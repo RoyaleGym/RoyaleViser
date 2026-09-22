@@ -970,8 +970,9 @@ class StreamSource:
             try:
                 data, _addr = self._sock.recvfrom(STREAM_MAX_DATAGRAM)
             except (BlockingIOError, ConnectionResetError, OSError):
-                # Empty, or a stack that reports a closed port the socket asked not to hear
-                # about (``udp_socket``); either way the rest waits for the next call.
+                # Empty, or Windows reporting an ICMP port-unreachable from an earlier hello
+                # to a publisher or a learner that is not running. Whatever was queued behind
+                # it is still queued, and the next call gets it.
                 break
             if is_learning(data):
                 status = data
@@ -1103,8 +1104,11 @@ class LearningPublisher:
         A frame lost on the way is replaced a few milliseconds later; a status lost on the
         way is the panel standing still for a whole iteration, and a rollout can fill the
         viewer's receive queue with frames just as the one status of that minute arrives. So
-        each viewer is sent the standing status LEARNING_REPEATS times, a heartbeat apart,
-        and then the sender falls silent until the next status or the next viewer.
+        a viewer is sent the standing status LEARNING_REPEATS times, a heartbeat apart, and
+        then the sender falls silent until the next status or the next viewer. NOTE that the
+        budget follows the ONE peer this sender keeps, the address of the last hello: two
+        viewers heart-beating at once take it in turns, so it keeps sending and each of them
+        sees some of the statuses. One viewer per learner is the shape this protocol has.
 
     One message is the whole status (``model.Learning``): the viewer replaces rather than
     merges, so a field the learner stops sending goes back to an em dash rather than standing
@@ -1212,15 +1216,19 @@ class LearningPublisher:
         already decided that a viewer is there."""
         if self._closed or self._peer is None or self._status is None:
             return False
+        # A status that cannot be carried is SPENT for this viewer, exactly as a sent one is
+        # -- ``_sent_to`` as well as the repeat budget. Counting the drop without spending it
+        # would re-encode the same bad status every second and make ``dropped`` a count of
+        # elapsed seconds rather than of statuses nobody could carry.
         try:
             data = encode_learning(self._status)
         except (TypeError, ValueError):  # a value no msgpack type fits: the learner's bug
             self.dropped += 1
-            self._repeats = 0
+            self._sent_to, self._repeats = self._peer, 0
             return False
         if len(data) > STREAM_MAX_DATAGRAM:  # a status this big is an ``extra`` gone wrong
             self.dropped += 1
-            self._repeats = 0
+            self._sent_to, self._repeats = self._peer, 0
             return False
         try:
             self._sock.sendto(data, self._peer)

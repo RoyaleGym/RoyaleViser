@@ -160,7 +160,11 @@ def field_text(value: float | int | None, fmt: str) -> str:
     if value == 0:
         return format(abs(value), fmt)
     text = format(value, fmt)
-    return f"{value:.1e}" if not text.strip("0.,-%") else text
+    if text.strip("0.,-%"):
+        return text
+    # Keep the unit the format carried: a percent row whose value rounds to nothing must not
+    # come back as a bare fraction, or the number silently changes by a hundred.
+    return f"{value * 100:.1e}%" if fmt.endswith("%") else f"{value:.1e}"
 
 
 def extra_text(value: Any) -> str:
@@ -175,7 +179,9 @@ def extra_text(value: Any) -> str:
         return f"{value:,d}"
     if isinstance(value, float):
         return f"{value:.4g}"
-    return str(value)
+    # Never empty: an empty value is how this panel marks a group heading, so a learner's row
+    # with nothing in it would draw as one.
+    return str(value) or UNSET
 
 
 def age_text(seconds: float | None) -> str:
@@ -940,10 +946,14 @@ class Renderer:
                 whole.extend(block)
                 continue
             for row in block:
-                free = sum(max(0, rows - len(c)) for c in cols)
-                if free == 0 or (not row[1] and free < 2):
+                # A heading needs its own row AND one under it in the SAME column: a heading
+                # alone at the foot of a column says nothing, and rows that carried on in the
+                # other column would read as belonging to the group above them.
+                need = 1 if row[1] else 2
+                target = next((c for c in cols if rows - len(c) >= need), None)
+                if target is None:
                     return cols
-                next(c for c in cols if len(c) < rows).append(row)
+                target.append(row)
         return cols
 
     def learning_lines(self, ln: Learning | None) -> list[tuple[str, str]]:
@@ -998,11 +1008,13 @@ class Renderer:
                         (cx + col_w - 8, ry + lh // 2),
                     )
                     continue
+                shown = fit_text(label, self.fonts["tiny"], col_w - 52)
+                self.blit_text(shown, (cx + 6, ry), "tiny", t.ui_dim)
+                # The value gets what the label leaves: a learner names its own extras and
+                # supplies their values, and a long one would otherwise print over its label.
+                room = col_w - 14 - self.fonts["tiny"].size(shown)[0]
                 self.blit_text(
-                    fit_text(label, self.fonts["tiny"], col_w - 52), (cx + 6, ry), "tiny", t.ui_dim
-                )
-                self.blit_text(
-                    fit_text(value, self.fonts["tiny"], col_w - 8),
+                    fit_text(value, self.fonts["tiny"], max(16, room)),
                     (cx + col_w - 6, ry),
                     "tiny",
                     t.ui_text if value != UNSET else t.ui_dim,
@@ -1178,8 +1190,19 @@ def dashed_line(
         y += step_y
 
 
+#: C0 and C1 control characters, dropped from every string the panel draws. A learner names
+#: its own ``extra`` rows and its own run, and a NUL in a name is a crash in the font layer.
+CONTROL_CHARS = dict.fromkeys(list(range(0x00, 0x20)) + list(range(0x7F, 0xA0)))
+
+
 def fit_text(s: str, font: pygame.font.Font, width: int) -> str:
-    """``s`` shortened with an ellipsis so it renders within ``width`` pixels."""
+    """``s`` shortened with an ellipsis so it renders within ``width`` pixels.
+
+    Control characters are dropped first: a learner names its own rows and its own run, and
+    a NUL reaching the font layer takes the window down. One edit here covers every string
+    the panel draws rather than trusting each call site.
+    """
+    s = s.translate(CONTROL_CHARS)
     if font.size(s)[0] <= width:
         return s
     lo, hi = 0, len(s)

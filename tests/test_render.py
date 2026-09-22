@@ -464,7 +464,9 @@ def test_a_number_that_rounds_away_to_nothing_says_how_small_it_is() -> None:
 
     assert field_text(-3.2e-05, ".3f") == "-3.2e-05"
     assert field_text(4e-07, ".4f") == "4.0e-07"
-    assert field_text(1e-05, ".1%") == "1.0e-05"
+    # A percent row keeps its unit, or the number silently changes by a hundred.
+    assert field_text(1e-05, ".1%") == "1.0e-03%"
+    assert field_text(0.0004, ".1%") == "4.0e-02%"
     assert field_text(0.0, ".3f") == "0.000"  # an honest zero is a zero
     assert field_text(-0.0, ".3f") == "0.000"  # and never a negative one
     assert field_text(0, "d") == "0"
@@ -489,10 +491,12 @@ def test_an_empty_panel_names_the_port_it_is_listening_on() -> None:
 
 def test_the_app_tells_the_panel_where_a_learner_would_be_heard() -> None:
     pygame.init()
-    src = sources.StreamSource("127.0.0.1", 9870, ("127.0.0.1", 9871))
+    # NOT the default ports: a test that heart-beats 9870 half-attaches to whatever run is
+    # using them, and steals the publisher's peer from a real viewer.
+    src = sources.StreamSource("127.0.0.1", 9998, ("127.0.0.1", 9999))
     a = App([src], ViewState())
     a.pull()
-    assert a.transport.learning_peer == "127.0.0.1:9871" and a.transport.learning is None
+    assert a.transport.learning_peer == "127.0.0.1:9999" and a.transport.learning is None
     src.close()
     plain = ListSource(FRAMES, "synthetic")  # a replay has no learner and says nothing of one
     b = App([plain], ViewState())
@@ -535,3 +539,38 @@ def test_the_app_ages_the_status_from_when_it_arrived() -> None:
     assert a.transport.learning_age_s is not None and a.transport.learning_age_s < 5
     src.close()
     learner.close()
+
+
+def test_a_group_heading_never_lands_without_its_rows() -> None:
+    """Packing a group into the first column with room can strand a heading: the heading fits
+    where the rows do not, and the rows then read as belonging to the group above it."""
+    ln = Learning(run="r", iteration=1, extra={"rating": 1183.4, "rating se": 12.7})
+    r = Renderer(scale=24)
+    headings = {h for h, _ in LEARNING_GROUPS} | {"extra"}
+    for rows in range(1, 40):
+        cols = r.learning_columns(ln, rows)
+        assert all(len(c) <= rows for c in cols), rows
+        for col in cols:
+            for i, (label, value) in enumerate(col):
+                if not value:  # a heading
+                    assert label in headings
+                    assert i + 1 < len(col), f"heading {label!r} alone at rows={rows}"
+                    assert col[i + 1][1], f"heading {label!r} followed by a heading, rows={rows}"
+    fixed = sum(len(f) for _, f in LEARNING_GROUPS)
+    headings = len(LEARNING_GROUPS) + 1  # the three fixed groups and the learner's own
+    assert len(r.learning_lines(ln)) == fixed + headings + 2
+
+
+def test_nothing_a_learner_names_can_take_the_window_down() -> None:
+    """The learner supplies its run name, its extra names and their values. None of it is
+    trusted: a control character in any of them used to reach the font layer."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    nasty = Learning(
+        run="ppo\x00-0007\r\n",
+        iteration=1420,
+        extra={"a\x00b": "x\x07y", "": "", "long": "y" * 400, "nested": {"a": 1}},
+    )
+    r.draw(FRAMES[600], ViewState(), Transport(source_name="s", learning=nasty))  # no raise
+    assert "\x00" not in fit_text("a\x00b", r.fonts["tiny"], 500)
+    assert extra_text("") == UNSET  # an empty value would draw as a group heading
+    assert extra_text({"a": 1}) == "{'a': 1}"

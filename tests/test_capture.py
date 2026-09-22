@@ -20,9 +20,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pytest
 
 from royaleviser import capture as cap
+from royaleviser import sources
 from royaleviser.render import Renderer, ViewState
 from royaleviser.sources import STREAM_HOST, StreamSource
-from synthetic import ListSource, battle
+from synthetic import ListSource, battle, fixture_paths
+
+SYNTH_A = fixture_paths()[0]
 
 FRAMES = battle()
 HAS_FFMPEG = importlib.util.find_spec("imageio_ffmpeg") is not None
@@ -81,13 +84,22 @@ def test_live_timing_is_the_deliberate_exception() -> None:
 
 
 def test_ticks_are_battle_ticks_not_frame_indices() -> None:
+    """On a source whose ticks are its indices the distinction is invisible, so this uses a
+    recording where they differ: it opens on the first active frame, so index 2 is tick 300."""
+    rec = sources.open_source(str(SYNTH_A))
+    ticks = (300, 900, 300)
+    indices = cap.tick_indices(rec, ticks)
+    assert indices == [rec.index_at_tick(t) for t in (300, 600)] == [300, 417]
+    assert indices != list(range(*ticks))  # a tick past the battle is not its own index
+    assert max(indices) < rec.length
+    drawn = [i for _, i in cap.draw_frames(rec, indices, scale=12)]
+    assert drawn == indices
+    assert rec.frame().tick == 394  # the last tick it holds, not the 600 that was asked for
+    rec.close()
     src = source()
-    assert cap.tick_indices(src, (600, 604, 2)) == [src.index_at_tick(t) for t in (600, 602)]
     assert cap.tick_indices(src, None) == list(range(len(FRAMES)))
     with pytest.raises(ValueError, match="step must be positive"):
         cap.tick_indices(src, (0, 10, 0))
-    surfaces = list(cap.draw_frames(src, cap.tick_indices(src, (900, 901, 1)), scale=16))
-    assert len(surfaces) == 1 and src.frame().tick == 900
 
 
 def test_a_live_stream_is_refused_rather_than_photographed_at_random(tmp_path: Path) -> None:
@@ -139,10 +151,15 @@ def test_a_gif_and_an_mp4_come_out_playable(tmp_path: Path) -> None:
     assert mp4[0].read_bytes()[4:8] == b"ftyp" and mp4[0].stat().st_size > 1_000
 
 
-@needs_ffmpeg
 def test_an_empty_range_is_an_error_not_an_empty_file(tmp_path: Path) -> None:
+    """Silently writing nothing is the worst answer: a shot list would carry on believing it
+    had the picture. Both formats say so, and the png path needs no ffmpeg to say it."""
     with pytest.raises(ValueError, match="chose no frames"):
-        cap.capture(source(), tmp_path / "none.gif", ticks=(600, 600, 1))
+        cap.capture(source(), tmp_path / "none.png", ticks=(600, 600, 1))
+    assert not list(tmp_path.iterdir())
+    if HAS_FFMPEG:
+        with pytest.raises(ValueError, match="chose no frames"):
+            cap.capture(source(), tmp_path / "none.gif", ticks=(600, 600, 1))
 
 
 def test_the_media_extra_names_itself_when_it_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
