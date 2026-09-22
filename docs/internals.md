@@ -1,9 +1,9 @@
 # Internals
 
-The frame model, the recording format, the stream protocol, the command line, the window
-layout, the key table, what the viewer costs, how it is tested and what it cannot draw. The
-README covers usage; this page is for people changing the viewer or writing something that
-feeds it.
+This page is for people changing the viewer, or writing something that feeds it. The README
+covers usage. Here you get the frame model, the recording format, the stream protocol, the
+command line, the window layout, the key table, what the viewer costs, how it is tested and
+what it cannot draw.
 
 ## One frame model, three sources
 
@@ -105,24 +105,25 @@ in `Frame.meta`; the other events (start/stop lines) carry no battle state.
 The converters (`sources.capture_unit`, `capture_spell`, `capture_player`, `capture_frame`,
 `CaptureEvents`) are exported, so another front end can build the same `Frame` rows from
 the same fields. `CaptureSource` reads the whole file up front and keeps the raw lines of
-the active frames indexed by tick; a frame is parsed when it is looked at (a bounded cache
-of `PARSE_CACHE` = 200 parsed frames), which is why a 40 MB recording opens in about 0.2 s
-and a seek costs one `json.loads`. Events (spawns, deaths, the local player's plays) are
+the active frames indexed by tick. A frame is parsed when it is looked at, through a bounded
+cache of `PARSE_CACHE` = 200 parsed frames. That is why a 40 MB recording opens in about
+0.2 s and a seek costs one `json.loads`. Events (spawns, deaths, the local player's plays) are
 derived forward from consecutive frames the first time the timeline passes them and cached
 per index, so seeking backwards still shows the events up to that frame.
 
 ## Comparing two sources
 
-A second source (a second path, or `--compare PATH`) is ghosted onto the board as hollow
-white shapes at the primary's tick and compared tick by tick. The comparison is on the
-multiset of `(team, name, x, y, hp)` over one tick's units: for the two seats of one battle
-that multiset must be equal, since entity ids differ between clients but nothing else does.
+The window ghosts a second source (a second path, or `--compare PATH`) onto the board as
+hollow white shapes at the primary's tick, and compares it tick by tick. The comparison is on
+the multiset of `(team, name, x, y, hp)` over one tick's units, that is on the bag of those
+tuples with order ignored and duplicates kept: for the two seats of one battle that multiset
+must be equal, since entity ids differ between clients but nothing else does.
 The panel prints `tick T: N entities, M differ` and the running `K ticks compared, D differ`
 (`app.Compare`; a replay seeks the second source to the exact tick, live sources are matched
 through a 60-tick buffer).
 
 Measured on the two seats of one recorded battle (client 16.402): 2404 ticks compared, 3
-differ — all three on tap ticks, where the two recordings disagree for a single frame. An
+differ. All three are on tap ticks, where the two recordings disagree for a single frame. An
 engine trace is compared against the recording it was calibrated on in exactly the same way,
 in milli-tiles.
 
@@ -278,13 +279,13 @@ already holds a `Frame`.
 2. An environment calls `publish` once per `reset()` / `step()`, and only when it has been
    handed a publisher: `ClashParallelEnv(..., viser=ViserPublisher())`, which reads no
    environment variable of its own, the default `None` costing one `if`. The vectorised env
-   is what reads `ROYALEVISER=host:port` — `ClashSelfPlayVecEnv(..., viser="env")`, the
+   is what reads `ROYALEVISER=host:port`. `ClashSelfPlayVecEnv(..., viser="env")`, the
    default, binds one publisher from it and hands it to game 0 (`None` never publishes, and
    a `ViserPublisher` is used as given). A viewer watches one battle, and N games each
    binding its one fixed port is an `OSError`, so the choice belongs where the games are.
    While no heartbeat has arrived in `ATTACH_TIMEOUT_S` (3 s), `publish` returns after one
-   clock read — 193 ns per call, measured 2026-09-21 over 200k calls, best of three — and it
-   polls its socket for heartbeats at most once a second.
+   clock read, 193 ns per call, measured 2026-09-21 over 200k calls, best of three. It polls
+   its socket for heartbeats at most once a second.
 3. While attached it sends one msgpack datagram per call to the last heartbeat's address:
    measured 2.6 KB for 18 units (12 troops and the 6 towers, which are units of their own
    kind, not a list beside them), 11 KB for 60. A datagram over 65507
@@ -303,7 +304,7 @@ already holds a `Frame`.
    than nothing. (Measured by the training session; its log carries the raw iterations.)
 4. `royalegym.viser.frame_dict` builds the wire dict from a `BattleState`;
    `sources.frame_from_state` turns it into a `Frame`, and `TraceSource` builds its rows the
-   same way — so a trace and a stream of one battle draw identically. Spawn and death event
+   same way, so a trace and a stream of one battle draw identically. Spawn and death event
    lines come from uid diffing, play lines from the step's accepted deploys.
    `RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's
    decoder, so a drift between the two ends fails there rather than in someone's window.
@@ -321,13 +322,13 @@ is moving, so they do not ride on a `Frame`. Putting them there would have repea
 numbers on every datagram, tied them to the environment's clock, and made the panel go quiet
 whenever the board did.
 
-1. `sources.LearningPublisher` binds `host:port` — by default the frames' port **plus one**
-   (`sources.learning_endpoint`, 9871 against the default 9870), because two processes
-   cannot bind one port. `--learning HOST:PORT` moves it.
+1. `sources.LearningPublisher` binds `host:port`. By default that is the frames' port
+   **plus one** (`sources.learning_endpoint`, 9871 against the default 9870), because two
+   processes cannot bind one port. `--learning HOST:PORT` moves it.
 2. The viewer says hello to both addresses from its one socket, so the learner attaches on
    the same heartbeat rule as the frame publisher and sends nothing until a viewer is there.
-   Detached, `publish` keeps the status and returns after one clock read — 435 ns per call,
-   measured 2026-09-21 over 200k calls, best of three — and the socket is polled at most once
+   Detached, `publish` keeps the status and returns after one clock read, 435 ns per call,
+   measured 2026-09-21 over 200k calls, best of three. It polls the socket at most once
    a second. It is not in anybody's tick loop either way: it is the learner's own process,
    and the environment's publisher is untouched by any of this.
 3. A status datagram is msgpack `{"learning": {...}}`: the one-key map makes its first bytes
@@ -380,28 +381,36 @@ em dash of the field that stayed unset, rather than showing up as a wrong number
 else.
 
 **How far apart the numbers really are, and where the time goes.** Measured 2026-09-22 on
-the laptop profile (RustEngine, three worker processes), from both ends independently: an
-iteration is **518 to 544 seconds** of wall clock on a quiet machine, and **806 seconds** on
-a saturated one — two `cargo` builds, a `rustc` and 36 python processes, 212 MB free — so a
-cadence number is only a fact with the machine's state attached.
+the laptop profile (RustEngine, three worker processes, minibatch 512), from both ends
+independently: an iteration is **518 to 544 seconds** of wall clock on a quiet machine, and
+**806 seconds** on a saturated one, which was running two `cargo` builds, a `rustc` and 36
+python processes with 212 MB free. A cadence number is only a fact with the machine's state
+attached.
+
+The minibatch is part of that state, and it has moved since. The shipped default is 256
+(RoyaleLearn commit 582ce96), because a minibatch of 512 does not fit a 4 GB card and spills
+into system memory. Nobody has timed the current default. So the timings here and the cadence
+below stand as they were measured, on 2026-09-22 at a minibatch of 512, and a reader on the
+default will not reproduce them.
 
 The decomposition is the durable part, and it is the surprise. Timed from the viewer's side
 across two iterations: the environment published **228 frames over about 40 seconds**, then
 sent nothing for **765 seconds** before the next status arrived. The environment's own timers
 agree: collection is 13 to 19 seconds and the update is 84 to 98 per cent of the iteration,
-and the engine itself collects at roughly 1800 environment steps a second — the 64 steps a
+and the engine itself collects at roughly 1800 environment steps a second. The 64 steps a
 second an iteration averages is the UPDATE dragging the average down, not the engine being
 slow.
 
-So a viewer on a real run sees a board that stands still for eight to thirteen minutes at a
-time, and a panel that moves once in that window. **The board is still because the learner is
-thinking, not because the engine is slow** — different findings, owned by different people.
-That is the separate datagram earning its keep, and it is why the panel prints how old the
-status is beside its heading: at this cadence a run that is working and a run that died forty
-minutes ago look identical without it, and the still panel is the NORMAL case.
+So a viewer on a real run, at those settings, sees a board that stands still for eight to
+thirteen minutes at a time, and a panel that moves once in that window. **The board is still
+because the learner is thinking, not because the engine is slow.** Those are different
+findings, owned by different people. That is the separate datagram earning its keep, and it
+is why the panel prints how old the status is beside its heading: at this cadence a run that
+is working and a run that died forty minutes ago look identical without it, and the still
+panel is the NORMAL case.
 
 **Two runs on one machine collide, and the panel cannot tell you so.** The ports are fixed,
-so the second run's learner finds the status port taken and publishes nothing — while its
+so the second run's learner finds the status port taken and publishes nothing. Meanwhile its
 frame publisher may well get its own port and stream the battle normally. The window then
 shows a live battle under a panel reading "no learner", which is nearly indistinguishable
 from a run with no learner at all: the learner that failed to bind has no socket to say so
@@ -409,8 +418,8 @@ on. The panel does what little it can from this side and NAMES THE PORT it is li
 ("no learner on 127.0.0.1:9871"), so the absence is something a person can check rather than
 a shrug; the asymmetry is what makes it a trap, since the frame publisher may get its port
 while the learner does not, and a moving board is the first thing anyone looks at. Measured on 2026-09-22, one run holding 9871 while another streamed frames on 9870.
-Give a second run its own pair — the learner's sink takes a host and port, and the viewer
-takes `--learning HOST:PORT` — and check the learner's own log if a panel stays empty while
+Give a second run its own pair (the learner's sink takes a host and port, and the viewer
+takes `--learning HOST:PORT`), and check the learner's own log if a panel stays empty while
 a battle plays. A related consequence of the same fixed-peer design: each publisher keeps
 ONE peer, the address of the last heartbeat, so a second viewer saying hello to a run
 silently takes the stream from the first.
@@ -428,12 +437,12 @@ needs these six constants to match:
 | `sources.LEARNING_REPEATS` | `3` | copies of one status per viewer, a heartbeat apart, because nothing is acknowledged |
 
 So: bind `host:port`, read heartbeats, and when one arrives from an address that has not had
-the standing status, send one msgpack map `{"learning": {...}}` — any subset of `Learning`'s
-field names, plus `extra` — to that address. Keeping the last status and re-sending it on a
-fresh hello is the sender's job, and so is sending it more than once; without either, a
-viewer attaching mid-run waits for the next iteration. `tests/run_stream.py` is the end to end check — it
-publishes the scripted battle and a moving status from one process and draws them in the
-real window (`docs/viewer-learning.png` was made with it).
+the standing status, send one msgpack map `{"learning": {...}}` to that address, holding any
+subset of `Learning`'s field names plus `extra`. Keeping the last status and re-sending it on
+a fresh hello is the sender's job, and so is sending it more than once; without either, a
+viewer attaching mid-run waits for the next iteration. `tests/run_stream.py` is the end to
+end check. It publishes the scripted battle and a moving status from one process and draws
+them in the real window (`docs/viewer-learning.png` was made with it).
 
 A real training run has filled this panel. `docs/viewer-learning-real-run.png` is the window
 attached to one on 2026-09-22, at iteration 33 of a laptop-profile self-play run: the
@@ -517,12 +526,12 @@ capture(src, "clip.gif", ticks=(0, 2400, 8), scale=16, crop="left", fps=20)
 - **The suffix picks the format.** `.png` writes one file, or `name-0000.png` upward for a
   range; `.mp4` and `.gif` are encoded by the ffmpeg binary `imageio-ffmpeg` ships.
 - **`ticks` is `(start, stop, step)` in battle ticks**, the clock the window shows, resolved
-  through the source's `index_at_tick` — not frame indices. Without it the whole source is
+  through the source's `index_at_tick`, not frame indices. Without it the whole source is
   captured. Use a tick *step* rather than a low `fps` to shorten a long clip: stepping keeps
   the motion smooth where a low frame rate makes it stutter.
 - **The output is deterministic, always.** An image in a README that changes when nothing
-  changed is a diff nobody can review, so the two things that follow the wall clock — the
-  draw time and the frame rate — are zero in every capture, and the LIVE pill is never
+  changed is a diff nobody can review, so the two things that follow the wall clock (the
+  draw time and the frame rate) are zero in every capture, and the LIVE pill is never
   drawn: a capture replays a file rather than watching an engine. `live_timing=True` adds
   the SOURCE's own status line ("frame 412/2400 ..."), which a replay builds from what it
   read rather than from a clock, so that is reproducible too. A shot whose subject is the
@@ -543,7 +552,7 @@ every eighth tick, is a 1.0 MB gif; the same range every fourth tick is a 0.74 M
 to install a video encoder to look at a frame.
 
 **What the tool cannot check for you.** `capture` takes any `Source`, so it will happily
-draw a recording of a real battle — and those are private and are not a source for published
+draw a recording of a real battle. Those are private, and they are not a source for published
 media. Media that goes into a README comes from an engine trace or from `tests/synthetic.py`,
 and that guarantee lives in whoever writes the shot list, not in this function. Two things
 worth saying in a caption while you are there: the scripted battle is a *script*, whose units
@@ -611,6 +620,6 @@ buffer.
   nothing for traces and streams.
 - **Spells in a capture** are limited to projectiles and the few spells that leave an effect
   carrying their card id (Fireball, Arrows, Rocket, Log, Barbarian Barrel); most leave none.
-  They are drawn as a default-radius ring — there are no rage, poison or freeze zones.
+  They are drawn as a default-radius ring. There are no rage, poison or freeze zones.
 - **An opponent's hand and deck** are not in a capture, and a trace's cycle beyond the
   revealed cards shows as "next ?".
