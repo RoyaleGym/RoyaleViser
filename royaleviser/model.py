@@ -98,6 +98,10 @@ class Unit:
     direction: tuple[int, int] | None  # live movement_direction_x/y (unit vector * 256)
     state: int | None  # live behavior_state
     extra: dict[str, Any] = field(default_factory=dict)  # raw fields for the inspector
+    # The box a building or tower occupies, [x0, y0, x1, y1] closed, raw units, native frame,
+    # as the engine reports it. None: a troop, or a source that does not carry it (the renderer
+    # then draws a marked stand-in rather than guessing silently).
+    footprint: tuple[int, int, int, int] | None = None
 
 
 @dataclass(slots=True)
