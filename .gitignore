@@ -20,9 +20,11 @@ dist/
 *.msgpack
 logs/
 
-# Recorded captures and traces from the real game (RoyaleLive's)
+# Recordings of real battles stay out of the repo; the synthetic ones the tests run on
+# (tests/synthetic.py --write) are committed
 *.jsonl
 *.jsonl.gz
+!tests/fixtures/*.jsonl.gz
 reports/
 tests/captures/
 

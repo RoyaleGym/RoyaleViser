@@ -1,11 +1,19 @@
-"""The three sources against real inputs: the 12:07 captures of one friendly as both seats
-saw it, a MockEngine trace and a publisher on localhost. The captures are RoyaleLive's
-(gitignored there): ROYALELIVE_REPORTS names the folder, default ``tests/captures`` inside
-this checkout; without them the capture tests skip."""
+"""The three sources against real inputs: recordings in the capture format, a MockEngine
+trace and a publisher on localhost.
+
+The capture tests run on ``tests/fixtures/frames-synthetic-{A,B}.jsonl.gz``: the scripted
+battle of ``synthetic.py`` written out as the two seats would have recorded it (394 ticks,
+one seat's hand known per file, different entity ids). Those test PROPERTIES of the source
+(parsing, frame conversion, the seat compare, the CLI) and pass in a fresh clone. The tests
+that pin numbers only a real battle has (how many ticks the two seats' recordings differ
+on, a Goblin Drill's tunnel) read recordings of real battles that are not published:
+``ROYALELIVE_REPORTS`` names the folder (default ``tests/captures``, gitignored) and
+without them those tests SKIP, and say so; a skip there is not a pass."""
 
 from __future__ import annotations
 
 import os
+import sys
 import time
 from collections import Counter
 from pathlib import Path
@@ -13,6 +21,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import synthetic
 from royalegym.done_condition import GameOverCondition, StepLimitCondition
 from royalegym.env import ClashParallelEnv
 from royalegym.mock_engine import MockEngine
@@ -24,23 +35,36 @@ from royalegym.viser import ViserPublisher
 from royaleviser import model, sources
 from royaleviser.model import Frame, Names, Source
 
+# The synthetic recordings, committed: A is seat 0's, B is seat 1's, of one scripted battle.
+SYNTH_A, SYNTH_B = synthetic.fixture_paths()
+SYNTH_TICKS = synthetic.LAST_TICK + 1  # 0..394, the last one frozen for the results screen
+
+# Recordings of real battles (not published). ROYALELIVE_REPORTS names the folder.
 REPORTS = Path(os.environ.get("ROYALELIVE_REPORTS") or Path(__file__).resolve().parent / "captures")
-# The 12:07 demo battle (2026-09-20): capture A is side 0 local, capture B side 1 local.
+# One battle recorded from both seats (2026-09-20): A is side 0's recording, B side 1's.
 CAPTURE_A = REPORTS / "frames-demo-20260920-120752-A.jsonl"
 CAPTURE_B = REPORTS / "frames-demo-20260920-120754-B.jsonl"
 # A second recorded battle: side 0 played Goblin Drills and Miners.
 CAPTURE_DRILL = REPORTS / "frames-auto-20260920-083112-A.jsonl"
 ALL_TYPES = [0, 3, 7, 9, 10, 11, 13, 14]
+NOT_A_PASS = "SKIPPED, NOT PASSED"
 
 
 def has_capture(path: Path) -> bool:
     return sources.resolve_capture(path).exists()
 
 
-needs_captures = pytest.mark.skipif(
-    not (has_capture(CAPTURE_A) and has_capture(CAPTURE_B)),
-    reason=f"the 12:07 demo captures are not in {REPORTS}",
-)
+def recorded(*paths: Path):
+    """Skip, loudly, when the recordings a test pins its numbers on are not present."""
+    missing = [p.name for p in paths if not has_capture(p)]
+    return pytest.mark.skipif(
+        bool(missing),
+        reason=(
+            f"{NOT_A_PASS}: this test pins numbers only a real battle has and its recording "
+            f"({', '.join(missing)}) is not in {REPORTS}; point ROYALELIVE_REPORTS at the "
+            "folder holding it to run this test"
+        ),
+    )
 
 
 def sound(frame: Frame) -> Frame:
@@ -48,137 +72,218 @@ def sound(frame: Frame) -> Frame:
     return frame
 
 
-# --- CaptureSource ---------------------------------------------------------------
+def scripted(tick: int) -> Frame:
+    """The script's own frame behind capture tick ``tick``: what the recording should show."""
+    return synthetic.frame_at(tick * synthetic.CAPTURE_STRIDE)
+
+
+# --- CaptureSource on the synthetic recordings --------------------------------------
+
+
+def test_synthetic_fixtures_match_the_generator() -> None:
+    """The committed recordings are exactly what ``python tests/synthetic.py --write`` writes
+    (``--check`` at the command line); a change to the script must regenerate them."""
+    assert synthetic.check_fixtures() == []
+    assert synthetic.main(["--check"]) == 0
+    assert synthetic.main(["--check", "--folder", str(SYNTH_A.parent / "nowhere")]) == 1
 
 
 @pytest.fixture(scope="module")
 def capture_a() -> sources.CaptureSource:
-    pytest.importorskip("royaleviser")
-    if not has_capture(CAPTURE_A):
-        pytest.skip("no capture")
-    return sources.CaptureSource(CAPTURE_A)
+    return sources.CaptureSource(SYNTH_A)
 
 
-@needs_captures
 def test_capture_opens_on_the_first_active_frame(capture_a: sources.CaptureSource) -> None:
     src = capture_a
     assert isinstance(src, Source)
     assert (src.live, src.units_per_tile, src.local_side) == (False, 1000, 0)
-    assert src.length > 3000 and src.index == 0
-    assert src.inactive > 0 and src.other >= 1  # the capture's start line
+    assert src.name == "synthetic-A"
+    assert src.length == SYNTH_TICKS - 1 + synthetic.CAPTURE_FROZEN and src.index == 0
+    assert src.inactive == synthetic.CAPTURE_INACTIVE and src.other == 2  # start and stop
     f = sound(src.frame())
     assert f.tick == 0 and f.units_per_tile == model.LIVE_UNITS_PER_TILE
     assert len(f.units) == 6 and all(u.kind in model.TOWER_KINDS for u in f.units)
     assert f.meta["source"] == "capture" and f.meta["local_side"] == 0
-    assert "frame 1/" in src.status()
+    assert f.meta["seq"] == synthetic.CAPTURE_INACTIVE + 2 and f.meta["coherent"] is True
+    assert "frame 1/" in src.status() and "3 inactive, 2 other" in src.status()
 
 
-@needs_captures
-def test_capture_frame_at_tick_1000(capture_a: sources.CaptureSource) -> None:
+def test_capture_frames_round_trip_the_script(capture_a: sources.CaptureSource) -> None:
+    """Every tenth frame against the script it was written from: positions, hp, names,
+    kinds, targets, paths (goal-first in the file, start-first in the model), the local
+    player's hand and cycle, both players' elixir and tower hp, crowns."""
     src = capture_a
-    src.seek(src.index_at_tick(1000))
+    for tick in range(0, SYNTH_TICKS, 10):
+        src.seek(src.index_at_tick(tick))
+        f, want = sound(src.frame()), scripted(tick)
+        assert f.tick == tick and not f.overtime and f.game_over == (tick == SYNTH_TICKS - 1)
+        by_key = {(u.team, u.name, u.x): u for u in f.units}
+        assert len(by_key) == len(f.units) == len(want.units)
+        for w in want.units:
+            u = by_key[(w.team, sources.TOWER_NAMES.get(w.kind, w.name), w.x)]
+            assert (u.x, u.y, u.hp, u.max_hp, u.kind) == (w.x, w.y, w.hp, w.max_hp, w.kind)
+            assert u.direction == w.direction and (u.deploy_ticks > 0) == (w.deploy_ticks > 0)
+            assert (u.radius, u.flying, u.stun_ticks) == (0, False, 0)  # not in a recording
+            assert "path_nodes" not in u.extra and u.extra["level"] == 11
+            assert len(u.path) == len(w.path)
+            for (x, y), (wx, wy) in zip(u.path, w.path, strict=True):
+                assert x % 500 == 250 and y % 500 == 250  # the cell centre of each node
+                assert abs(x - wx) <= 250 and abs(y - wy) <= 250
+            if u.target is not None:
+                t = f.unit(u.target)
+                assert t is not None and (t.x, t.y) == (
+                    want.unit(w.target).x,
+                    want.unit(w.target).y,
+                )
+        p0, p1 = f.players
+        w0, w1 = want.players
+        assert (p0.elixir_milli, p1.elixir_milli) == (w0.elixir_milli, w1.elixir_milli)
+        assert p0.elixir_known and p1.elixir_known
+        assert (p0.hand, p0.next_card, p0.cycle) == (w0.hand, w0.next_card, w0.cycle)
+        assert p0.hand_known and p0.deck_known and p0.deck == w0.deck
+        # Tower hp in the owner's frame, [king, left, right] (LIVE_TOWER_X); a fallen tower
+        # has left the entity list and reads 0.
+        for team, p in enumerate(f.players):
+            at = {(u.team, u.x): u.hp for u in want.units if u.kind in model.TOWER_KINDS}
+            xs = (sources.LIVE_KING_X, *sources.LIVE_TOWER_X[team])
+            assert p.tower_hp == [at.get((team, x), 0) for x in xs]
+        assert p0.tower_max_hp == p1.tower_max_hp == [4824, 3052, 3052]
+        assert f.crowns == want.crowns and (p0.crowns, p1.crowns) == tuple(want.crowns)
+        assert p0.king_active is None  # not in a recording
+        if not f.game_over:
+            assert p1.hand == ["?"] * 4 and not p1.hand_known and not p1.deck_known
+            assert p1.next_card is None and p1.deck == [] and p1.cycle == []
+
+
+def test_capture_frame_mid_battle(capture_a: sources.CaptureSource) -> None:
+    src = capture_a
+    tick = 100  # 30 s into the script: Knight and Archer at the towers, the Cannon standing
+    src.seek(src.index_at_tick(tick))
     f = sound(src.frame())
-    assert f.tick == 1000 and not f.overtime and not f.game_over and f.winner == model.NO_WINNER
-    assert len(f.units) == 7
+    assert f.tick == tick and not f.overtime and not f.game_over and f.winner == model.NO_WINNER
     towers = [u for u in f.units if u.kind in model.TOWER_KINDS]
-    assert len(towers) == 6
-    assert {u.name for u in towers} == {"KingTower", "PrincessTower"}
+    assert len(towers) == 6 and {u.name for u in towers} == {"KingTower", "PrincessTower"}
     kings = [u for u in towers if u.kind == model.KIND_KING_TOWER]
     assert sorted((u.team, u.x, u.y) for u in kings) == [(0, 9000, 3000), (1, 9000, 29000)]
-    (bomber,) = [u for u in f.units if u.kind == model.KIND_TROOP]
-    assert (bomber.team, bomber.name, bomber.x, bomber.y, bomber.hp) == (
-        1,
-        "Bomber",
-        14696,
-        20202,
-        304,
+    troops = {u.name: u for u in f.units if u.kind == model.KIND_TROOP}
+    assert set(troops) == {"Knight", "Archer"}
+    (cannon,) = [u for u in f.units if u.kind == model.KIND_BUILDING]
+    assert (cannon.name, cannon.team, cannon.x, cannon.y) == ("Cannon", 1, 11000, 22000)
+    knight = troops["Knight"]
+    assert knight.uid.endswith(":26000000:0") and knight.state == 1 and knight.path == []
+    assert (
+        f.unit(knight.target).kind == model.KIND_PRINCESS_TOWER and f.unit(knight.target).team == 1
     )
-    assert bomber.uid.endswith(":26000013:1") and bomber.state == 2
-    assert bomber.direction == (-39, -253) and "behavior_state" in bomber.extra
-    assert "path_nodes" not in bomber.extra
+    assert knight.extra["behavior_state"] == 1 and knight.extra["card_id"] == 26000000
 
     p0, p1 = f.players
-    assert p0.elixir_milli > 0 and p1.elixir_milli > 0
-    assert p0.elixir_known and p1.elixir_known
-    assert p0.hand == ["IceSpirits", "Bomber", "Giant", "Tesla"] and p0.hand_known
-    assert p0.next_card == "Skeletons" and p0.cycle == ["Knight", "Musketeer", "Goblins"]
-    assert p0.deck_known and len(p0.deck) == 8 and "Musketeer" in p0.deck
-    assert p1.hand == ["?"] * 4 and not p1.hand_known and not p1.deck_known
-    assert p1.next_card is None and p1.deck == []
-    # Towers in the owner's frame (engine convention): side 0 left = x 3500 (hp 2401 here),
-    # side 1 left = x 14500 (full), right = x 3500 (2835).
-    assert p0.tower_hp == [4824, 2401, 3052] and p0.tower_max_hp == [4824, 3052, 3052]
-    assert p1.tower_hp == [4824, 3052, 2835]
-    assert f.crowns == [0, 0] and p0.king_active is None
-
+    assert p0.hand == ["Archer", "Fireball", "Musketeer", "BabyDragon"] and p0.hand_known
+    assert p0.next_card == "Zap" and p0.cycle == ["Cannon", "MegaKnight", "Knight"]
+    assert p1.hand == ["?"] * 4 and not p1.hand_known and p1.elixir_known
     assert f.events and all(e.startswith("t") for e in f.events)
-    assert any(" spawn Red " in e for e in f.events) and any(" death " in e for e in f.events)
-    assert any(" Blue plays " in e for e in f.events)
+    assert "t17 Blue plays Knight" in f.events and "t17 spawn Blue Knight (3.5, 8.1)" in f.events
+    assert (
+        "t34 spawn Red Archer (14.5, 23.8)" in f.events
+        and "t67 spawn Red Cannon (11.0, 22.0)" in f.events
+    )
+    assert not any(" death " in e for e in f.events)
     assert not any(" Red plays " in e for e in f.events)  # the opponent's hand is not known
     assert f.events == sorted(f.events, key=lambda e: int(e[1:].split()[0]))
 
 
-@needs_captures
 def test_capture_seek_step_and_the_frozen_end(capture_a: sources.CaptureSource) -> None:
     src = capture_a
     src.seek(-5)
     assert src.index == 0
     src.step(10)
-    assert src.index == 10 and src.frame().tick == src.tick_at(10)
+    assert src.index == 10 and src.frame().tick == src.tick_at(10) == 10
     src.seek(10**9)
     assert src.index == src.length - 1
     f = sound(src.frame())
-    # The last frame: the tick is frozen at 3690 for the rest of the file and the winner is
-    # read off the missing tower.
-    assert f.tick == 3690 and f.game_over and not f.overtime
+    # The last frame: the tick is frozen at 394 for the rest of the file (the results
+    # screen) and the winner is read off the missing tower.
+    assert f.tick == SYNTH_TICKS - 1 and f.game_over and not f.overtime
     assert f.crowns == [1, 0] and f.winner == 0
-    assert len(f.events) == sources.EVENTS_KEPT
+    assert 0 < len(f.events) <= sources.EVENTS_KEPT
+    assert f.events[-1] == "t367 spawn Red Giant (3.5, 26.9)"
+    assert "t267 death Red PrincessTower" in f.events and "t167 death Red Cannon" in f.events
+    assert [e for e in f.events if " plays " in e] == [
+        "t17 Blue plays Knight",
+        "t134 Blue plays BabyDragon",
+        "t284 Blue plays Musketeer",
+        "t347 Blue plays Fireball",
+    ]
+    p1 = f.players[1]  # the results screen fills in the opponent's cards
+    assert (
+        p1.hand_known
+        and p1.deck_known
+        and p1.hand == ["GoblinDrill", "Musketeer", "Archer", "Cannon"]
+    )
     src.step(-1)
     assert src.frame().game_over  # still inside the frozen run
-    src.seek(src.index_at_tick(3000))
-    assert not src.frame().game_over
+    src.seek(src.index_at_tick(SYNTH_TICKS - 2))
+    assert not src.frame().game_over and src.frame().crowns == [1, 0]
     assert src.index_at_tick(10**6) == src.length - 1 and src.index_at_tick(-1) == 0
 
 
-@needs_captures
 def test_capture_paths_targets_and_projectiles(capture_a: sources.CaptureSource) -> None:
     src = capture_a
-    src.seek(src.index_at_tick(362))
+    src.seek(src.index_at_tick(40))
     f = sound(src.frame())
     walkers = [u for u in f.units if u.path]
-    assert walkers
-    u = walkers[0]
-    assert u.name == "Skeletons" and u.team == 1
-    # path_nodes are goal-first in the capture; the model wants start-first: the first
-    # node is next to the unit, the last one is the goal near Blue's tower.
-    assert abs(u.path[0][1] - u.y) < 2000 and u.path[-1][1] < u.y
-    assert all(x % 500 == 250 and y % 500 == 250 for x, y in u.path)
-    assert u.target is not None and f.unit(u.target) is not None
-    assert f.unit(u.target).kind == model.KIND_PRINCESS_TOWER
-    src.seek(src.index_at_tick(460))
+    assert [(u.name, u.team) for u in walkers] == [("Knight", 0), ("Archer", 1)]
+    knight, archer = walkers
+    # path_nodes are goal-first in the file; the model wants start-first: the first node
+    # is next to the unit, the last one is the goal near the enemy tower.
+    assert abs(knight.path[0][1] - knight.y) < 6000 and knight.path[-1][1] > knight.y
+    assert abs(archer.path[0][1] - archer.y) < 6000 and archer.path[-1][1] < archer.y
+    assert all(x % 500 == 250 and y % 500 == 250 for u in walkers for x, y in u.path)
+    assert knight.direction == (0, 256) and archer.direction == (0, -256)
+    assert knight.target is None and knight.state == 2  # walking: no target yet
+    # At the towers: a target, no path, and the tower shoots back.
+    src.seek(src.index_at_tick(101))
     f = sound(src.frame())
-    (shot,) = f.spells
-    assert shot.name == "Tower shot" and shot.team == 0 and shot.motion == 0
-    assert (shot.x, shot.y) == (14547, 7997) and (shot.aim_x, shot.aim_y) == (14739, 13821)
-    assert shot.extra["card_id"] == -1
+    knight = next(u for u in f.units if u.name == "Knight")
+    assert knight.path == [] and f.unit(knight.target).kind == model.KIND_PRINCESS_TOWER
+    shots = [s for s in f.spells if s.name == "Tower shot"]
+    assert len(shots) == 2 and {s.team for s in shots} == {0, 1}
+    red = next(s for s in shots if s.team == 1)
+    assert red.motion == 0 and (red.aim_x, red.aim_y) == (knight.x, knight.y)
+    assert (red.x, red.y) != (red.aim_x, red.aim_y) and red.extra["card_id"] == -1
+    # The Fireball: in flight (aimed) at 50 s, then the area where it landed.
+    src.seek(src.index_at_tick(168))
+    f = sound(src.frame())
+    (fireball,) = [s for s in f.spells if s.name == "Fireball"]
+    assert (fireball.team, fireball.motion) == (1, 0)
+    assert (fireball.aim_x, fireball.aim_y) == (3500, 17500) and fireball.y > fireball.aim_y
+    assert fireball.extra["card_id"] == 28000000
+    src.seek(src.index_at_tick(172))
+    (landed,) = [s for s in sound(src.frame()).spells if s.name == "Fireball"]
+    assert landed.motion == 3 and (landed.x, landed.y) == (3500, 17500)
+    src.seek(src.index_at_tick(234))
+    (zap,) = [s for s in sound(src.frame()).spells if s.name == "Zap"]
+    assert (zap.team, zap.motion, zap.x, zap.y) == (1, 3, 3500, 21000)
 
 
-@needs_captures
 def test_capture_deploying_state_and_the_play_event(capture_a: sources.CaptureSource) -> None:
     src = capture_a
-    src.seek(src.index_at_tick(472))
+    src.seek(src.index_at_tick(17))
     f = sound(src.frame())
-    assert "t472 Blue plays IceSpirits" in f.events
-    src.seek(src.index_at_tick(350))
-    deploying = [u for u in src.frame().units if u.deploy_ticks > 0]
-    assert deploying and all(u.state == sources.LIVE_DEPLOY_STATE for u in deploying)
+    assert "t17 Blue plays Knight" in f.events and "t17 spawn Blue Knight (3.5, 8.1)" in f.events
+    deploying = [u for u in f.units if u.deploy_ticks > 0]
+    assert [u.name for u in deploying] == ["Knight"]
+    assert all(u.state == sources.LIVE_DEPLOY_STATE for u in deploying)
+    src.seek(src.index_at_tick(16))
+    assert not any(" plays " in e for e in src.frame().events)
+    src.seek(src.index_at_tick(20))
+    assert all(u.deploy_ticks == 0 for u in src.frame().units)
 
 
-@needs_captures
-def test_the_two_clients_see_the_same_battle() -> None:
-    a = sources.CaptureSource(CAPTURE_A)
-    b = sources.CaptureSource(sources.resolve_capture(CAPTURE_B))
+def test_the_two_seats_see_the_same_battle() -> None:
+    a = sources.CaptureSource(SYNTH_A)
+    b = sources.CaptureSource(sources.resolve_capture(SYNTH_B.with_name(SYNTH_B.name[:-3])))
     assert (a.local_side, b.local_side) == (0, 1)
+    assert a.length == b.length
 
     def signature(src: sources.CaptureSource, tick: int) -> Counter | None:
         i = src.index_at_tick(tick)
@@ -188,21 +293,50 @@ def test_the_two_clients_see_the_same_battle() -> None:
         return Counter((u.team, u.name, u.x, u.y, u.hp) for u in src.frame().units)
 
     same = differ = 0
-    for tick in range(0, 3691):
+    for tick in range(SYNTH_TICKS):
         sa, sb = signature(a, tick), signature(b, tick)
-        if sa is None or sb is None:
-            continue
+        assert sa is not None and sb is not None
         if sa == sb:
             same += 1
         else:
             differ += 1
-    # Entity ids differ per client; positions and hp are the same lockstep simulation. The
-    # few differing ticks are tap ticks where the two captures disagree for one frame (6 of 2407).
-    assert same > 2000 and differ <= 10, (same, differ)
-    assert signature(a, 1000) == signature(b, 1000)
+    # Entity ids differ per seat; positions and hp are one battle.
+    assert (same, differ) == (SYNTH_TICKS, 0)
+    a.seek(a.index_at_tick(100))
+    b.seek(b.index_at_tick(100))
+    assert {u.uid for u in a.frame().units}.isdisjoint({u.uid for u in b.frame().units})
+    # Each file knows its own seat's hand and not the other's.
+    fa, fb = a.frame(), b.frame()
+    assert fa.players[0].hand_known and not fa.players[1].hand_known
+    assert fb.players[1].hand_known and not fb.players[0].hand_known
+    assert (
+        fb.players[1].hand
+        == scripted(100).players[1].hand
+        == ["Fireball", "Zap", "Knight", "GoblinDrill"]
+    )
     a.close()
     b.close()
     assert a.length == 0 and a.frame() is None
+
+
+def test_capture_entity_ids_come_back_on_later_units() -> None:
+    """An entity id is reused within a battle once its first entity is gone, so the model's
+    uid carries the card and side too, and the two never collide in one frame."""
+    src = sources.CaptureSource(SYNTH_A)
+    seen: dict[str, set[str]] = {}
+    for i in range(src.length):
+        src.seek(i)
+        for u in src.frame().units:
+            seen.setdefault(u.extra["id"], set()).add(u.uid)
+    reused = {k: v for k, v in seen.items() if len(v) > 1}
+    assert len(reused) == 2 and all(len(v) == 2 for v in reused.values())
+    assert {tuple(sorted(n.split(":")[1] for n in v)) for v in reused.values()} == {
+        ("-1", "26000014"),  # the Musketeer came up on the fallen tower's id
+        ("26000003", "27000000"),  # the Giant on the Cannon's
+    }
+
+
+# --- The capture converters, without a file ----------------------------------------
 
 
 def test_capture_helpers(tmp_path: Path) -> None:
@@ -362,8 +496,8 @@ def test_capture_surfacing_of_a_tunnelling_entity() -> None:
     assert sources.capture_surfacing(deploying) is None
     assert sources.capture_surfacing({**e, "card_id": 26000000}) is None  # a Knight never tunnels
     assert sources.capture_surfacing({**e, "path_nodes": []}) is None
-    # RoyaleLive's opponent tracker keeps the same speed table; its test_viser_live.py
-    # asserts the two are equal.
+    # The instrument that records real battles keeps the same speed table and checks it
+    # against this one.
 
 
 def test_capture_events_announce_a_tunnel_once() -> None:
@@ -405,10 +539,48 @@ def test_capture_events_announce_a_tunnel_once() -> None:
     assert ev.lines[-1] == "t0 Red GoblinDrill -> (3250,23250) ~5 ticks"
 
 
-@pytest.mark.skipif(not has_capture(CAPTURE_DRILL), reason=f"no 08:31 capture in {REPORTS}")
+# --- CaptureSource on recordings of real battles (numbers only those have) ---------
+
+
+@recorded(CAPTURE_A, CAPTURE_B)
+def test_the_two_recorded_seats_differ_only_on_tap_ticks() -> None:
+    """The two seats' recordings of one battle: 2407 ticks both hold, 2404 equal, 3 differ,
+    each for a single frame on a tick a card was played."""
+    a = sources.CaptureSource(CAPTURE_A)
+    b = sources.CaptureSource(CAPTURE_B)
+    assert (a.local_side, b.local_side) == (0, 1)
+    assert a.length > 3000 and b.length > 3000 and a.other >= 1
+
+    def signature(src: sources.CaptureSource, tick: int) -> Counter | None:
+        i = src.index_at_tick(tick)
+        if src.tick_at(i) != tick:
+            return None
+        src.seek(i)
+        return Counter((u.team, u.name, u.x, u.y, u.hp) for u in src.frame().units)
+
+    same = differ = 0
+    for tick in range(0, sources.LIVE_REGULAR_TICKS + 1):
+        sa, sb = signature(a, tick), signature(b, tick)
+        if sa is None or sb is None:
+            continue
+        if sa == sb:
+            same += 1
+        else:
+            differ += 1
+    assert (same, differ) == (2404, 3)
+    a.seek(a.length - 1)
+    f = sound(a.frame())
+    assert f.tick == sources.LIVE_REGULAR_TICKS and f.game_over and f.crowns == [1, 0]
+    assert len(f.events) == sources.EVENTS_KEPT
+    a.close()
+    b.close()
+
+
+@recorded(CAPTURE_DRILL)
 def test_capture_drill_surfacing_line() -> None:
-    """The drill of tick 2974 (state 6 at (9178,3569), 39 path nodes) is announced with its goal
-    and the 73 ticks it took: the building stood at (3000,23000) from tick 3047."""
+    """On the recorded battle with Goblin Drills: the drill of tick 2974 (state 6 at
+    (9178,3569), 39 path nodes) is announced with its goal and the 73 ticks it took, and the
+    building stood at (3000,23000) from tick 3047."""
     src = sources.CaptureSource(CAPTURE_DRILL)
     line = "t2974 Blue GoblinDrill -> (3250,23250) ~73 ticks"
     src.seek(src.index_at_tick(2973))

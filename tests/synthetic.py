@@ -13,15 +13,32 @@ at 50 s and lands as an area; a Zap stuns the Knight at 70 s; elixir regenerates
 per 2.8 s (2.8 s / 1.4 s in overtime) and every play spends and rotates the hand;
 OVERTIME from 100 s; GAME OVER at 118 s, Blue wins. Nothing here is a game rule, only
 enough motion that every drawing path runs and a screenshot reads like a battle.
+
+The same script is also written out as a pair of recordings in the capture format that
+``sources.CaptureSource`` reads, one per seat, so the capture tests run without a recording
+of a real battle (``tests/fixtures/frames-synthetic-{A,B}.jsonl.gz``):
+
+    python tests/synthetic.py --check      # the committed fixtures match this generator
+    python tests/synthetic.py --write      # regenerate them after changing the script
 """
 
 from __future__ import annotations
 
+import argparse
+import gzip
+import io
+import json
+import random
+import sys
+from pathlib import Path
+
 from royaleviser.model import (
+    CARDS_JSON,
     KIND_BUILDING,
     KIND_KING_TOWER,
     KIND_PRINCESS_TOWER,
     KIND_TROOP,
+    LIVE_ELIXIR_PER_MILLI,
     LIVE_UNITS_PER_TILE,
     NO_WINNER,
     TICK_MS,
@@ -440,3 +457,253 @@ class ListSource:
 
     def close(self) -> None:
         self.closed = True
+
+
+# --------------------------------------------------------------------------
+# The script as two recordings, in the capture format (tests/fixtures/)
+# --------------------------------------------------------------------------
+
+# One capture frame every CAPTURE_STRIDE script ticks: the 118 s script becomes a 394-frame
+# battle whose units move at six times their scripted speed. A frame's "tick" is its own
+# index, as in a recording (one frame per tick at 20 Hz), so the recording's clock runs
+# 0..394 while the script behind it runs 0..118 s.
+CAPTURE_STRIDE = 6
+CAPTURE_SEED = 20260921
+CAPTURE_INACTIVE = 3  # "frame" lines with active false before the battle starts
+CAPTURE_FROZEN = 24  # results-screen frames repeating the final tick (>= LIVE_FROZEN_FRAMES)
+CAPTURE_SCHEMA = 1
+CAPTURE_SHOT_FRAMES = 4  # a tower shot crosses to its target in this many frames
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+FIXTURE_NAMES = ("frames-synthetic-A.jsonl.gz", "frames-synthetic-B.jsonl.gz")  # seat 0, seat 1
+LAST_TICK = -(-END_S * 1000 // (TICK_MS * CAPTURE_STRIDE))  # 394: the first GAME OVER frame
+# The script's unit states -> a recording's behavior_state: deploying is 4 (LIVE_DEPLOY_STATE),
+# walking 2, standing at the target or as a building 1.
+CAPTURE_STATE = {2: 2, 4: 1, 1: 1}
+CARD_IDS: dict[str, int] = {
+    name: int(cid) for name, (cid, _cost) in json.loads(CARDS_JSON.read_text("utf-8")).items()
+}
+PATH_COLS, PATH_CELL = 36, LIVE_UNITS_PER_TILE // 2  # path_nodes: half-tile cells, goal first
+
+
+class _Ids:
+    """Opaque entity ids for one seat: hex strings from a seeded generator, and an id goes
+    back into a pool when its entity dies so a later entity can come up on it, as a
+    recording's ids do."""
+
+    def __init__(self, seed: int) -> None:
+        self.rng = random.Random(seed)
+        self.free: list[str] = []
+        self.by_uid: dict[str, str] = {}
+        self.effects: dict[str, str] = {}  # spells and shots: never retired, never reused
+
+    def _fresh(self) -> str:
+        return f"0x{self.rng.getrandbits(40):010x}"
+
+    def of(self, uid: str) -> str:
+        if uid not in self.by_uid:
+            self.by_uid[uid] = self.free.pop() if self.free else self._fresh()
+        return self.by_uid[uid]
+
+    def of_effect(self, key: str) -> str:
+        if key not in self.effects:
+            self.effects[key] = self._fresh()
+        return self.effects[key]
+
+    def retire(self, alive: set[str]) -> None:
+        for uid in [u for u in self.by_uid if u not in alive]:
+            self.free.append(self.by_uid.pop(uid))
+
+
+def path_node(x: int, y: int) -> int:
+    return (y // PATH_CELL) * PATH_COLS + x // PATH_CELL
+
+
+def capture_entity(u: Unit, ids: _Ids, alive: set[str]) -> dict:
+    """A unit as an entity row. A target that is no longer on the board is dropped: the
+    script keeps aiming at a fallen tower, a recording does not."""
+    card_id = -1 if u.name in ("King", "Princess") else CARD_IDS[u.name]
+    e: dict = {
+        "id": ids.of(str(u.uid)),
+        "card_id": card_id,
+        "side": u.team,
+        "level": 11,
+        "x": u.x,
+        "y": u.y,
+        "hp": u.hp,
+        "max_hp": u.max_hp,
+        "behavior_state": 4 if u.deploy_ticks > 0 else CAPTURE_STATE.get(u.state or 0, 0),
+        "movement_direction_x": u.direction[0] if u.direction else 0,
+        "movement_direction_y": u.direction[1] if u.direction else 0,
+    }
+    if u.target is not None and str(u.target) in alive:
+        e["target"] = ids.of(str(u.target))
+    e["path_nodes"] = [path_node(x, y) for x, y in reversed(u.path)]
+    return e
+
+
+def capture_player(p: Player, known: bool) -> dict:
+    deck = [CARD_IDS[n] for n in p.deck]
+    row: dict = {"side": p.team, "elixir_raw": p.elixir_milli * LIVE_ELIXIR_PER_MILLI}
+    if known:
+        row["hand"] = [p.deck.index(n) for n in p.hand]
+        row["cycle"] = [p.deck.index(n) for n in [p.next_card, *p.cycle]]
+        row["deck"] = deck
+    else:
+        row["hand"], row["cycle"], row["deck"] = [-1, -1, -1, -1], [], []
+    return row
+
+
+def capture_effects(f: Frame, prev: Frame | None, tick: int, ids: _Ids) -> list[dict]:
+    """The frame's spells as effect rows, plus the tower shots the script implies: a tower
+    being attacked shoots back, one projectile crossing to its attacker every four frames."""
+    out: list[dict] = []
+    before = {(s.team, s.name): (s.x, s.y) for s in prev.spells} if prev else {}
+    for s in f.spells:
+        x2, y2 = before.get((s.team, s.name), (s.x, s.y))
+        out.append(
+            {
+                "id": ids.of_effect(f"spell:{s.team}:{s.name}"),
+                "side": s.team,
+                "card_id": CARD_IDS[s.name],
+                "x": s.x,
+                "y": s.y,
+                "x2": x2,
+                "y2": y2,
+                "projectile_x": s.aim_x,
+                "projectile_y": s.aim_y,
+            }
+        )
+    by_uid = {str(u.uid): u for u in f.units}
+    for u in f.units:
+        tower = by_uid.get(str(u.target)) if u.state == 4 else None
+        if tower is None or tower.name != "Princess":
+            continue
+        phase = tick % CAPTURE_SHOT_FRAMES
+        x = tower.x + (u.x - tower.x) * phase // CAPTURE_SHOT_FRAMES
+        y = tower.y + (u.y - tower.y) * phase // CAPTURE_SHOT_FRAMES
+        x2 = tower.x + (u.x - tower.x) * max(phase - 1, 0) // CAPTURE_SHOT_FRAMES
+        y2 = tower.y + (u.y - tower.y) * max(phase - 1, 0) // CAPTURE_SHOT_FRAMES
+        out.append(
+            {
+                "id": ids.of_effect(f"shot:{tower.uid}"),
+                "side": tower.team,
+                "card_id": -1,
+                "x": x,
+                "y": y,
+                "x2": x2,
+                "y2": y2,
+                "source": ids.of(str(tower.uid)),
+                "target": ids.of(str(u.uid)),
+                "projectile_x": u.x,
+                "projectile_y": u.y,
+            }
+        )
+    return out
+
+
+def capture_lines(seat: int, seed: int = CAPTURE_SEED) -> list[bytes]:
+    """The script as seat ``seat`` would have recorded it: one JSON object per line in the
+    capture format (``sources.CaptureSource`` lists the fields). Only the recording seat's
+    hand, cycle and deck are present until the results screen, where both fill in; entity
+    ids are the seat's own, so the two seats' files describe one battle with different ids."""
+    rng = random.Random(seed * 2 + seat)
+    ids = _Ids(seed * 4 + seat)
+    lines: list[bytes] = []
+    seq = 0
+    t_us = 1_000_000
+
+    def emit(row: dict) -> None:
+        nonlocal seq
+        seq += 1
+        lines.append(json.dumps({**row, "seq": seq}, separators=(",", ":")).encode() + b"\n")
+
+    emit({"event": "start", "schema_version": CAPTURE_SCHEMA, "interval_ms": TICK_MS})
+    for _ in range(CAPTURE_INACTIVE):
+        t_us += TICK_MS * 1000
+        emit({"event": "frame", "active": False, "t_us": t_us, "read_us": rng.randint(20, 60)})
+    prev: Frame | None = None
+    ticks = list(range(LAST_TICK)) + [LAST_TICK] * CAPTURE_FROZEN
+    for tick in ticks:
+        f = frame_at(tick * CAPTURE_STRIDE)
+        results = tick == LAST_TICK
+        t_us += TICK_MS * 1000
+        alive = {str(u.uid) for u in f.units}
+        ids.retire(alive)
+        entities = [capture_entity(u, ids, alive) for u in f.units]
+        effects = capture_effects(f, prev, tick, ids)
+        row = {
+            "event": "frame",
+            "t_us": t_us,
+            "read_us": rng.randint(80, 400),
+            "active": True,
+            "coherent": True,
+            "failure": "none",
+            "tick": tick,
+            "replay_tick": tick - tick % 10,
+            "players": [capture_player(p, results or p.team == seat) for p in f.players],
+            "entities": entities,
+            "effects": effects,
+        }
+        emit(row)
+        prev = f
+    emit({"event": "stop", "frames": len(ticks)})
+    return lines
+
+
+def capture_bytes(seat: int, seed: int = CAPTURE_SEED) -> bytes:
+    """The gzipped fixture, byte-reproducible (no name, no mtime in the gzip header)."""
+    buf = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=buf, mtime=0, compresslevel=9) as gz:
+        gz.write(b"".join(capture_lines(seat, seed)))
+    return buf.getvalue()
+
+
+def fixture_paths(folder: Path = FIXTURES) -> list[Path]:
+    return [folder / name for name in FIXTURE_NAMES]
+
+
+def check_fixtures(folder: Path = FIXTURES) -> list[str]:
+    """What differs between the committed fixtures and this generator; [] when nothing."""
+    problems: list[str] = []
+    for seat, path in enumerate(fixture_paths(folder)):
+        if not path.exists():
+            problems.append(f"{path.name}: missing (python tests/synthetic.py --write)")
+            continue
+        with gzip.open(path, "rb") as fh:
+            have = fh.read().splitlines(keepends=True)
+        want = capture_lines(seat)
+        if have == want:
+            continue
+        if len(have) != len(want):
+            problems.append(f"{path.name}: {len(have)} lines, the generator writes {len(want)}")
+        for i, (a, b) in enumerate(zip(have, want, strict=False)):
+            if a != b:
+                problems.append(f"{path.name}: line {i + 1} differs from the generator")
+                break
+    return problems
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--check", action="store_true", help="fixtures match the generator")
+    mode.add_argument("--write", action="store_true", help="(re)write the fixtures")
+    ap.add_argument("--folder", type=Path, default=FIXTURES)
+    args = ap.parse_args(argv)
+    if args.write:
+        args.folder.mkdir(parents=True, exist_ok=True)
+        for seat, path in enumerate(fixture_paths(args.folder)):
+            data = capture_bytes(seat)
+            path.write_bytes(data)
+            print(f"{path}: {len(capture_lines(seat))} lines, {len(data)} bytes gzipped")
+        return 0
+    problems = check_fixtures(args.folder)
+    for line in problems:
+        print(line)
+    if not problems:
+        print(f"{len(FIXTURE_NAMES)} fixtures in {args.folder} match the generator")
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

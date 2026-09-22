@@ -32,8 +32,10 @@ cache, so a seek is one `json.loads`.
 
 Nothing to watch yet? With only this repo installed (`pip install -e .` — pygame, msgspec,
 numpy), `python tests/run_synthetic.py --seconds 8` opens the window on a scripted two-minute
-battle. With [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) and the engine installed too,
-this records a self-play battle on the engine and writes a trace like the one above:
+battle, and `tests/fixtures/frames-synthetic-A.jsonl.gz` is that battle as a recording (both
+seats: `--compare tests/fixtures/frames-synthetic-B.jsonl.gz`). With
+[RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) and the engine installed too, this records a
+self-play battle on the engine and writes a trace like the one above:
 
 ```python
 import numpy as np
@@ -284,22 +286,44 @@ recordings, traces and streams.
 ## Tests
 
 ```
-cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 54 as of 2026-09-21
+cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 56 passed, 3 skipped as of 2026-09-21
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
-`tests/test_model.py` (the contract, the theme, the layout, the CLI parser),
-`tests/test_sources.py` (one recorded battle from each seat, MockEngine traces, the UDP round
-trip), `tests/test_render.py` (headless draws of every panel and toggle, the pixel positions of
-both kings, the compact layout, the compare totals, the app's keys and pacing, `run` with
-`--shot` and `--geometry`), `tests/test_cli.py` (`python -m royaleviser` end to end, headless).
-The recorded-battle tests read RoyaleLive's gitignored recordings: `ROYALELIVE_REPORTS` names
-the folder (default `tests/captures`, which is gitignored and empty in a fresh clone) and they
-skip without them; `RoyaleGym/tests/test_viser.py` round-trips a published frame through this
-package's decoder.
+Two results are correct, and the run tells you which one you got:
 
-`tests/run_synthetic.py` opens the window on a scripted two-minute battle with no sibling repo
-and no recording needed — the look check for the renderer:
+- **A fresh clone: `56 passed, 3 skipped`.** The three skips are printed by name under a
+  `recorded-battle tests SKIPPED, NOT PASSED` banner. They pin numbers only a recording of a
+  real battle has (how many ticks the two seats' recordings of one battle differ on, a Goblin
+  Drill's tunnel), and those recordings are not published. A skip there is not a pass.
+- **With the recordings: `59 passed`.** `ROYALELIVE_REPORTS` names the folder holding
+  `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
+  `frames-auto-20260920-083112-A.jsonl` (`.jsonl.gz` resolves too); the default is
+  `tests/captures`, gitignored and empty in a fresh clone.
+
+Every other capture test runs on `tests/fixtures/frames-synthetic-{A,B}.jsonl.gz`: the scripted
+battle of `tests/synthetic.py` written out in the recording format, once per seat (394 ticks,
+one seat's hand known per file, the seats' own entity ids, a 20 KB gzip each). They test
+properties of the source — parsing, frame conversion against the script the file came from,
+the seat compare (394 ticks, 0 differ), the CLI — so they hold in a fresh clone.
+`python tests/synthetic.py --check` confirms the committed files are what the generator
+writes; `--write` regenerates them after a change to the script, and a test fails until you do.
+The fixtures open in the viewer like any recording:
+
+```
+..\.venv\Scripts\python -m royaleviser tests\fixtures\frames-synthetic-A.jsonl.gz --compare tests\fixtures\frames-synthetic-B.jsonl.gz --speed 4
+```
+
+`tests/test_model.py` (the contract, the theme, the layout, the CLI parser),
+`tests/test_sources.py` (the capture source on the synthetic and the recorded battles, MockEngine
+traces, the UDP round trip), `tests/test_render.py` (headless draws of every panel and toggle, the
+pixel positions of both kings, the compact layout, the compare totals, the app's keys and pacing,
+`run` with `--shot` and `--geometry`), `tests/test_cli.py` (`python -m royaleviser` end to end,
+headless). `RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's
+decoder.
+
+`tests/run_synthetic.py` opens the window on the same scripted two-minute battle straight from
+the script, with no sibling repo and no recording needed — the look check for the renderer:
 
 ```
 ..\.venv\Scripts\python tests\run_synthetic.py --seconds 8 --shot shot.png
