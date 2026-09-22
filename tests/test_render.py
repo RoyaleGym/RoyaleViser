@@ -887,3 +887,53 @@ def test_the_tolerance_clause_fits_the_panel_it_is_drawn_in() -> None:
         assert font.size(line)[0] <= width, (font.size(line)[0], width, line)
         assert fit_text(line, font, width) == line  # nothing is ellipsised away
     assert "within 0.25 tiles" in c.text(9)
+
+
+@pytest.mark.parametrize("seat", [0, 1])
+def test_a_building_shows_its_collision_circle_inside_its_footprint(seat: int) -> None:
+    """The box and the circle are two different real quantities and are drawn as two shapes.
+    The box is the ground the building stands on; the circle is the collision radius, which is
+    what other units run into. A Cannon's box is 3 tiles and its radius is 0.6, so an inner
+    SQUARE at half the box -- what the window drew until now -- was neither of them."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    cannon = building("cannon", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0)
+    cannon.radius = 600  # 0.6 tiles, the Cannon's own
+    frame = one_unit_frame(cannon, upt)
+    view = ViewState(seat=seat)
+    r.surface.fill((0, 0, 0))
+    r.draw(frame, view, Transport(source_name="t"))
+
+    ax, ay, aw, ah = r.layout.arena
+    ink = [
+        (px, py)
+        for py in range(ah)
+        for px in range(aw)
+        if r.surface.get_at((ax + px, ay + py))[:3] == DEFAULT.collision_circle
+    ]
+    assert ink, "no collision circle was drawn"
+    want = r.px_len(cannon.radius, upt)
+    # pygame draws a circle of radius r across 2r pixels, so that is what is measured here
+    # rather than a diameter this test would like it to be.
+    assert max(x for x, _ in ink) - min(x for x, _ in ink) + 1 == 2 * want
+    assert max(y for _, y in ink) - min(y for _, y in ink) + 1 == 2 * want
+    # Centred on the UNIT, not on the box: the two share a centre for a Cannon and must not
+    # be assumed to in general. Within a pixel, for the same even-diameter reason.
+    cx, cy = r.to_px(cannon.x, cannon.y, upt, seat)
+    assert abs((min(x for x, _ in ink) + max(x for x, _ in ink)) // 2 - (cx - ax)) <= 1
+    assert abs((min(y for _, y in ink) + max(y for _, y in ink)) // 2 - (cy - ay)) <= 1
+    # And it is the RADIUS, not half the box: 0.6 of a tile inside a box of 3.
+    assert 2 * want < r.unit_rect_px(cannon, upt, seat).width // 2
+
+    # A source that carries no radius gets no circle rather than a drawn guess. Every
+    # recording is that case.
+    bare = one_unit_frame(building("c", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0), upt)
+    bare.units[0].radius = 0
+    r.surface.fill((0, 0, 0))
+    r.draw(bare, view, Transport(source_name="t"))
+    assert not [
+        1
+        for py in range(ah)
+        for px in range(aw)
+        if r.surface.get_at((ax + px, ay + py))[:3] == DEFAULT.collision_circle
+    ]

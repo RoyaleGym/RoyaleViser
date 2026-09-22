@@ -45,6 +45,9 @@ class Theme:
     # Entities
     troop_outline: Color = (0, 0, 0)
     building_outline: Color = (50, 50, 50)
+    # A building's collision radius, drawn inside its footprint box. Darker than the box's
+    # outline so the two shapes read as two different things rather than as one ornament.
+    collision_circle: Color = (20, 20, 20)
     # A building drawn at a size the frame did not carry, and the footprint overlay (B).
     # The guess colour is the warning red so a guessed size reads as one on a first look.
     footprint_guess: Color = (255, 80, 80)

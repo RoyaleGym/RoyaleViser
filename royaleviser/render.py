@@ -51,7 +51,6 @@ from .model import (
     KIND_KING_TOWER,
     KIND_PRINCESS_TOWER,
     KIND_TROOP,
-    TOWER_KINDS,
     UNKNOWN_HP,
     Frame,
     Learning,
@@ -756,9 +755,16 @@ class Renderer:
                 rect = self.unit_rect_px(u, upt, seat)
                 pygame.draw.rect(surface, color, rect)
                 pygame.draw.rect(surface, t.building_outline, rect, 2)
-                if u.kind in TOWER_KINDS:
-                    pygame.draw.rect(
-                        surface, t.building_outline, rect.inflate(-rect.w // 2, -rect.h // 2), 1
+                # The box and the circle are two different real quantities, so they are drawn
+                # as two different shapes: the box is the ground the building stands on, and
+                # the circle is its collision radius, which is what other units and other
+                # buildings run into. They are not the same size and never were -- a Cannon's
+                # box is 3 tiles and its radius 1.2 -- and the old inner SQUARE, at half the
+                # outer one, was neither of them. A frame that carries no radius gets no
+                # circle rather than a drawn guess.
+                if u.radius > 0:
+                    pygame.draw.circle(
+                        surface, t.collision_circle, (px, py), self.px_len(u.radius, upt), 1
                     )
                 if u.footprint is None:
                     self._draw_fallback_marks(rect)

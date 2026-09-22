@@ -62,6 +62,14 @@ it is **marked**: red ticks on the building's four corners, a red count in the s
 drawn plainly is indistinguishable from a right one, which is exactly how a Cannon one tile
 wide sat on the board for days looking like a fact.
 
+**The box and the circle are two different things, so they are drawn as two shapes.** Inside
+its box, a building shows its COLLISION RADIUS as a circle: the box is the ground it stands on
+and the circle is what other units and other buildings run into, and they are not the same
+size. Measured on the engine, 2026-09-22: a Cannon's box is 3 tiles and its radius 0.6, a
+princess tower 3 tiles and 1.0, a king tower 4 tiles and 1.4. Until today the window drew an
+inner SQUARE at half the outer one, on towers only, which was neither quantity. A frame that
+carries no radius, which is every recording, gets no circle rather than a drawn guess.
+
 Two things the window can say about footprints without knowing any of the engine's rules:
 
 - **B** shades every carried box and marks each tile whose CENTRE lands inside one. That is
