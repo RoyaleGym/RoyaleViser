@@ -32,6 +32,9 @@ The invariants a source must hold:
   `False` for an opponent whose hand a capture does not carry, and the dashboard prints
   "hand: not in this source". `model.problems(frame)` lists contract violations, and the
   tests run it on every source.
+- A building or tower carries the **box it stands on**, `Unit.footprint`, as a closed
+  `[x0, y0, x1, y1]` in the frame's own units. `None` means a troop, or a source that does not
+  have one: see the next section, which is about what the window does with that.
 
 The card table `royaleviser/cards.json` maps a card's register name to `[id, cost]`; it is the
 live client's table with the hero-form Musketeer (203000014) folded into the Musketeer.
@@ -39,6 +42,38 @@ live client's table with the hero-form Musketeer (203000014) folded into the Mus
 list overrides both for that trace. `cards.json` and the tunnel-speed table
 `sources.LIVE_TUNNEL_SPEED` are copies of the recording instrument's own tables and must
 stay equal to them.
+
+## How big a building is drawn
+
+A Cannon is 3 tiles by 3. Until 2026-09-22 the window drew every building as a square of
+twice its collision radius, which for a Cannon is 1.2 tiles, and the two crown towers from
+constants in the renderer. None of those numbers is the box a building occupies; the owner
+found it by looking at a Cannon sitting against the arena wall at about a ninth of its size.
+
+So the rule is now one line: **the drawn rectangle is `Unit.footprint`, and where a frame
+carries one nothing else has a say.** `Renderer.unit_rect_px` is the single place that
+decides, and the hp bar, the name label, the hover ring, the click target and the compare
+ghost all read it, so a 3x3 Cannon is clickable over all nine of its tiles.
+
+Where a frame carries none -- every recording, and every trace and stream written before the
+field existed -- the old guess is still drawn, because the window has to draw something, and
+it is **marked**: red ticks on the building's four corners, a red count in the status block
+("5 of 8 building sizes guessed"), and the reason in the inspector's `box` row. A wrong size
+drawn plainly is indistinguishable from a right one, which is exactly how a Cannon one tile
+wide sat on the board for days looking like a fact.
+
+Two things the window can say about footprints without knowing any of the engine's rules:
+
+- **B** shades every carried box and marks each tile whose CENTRE lands inside one. That is
+  the part of deploy legality a frame settles by itself. It is not the whole of it: a
+  building brings its own size to the test, and no frame says which card a player is about to
+  play, so the overlay does not pretend to.
+- The status block says when a carried box **runs off the board**, which is the shape of the
+  defect the owner saw. Whether a placement was legal is the engine's answer; whether a box
+  is inside the arena is two comparisons on numbers already in front of the window.
+
+Boxes may legitimately touch each other and the side walls; only a positive-area overlap is
+illegal, so a building drawn flush against a tower is not by itself a defect.
 
 ## The recording format
 
@@ -95,6 +130,47 @@ On the two synthetic recordings below the same comparison gives 0 differing tick
 whole battle (ticks 0..394, so the panel prints `395 ticks compared, 0 differ`), which is
 what the tests pin.
 
+### A tolerance, for the case where exact equality is the wrong question
+
+Two recordings of one battle agree to the unit, because both clients run the same lockstep
+simulation. An **engine replaying a recorded battle** does not and never will, so exact
+equality makes every unit differ and the count says nothing about whether the engine is close
+or lost.
+
+`--tolerance MILLITILES` changes the question to how far apart they are. Each unit is paired
+with the nearest unit of the other side of the same team and name, closest pair first, and a
+pair within the tolerance agrees. Three properties are deliberate:
+
+- A unit one side has and the other does not is **never** within any tolerance, however
+  large. That is the failure a position tolerance must not hide.
+- HP is not part of the pairing and not part of the differ count. A unit standing in the right
+  place with the wrong hp is a different finding from one in the wrong place, so it is counted
+  beside them: `12 entities, 1 differ, 2 hp`.
+- Every line judged by a tolerance says which one, on the totals line. A reader who sees
+  `0 differ` and no tolerance will take it for exact agreement.
+
+### The engine beside the battle it replayed
+
+`python -m royaleviser --parity FILE` opens **both** sides of a RoyaleSim parity trace at
+once: the recording as the main source, the engine's own run of the same battle ghosted over
+it, compared within 250 milli-tiles (a quarter tile, the tightest band that report scores)
+unless `--tolerance` says otherwise. That is one command for "where do the engine and the real
+game disagree", and it needs a machine that has the fixtures and the results, the way the
+parity gate does.
+
+The file is RoyaleSim's replay harness run with `--trace`, which adds a row per scored
+unit-tick: the tick, the unit, where the recording had it and where the engine put it, both in
+native milli-tiles. `royaleviser.parity` turns each column into a source. Both sides key units
+by the RECORDING's entity key, so the compare pairs them without guessing.
+
+What a parity file does not carry, and what the viewer does about it: no elixir, hands, decks,
+crowns or result, so those say "not in this source"; no radius and no footprint, so buildings
+draw at the marked fallback size; the path is a COUNT of nodes rather than the nodes, so it
+rides in the inspector instead of being drawn as a path nobody recorded. `max_hp` is the most
+that unit was ever seen with in that file, which is what the file itself supports. The
+report's `first_divergence`, its one statement about a moment rather than a total, becomes an
+event line to scrub to.
+
 ## The synthetic recordings
 
 `tests/synthetic.py` scripts a two-minute battle as `Frame`s for the renderer's tests and the
@@ -133,8 +209,17 @@ crowns), so the converters are tested against a known answer rather than against
 - `tests/test_sources.py`: the capture source on the synthetic and the recorded battles,
   MockEngine traces, the UDP round trip through `Publisher` and `StreamSource`.
 - `tests/test_render.py`: headless draws of every panel and toggle, the pixel positions of
-  both kings, the compact layout, the compare totals, the app's keys and pacing, `run` with
-  `--shot` and `--geometry`.
+  both kings, the compact layout, the compare totals and the tolerance, the app's keys and
+  pacing, `run` with `--shot` and `--geometry`. The footprint tests grade the drawn PIXELS
+  rather than the helper that positions them: a helper returning the right rectangle and a
+  draw call using a different one is the bug they exist for.
+- `tests/test_parity.py`: both sides of a parity trace, on a file written by hand in the
+  harness's row shape. One test opens a file the harness itself wrote and SKIPS where no
+  results file with rows is on this machine; it is the only one that can say the shape is
+  still the harness's.
+- `tests/test_learner_protocol.py`: this package's wire constants against RoyaleLearn's copy
+  of them, and a status the learner builds carried all the way into the drawn panel. Skips
+  where royalelearn is not installed.
 - `tests/test_cli.py`: `python -m royaleviser` end to end, headless.
 
 `RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's decoder,
@@ -144,15 +229,19 @@ recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
 The suite has two correct results. In a fresh clone, `pytest -q` gives **94 passed, 3
-skipped**: the capture tests run on the synthetic recordings, and the three tests that pin
-numbers only a recording of a real battle has (2407 ticks both seats hold, 2404 equal, 3
+skipped** (measured at dc54ea6; the counts below are the ones re-measured on 2026-09-22): the
+capture tests run on the synthetic recordings, and the three tests that pin numbers only a
+recording of a real battle has (2407 ticks both seats hold, 2404 equal, 3
 differ; the Goblin Drill of tick 2974 surfacing 73 ticks later) skip, each with a reason
 beginning `SKIPPED, NOT PASSED`, and `tests/conftest.py` prints them by name at the end of the
 run. With `ROYALELIVE_REPORTS` pointing at a folder that holds
 `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
 `frames-auto-20260920-083112-A.jsonl` (or their `.jsonl.gz`; the default folder is
-`tests/captures`, gitignored) the result is **97 passed**. Without the `media` extra
-(`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) two more skip.
+`tests/captures`, gitignored) the result is **126 passed, 1 skipped** on this machine
+(2026-09-22, `pytest --collect-only -q` collects 127). The one skip is the parity test that
+needs a results file written with the harness's `--trace`. Without the `media` extra
+(`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) two more skip, and
+without RoyaleLearn installed four more.
 
 ## The stream protocol
 
@@ -316,7 +405,7 @@ real window (`docs/viewer-learning.png` was made with it).
 ## The command line
 
 `python -m royaleviser [SOURCE [SOURCE]] [--stream HOST:PORT] [--learning HOST:PORT]
-[--compare SOURCE]` plus the
+[--compare SOURCE] [--parity FILE] [--tolerance MILLITILES]` plus the
 view options below, which `__main__.add_view_arguments` adds to any parser. The first
 source is the primary; a second positional, `--compare` or `--stream` is the compared one,
 and more than two is an error.
@@ -325,6 +414,8 @@ and more than two is an error.
 |---|---|
 | `--seat local\|0\|1` | who sits at the bottom. `local` (the default) seats the primary source's local player once the source knows it (the side whose hand a recording holds; team 0 for a trace or a stream); `0` and `1` pin a team. Seat 1 draws the board rotated 180 degrees, which is what that player's own screen shows. |
 | `--geometry WxH+X+Y` | the window's outer rectangle in physical pixels, for a caller that places the window itself. Without `--scale` it picks the largest tile scale whose layout fits; under 16 px/tile (`COMPACT_BELOW`) the inspector column is dropped and the compare lines move into the dashboard, and the window then fills the whole rectangle. On Windows the process is made per-monitor DPI aware first so the pixels are physical. |
+| `--parity FILE` | a RoyaleSim parity trace written with `--trace`: opens BOTH sides of it, the recording with the engine's run of the same battle ghosted over the top, and compares within a quarter tile unless `--tolerance` says otherwise. It fills both source slots by itself, so it cannot be combined with another source. |
+| `--tolerance MILLITILES` | count two units as agreeing while they are this far apart or less. 0, the default, is exact agreement; `--parity` defaults to 250. |
 | `--learning HOST:PORT` | where a learner publishes its training status. Unset, it is the stream's port plus one, so attaching to a training run stays one flag; see [The learning status](#the-learning-status). |
 | `--scale N` | pixels per tile (24). |
 | `--speed F` | replay speed (1.0); `+`/`-` step through `SPEEDS` = 0.25 ... 8. |
@@ -345,6 +436,7 @@ how the README's images and the render tests are produced. `--help` prints the k
 | f | flip the seat |
 | p, t, g | unit paths, target lines, tile grid |
 | d | debug numbers |
+| b | building footprints: every carried box shaded, and the tile taps its centre rule refuses |
 | c | compare ghost |
 | s / F12 | save a PNG |
 | click | pin a unit / seek the timeline |
