@@ -367,14 +367,18 @@ def empty_frame(units_per_tile: int) -> Frame:
 
 
 def shot_path(source: Any, frame: Frame | None, explicit: str | None) -> Path:
-    """--shot's path, else 'royaleviser-<source>-t<tick>.png' next to the source file (or cwd)."""
+    """--shot's path, else 'royaleviser-<source>-t<tick>.png' next to the source file (or cwd).
+
+    A live source has no file, so its shot lands in the working directory. Before its first
+    frame there is no tick either, and "t0" would name a frame nobody saw, so it says so.
+    """
     if explicit:
         return Path(explicit)
-    tick = frame.tick if frame is not None else 0
+    tick = f"t{frame.tick}" if frame is not None else "no-frame"
     name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(getattr(source, "name", "viser")))
     where = getattr(source, "path", None)
     folder = Path(where).parent if where else Path.cwd()
-    return folder / f"royaleviser-{name}-t{tick}.png"
+    return folder / f"royaleviser-{name}-{tick}.png"
 
 
 def source_names(source: Any) -> Names | None:

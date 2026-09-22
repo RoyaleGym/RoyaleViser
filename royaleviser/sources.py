@@ -80,6 +80,9 @@ MAX_PORT = 65535
 LEARNING_PORT_OFFSET = 1
 STREAM_LEARNING_PORT = STREAM_PORT + LEARNING_PORT_OFFSET
 LEARNING_REPEATS = 3  # how often one status is sent to one viewer: UDP acknowledges nothing
+# No frame for this long: the status line starts saying how old the board is (``quiet_for``).
+# Above a couple of heartbeats, so an ordinary gap between frames never shows.
+STREAM_QUIET_S = 3.0
 
 
 def learning_endpoint(host: str, port: int) -> tuple[str, int] | None:
@@ -1028,8 +1031,32 @@ class StreamSource:
             )
         return (
             f"{self.name} frames {self.index} {len(self._times):.1f} fps drops {self.drops}"
-            f" tick {self._last.tick}{bad}"
+            f" tick {self._last.tick}{self.quiet_for()}{bad}"
         )
+
+    def quiet_for(self) -> str:
+        """ " last N ago" when no frame has arrived for a while, else "".
+
+        A publisher keeps ONE peer, the address of the last heartbeat it read, so a second
+        viewer saying hello to a run takes the stream: the first viewer's board simply stops
+        (measured 2026-09-22, two sources on one publisher: the second got 60 frames of 60).
+        Nothing tells it so, and "0.0 fps" does not, because a board that stands still is the
+        NORMAL case on a training run -- the environment publishes for about forty seconds and
+        then the learner thinks for eight to thirteen minutes.
+
+        What separates the two is how long it has been. A quiet stream inside an iteration is
+        minutes old and expected; one that has been quiet since about when someone else opened
+        a window is the stolen case. The viewer cannot tell them apart by itself, and saying
+        how old the board is lets a person do it in one look instead of watching for a while.
+        """
+        if not self._times:
+            return ""
+        seconds = time.monotonic() - self._times[-1]
+        if seconds < STREAM_QUIET_S:
+            return ""
+        if seconds < 60:
+            return f" last {int(seconds)}s ago"
+        return f" last {int(seconds // 60)}m ago"
 
     def close(self) -> None:
         self._closed = True

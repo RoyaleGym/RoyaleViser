@@ -1063,3 +1063,51 @@ def test_a_burst_of_frames_does_not_push_the_learner_s_status_out() -> None:
     src.close()
     learner.close()
     pub.close()
+
+
+def test_a_second_viewer_takes_the_stream_and_the_first_one_says_how_old_its_board_is() -> None:
+    """A publisher keeps ONE peer, the address of the last heartbeat it read. What that means
+    for a person is measured here rather than assumed: the second viewer gets everything.
+
+    The first viewer cannot tell that from an ordinary pause, because a board that stands
+    still IS the normal case on a training run -- the environment publishes for about forty
+    seconds and the learner then thinks for minutes. So the status line says how old the board
+    is, and a person compares that with when someone else opened a window.
+    """
+    pub = sources.Publisher(port=0)
+    first = sources.StreamSource(*pub.address)
+    time.sleep(0.05)
+    pub._pub._last_poll = 0.0
+    frame = synthetic.battle()[100]
+    for i in range(5):
+        frame.tick = i
+        assert pub.publish(frame)
+    for _ in range(5):
+        first.frame()
+    assert first.index == 5 and "fps" in first.status()
+
+    second = sources.StreamSource(*pub.address)  # someone opens another window on the same run
+    before = first.index
+    for round_ in range(3):
+        pub._pub._last_poll = 0.0
+        first.heartbeat()
+        second.heartbeat()  # arrives last, so the publisher's one peer becomes this one
+        time.sleep(0.02)
+        for i in range(10):
+            frame.tick = 100 + round_ * 10 + i
+            pub.publish(frame)
+        first.frame()
+        second.frame()
+    assert second.index == 30, "the newer viewer should be getting the frames"
+    assert first.index == before, "the older viewer is not told it lost the stream"
+
+    # Its board is now as old as the theft, and the status line says so rather than leaving
+    # "0.0 fps", which is what a healthy run between rollouts also shows.
+    assert first.quiet_for() == ""  # not yet: an ordinary gap between frames says nothing
+    first._times[-1] -= sources.STREAM_QUIET_S + 4
+    assert first.quiet_for() == " last 7s ago" and "last 7s ago" in first.status()
+    first._times[-1] -= 600
+    assert first.quiet_for() == " last 10m ago"
+    first.close()
+    second.close()
+    pub.close()
