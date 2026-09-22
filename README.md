@@ -214,13 +214,14 @@ draw:
 Tests:
 
 ```
-cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 76 passed, 3 skipped as of 2026-09-21
+cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 87 passed, 3 skipped as of 2026-09-22
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
 The three skips are the tests that need a recording of a real battle, which the repo does not
 ship; the run names them so they are not mistaken for passes. With the recordings present the
-result is 79 passed.
+result is 90 passed. Without the `media` extra (`imageio-ffmpeg`, which `royaleviser.capture`
+needs only for mp4 and gif) two more tests skip.
 
 Read next: [`docs/internals.md`](docs/internals.md) for the frame model, the recording format,
 the stream protocol, the command line, the layout, the tests and the performance table;

@@ -24,6 +24,11 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.16",
 ]
+# royaleviser.capture writes .png with nothing but this package; .mp4 and .gif are encoded by
+# the ffmpeg binary imageio-ffmpeg ships, so nobody needs a video encoder to look at a frame.
+media = [
+    "imageio-ffmpeg>=0.5",
+]
 
 [tool.setuptools]
 packages = ["royaleviser"]
