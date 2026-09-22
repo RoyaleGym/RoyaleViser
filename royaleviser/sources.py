@@ -120,9 +120,9 @@ LIVE_DEPLOY_STATE = 4  # behavior_state while a unit deploys (kind 14, ~18 ticks
 LIVE_UNDERGROUND_STATE = (
     6  # behavior_state while a unit tunnels from its king tower to the placement
 )
-# Tunnel speed in native units per tick, measured on client 16.402 (RoyaleLive traces,
-# frames-auto-20260920-083112): drill 300/tick, Miner 650/tick. The Mighty Miner's lane switch
-# is given the Miner's speed and has not been seen in a capture yet.
+# Tunnel speed in native units per tick, measured 2026-09-20 on client 16.402 (RoyaleLive
+# traces): drill 300/tick, Miner 650/tick. The Mighty Miner's lane switch is given the
+# Miner's speed and has not been seen in a recording yet.
 LIVE_TUNNEL_SPEED = {27000013: 300, 26000032: 650, 26000065: 650}
 LIVE_FROZEN_FRAMES = 20  # one second of the same tick at the end of a capture: results screen
 LIVE_NEW_BATTLE_DROP = 100  # the tick falling back by more than this: a new battle
@@ -262,9 +262,10 @@ def capture_node_xy(n: int) -> tuple[int, int]:
 
 def capture_surfacing(e: dict[str, Any]) -> tuple[int, int, int] | None:
     """(x, y, eta ticks) where a tunnelling entity comes out: the centre of its goal cell (the
-    first path node) and the remaining path length over its tunnel speed, floored. Measured on
-    frames-auto-20260920-083112: the drill of tick 2974 at (9178,3569) predicts (3250,23250)
-    in 73 ticks and the building appeared at (3000,23000) at tick 3047. None for anything else."""
+    first path node) and the remaining path length over its tunnel speed, floored. Measured
+    2026-09-20 on client 16.402 (RoyaleLive traces): the drill of tick 2974 at (9178,3569)
+    predicts (3250,23250) in 73 ticks and the building appeared at (3000,23000) at tick 3047.
+    None for anything else."""
     cid = e.get("card_id", -1)
     nodes = e.get("path_nodes") or []
     tunnelling = e.get("behavior_state") == LIVE_UNDERGROUND_STATE and cid in LIVE_TUNNEL_SPEED

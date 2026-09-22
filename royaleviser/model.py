@@ -242,9 +242,8 @@ class Source(Protocol):
 CARDS_JSON = Path(__file__).with_name("cards.json")
 CARDS_ENV = "ROYALEVISER_CARDS"
 # A card's other forms spawn under their own id while the hand keeps the register id. The one
-# measured so far: the all-cards Musketeer slot spawns the hero form 203000014 (measured on
-# frames-demo-20260920-120752, five taps; RoyaleLive keeps the same table). Entity id ->
-# register id.
+# measured so far: the all-cards Musketeer slot spawns the hero form 203000014 (five taps,
+# measured 2026-09-20 on client 16.402, RoyaleLive traces). Entity id -> register id.
 LIVE_FORMS = {203000014: 26000014}
 
 
