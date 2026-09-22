@@ -498,3 +498,40 @@ def test_the_app_tells_the_panel_where_a_learner_would_be_heard() -> None:
     b = App([plain], ViewState())
     b.pull()
     assert b.transport.learning_peer == ""
+
+
+def test_the_panel_says_how_old_the_status_is() -> None:
+    """A real iteration is minutes apart -- 8.9 of them on the laptop profile, measured
+    2026-09-22 -- so a panel with no age on it cannot tell a run that is working from one
+    that died half an hour ago. Both show the same numbers, standing still."""
+    from royaleviser.render import age_text
+
+    assert age_text(None) == "" and age_text(0.0) == "0s"
+    assert age_text(12.7) == "12s" and age_text(59.9) == "59s"
+    assert age_text(60) == "1m" and age_text(533) == "8m"  # one laptop-profile iteration
+    assert age_text(3600) == "1h00" and age_text(3600 + 47 * 60) == "1h47"
+    r = Renderer(scale=24, help_lines=KEYS)
+    ln = Learning(run="ppo-0007", iteration=1420)
+    r.draw(FRAMES[600], ViewState(), Transport(source_name="s", learning=ln, learning_age_s=533))
+    r.draw(FRAMES[600], ViewState(), Transport(source_name="s", learning=None, learning_age_s=None))
+
+
+def test_the_app_ages_the_status_from_when_it_arrived() -> None:
+    pygame.init()
+    learner = sources.LearningPublisher(port=0, pump_thread=False)
+    src = sources.StreamSource("127.0.0.1", 9999, learner.address)
+    a = App([src], ViewState())
+    a.pull()
+    a.draw(time.perf_counter())
+    assert a.transport.learning_age_s is None  # nothing has ever arrived
+    learner.publish(model.Learning(run="ppo-0007", iteration=1))
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end and src.learning is None:
+        learner.pump()
+        a.pull()
+        time.sleep(0.01)
+    assert src.learning is not None and src.learning_at is not None
+    a.draw(time.perf_counter())
+    assert a.transport.learning_age_s is not None and a.transport.learning_age_s < 5
+    src.close()
+    learner.close()

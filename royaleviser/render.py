@@ -178,6 +178,23 @@ def extra_text(value: Any) -> str:
     return str(value)
 
 
+def age_text(seconds: float | None) -> str:
+    """How long ago the status arrived, short enough for a panel heading.
+
+    A real iteration is MINUTES apart -- 8.9 of them on the laptop profile, measured
+    2026-09-22 -- so a panel with no age on it cannot tell a run that is working from one
+    that died half an hour ago: both show the same numbers, standing still. "8m" is the
+    cadence; "47m" is a learner that is gone.
+    """
+    if seconds is None:
+        return ""
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m"
+    return f"{int(seconds // 3600)}h{int(seconds % 3600 // 60):02d}"
+
+
 def learning_run(ln: Learning | None, peer: str = "") -> str:
     """What the panel writes beside its "learning" heading.
 
@@ -213,6 +230,7 @@ class Transport:
     fps: float = 0.0  # wall-clock frames drawn per second (live: frames received)
     learning: Learning | None = None  # None: no learner attached
     learning_peer: str = ""  # where a learner would be heard, named when none is
+    learning_age_s: float | None = None  # how long ago the status arrived, None if never
 
 
 @dataclass(slots=True)
@@ -750,7 +768,11 @@ class Renderer:
         self._draw_hand(bottom, lay.bottom_hand)
         log_bottom = self._draw_status_block(frame, lay.debug, transport, view)
         self._draw_learning_block(
-            lay.debug, log_bottom, transport.learning, transport.learning_peer
+            lay.debug,
+            log_bottom,
+            transport.learning,
+            transport.learning_peer,
+            transport.learning_age_s,
         )
 
     def card_cost(self, name: str) -> int | None:
@@ -930,7 +952,7 @@ class Renderer:
         return [row for col in self.learning_columns(ln, 10**6) for row in col]
 
     def _draw_learning_block(
-        self, rect: Rect, top: int, ln: Learning | None, peer: str = ""
+        self, rect: Rect, top: int, ln: Learning | None, peer: str = "", age_s: float | None = None
     ) -> None:
         """The rest of the dashboard column, under the match log: the learner's status.
 
@@ -949,7 +971,8 @@ class Renderer:
             return
         pygame.draw.rect(self.surface, t.ui_panel, (x, top, w, avail))
         cy = top + 4
-        self.blit_text("learning", (x + 4, cy), "tiny", t.ui_dim)
+        age = age_text(age_s) if ln is not None else ""
+        self.blit_text(f"learning  {age}" if age else "learning", (x + 4, cy), "tiny", t.ui_dim)
         self.blit_text(
             fit_text(learning_run(ln, peer), self.fonts["tiny"], w // 2),
             (x + w - 4, cy),

@@ -523,6 +523,10 @@ class App:
     def draw(self, now: float) -> None:
         tr = self.transport
         tr.source_status = self.source.status()
+        # The age of the status, not of the draw: a real iteration is minutes apart, so a
+        # panel standing still is only alarming once you know how long it has stood.
+        at = getattr(self.source, "learning_at", None)
+        tr.learning_age_s = None if at is None else max(0.0, time.monotonic() - at)
         tr.index = self.source.index
         self.drawn_at = [t for t in self.drawn_at if now - t < 1.0]
         tr.fps = float(len(self.drawn_at))

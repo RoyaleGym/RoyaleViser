@@ -933,6 +933,7 @@ class StreamSource:
         self.drops = 0
         self.rejected = 0
         self.learning: Learning | None = None
+        self.learning_at: float | None = None  # monotonic, when the last status arrived
         # Loopback stays on loopback (no firewall prompt); either peer off it needs
         # any-address, or that one's datagrams never reach this socket.
         local = {"127.0.0.1", "localhost"}
@@ -1009,6 +1010,8 @@ class StreamSource:
             self.learning = decode_learning(data)
         except ValueError:  # msgspec's DecodeError and ValidationError, and a bad UTF-8 name
             self.rejected += 1
+            return
+        self.learning_at = time.monotonic()
 
     def seek(self, index: int) -> None:
         """Ignored: a stream has no timeline."""

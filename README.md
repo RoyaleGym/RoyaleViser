@@ -374,7 +374,7 @@ cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 87 passed, 3 ski
 
 The three skips are the tests that need a recording of a real battle, and the repo does not ship
 one. The run names them out loud so nobody mistakes a skip for a pass. With those recordings
-present the result is 93 passed. Without the `media` extra (`imageio-ffmpeg`, which
+present the result is 95 passed. Without the `media` extra (`imageio-ffmpeg`, which
 `royaleviser.capture` needs only for mp4 and gif) two more tests skip.
 
 Read next: [`docs/internals.md`](docs/internals.md) for the frame model, the recording format,
