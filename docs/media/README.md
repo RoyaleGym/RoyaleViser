@@ -41,6 +41,21 @@ frame rate is the thing it is showing. The copy taken for the README admits 86 d
 of 116, which is what a busy machine looks like, and the README says so rather than cropping
 it out.
 
+## Some of these are not freely regenerable
+
+Regenerating an image invalidates any prose that quotes what is inside it, and the generator
+cannot know which prose that is.
+
+`live-training-env.png` is the live case. The README's caption cites its status line, "86
+dropped frames out of 116", to make a point about what a busy machine looks like. Re-shooting it
+produces a different frame count and a different drop count, and the caption goes stale in the
+same breath. It happened once already: the picture was re-shot on a report that its learner
+string had changed, the string turned out to be conditional and had not changed, and the only
+effect was to break a caption that had been true.
+
+So before regenerating any picture, grep the README for the numbers written on it. If the prose
+quotes them, the regeneration is a prose job as well as a rendering one.
+
 ## Nothing here comes from a recording of a real match
 
 Every source is either an engine trace or the scripted battle in `tests/fixtures`. That is a
