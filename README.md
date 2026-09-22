@@ -1,5 +1,13 @@
 # RoyaleViser
 
+<p align="center">
+  <img alt="License" src="https://img.shields.io/github/license/RoyaleGym/RoyaleViser?style=flat-square&color=555">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white">
+  <a href="docs/"><img alt="Docs" src="https://img.shields.io/badge/docs-in--repo-8957e5?style=flat-square&logo=readthedocs&logoColor=white"></a>
+  <a href="https://discord.gg/4D2BS5JBHP"><img alt="Discord" src="https://img.shields.io/discord/1551699576304705647?style=flat-square&logo=discord&logoColor=white&label=discord&color=5865F2"></a>
+  <img alt="Last commit" src="https://img.shields.io/github/last-commit/RoyaleGym/RoyaleViser?style=flat-square&color=555">
+</p>
+
 **The window for the Royale stack**: watch a Clash Royale battle tick by tick, whether it is a
 recorded real match, a battle saved from the engine, or a bot training right now.
 
@@ -20,13 +28,13 @@ when nobody is watching it costs the environment nothing.
 
 <table>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/replay-scrubbed-4x.svg" width="100%" alt="Video placeholder: a recorded match replayed at 4x"><br><b>Replay a recorded match</b><br><sub>A real battle recorded at 20 frames a second: play, pause, step one frame, seek by clicking the bar.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/engine-trace.svg" width="100%" alt="Video placeholder: an engine trace opened at tick 900"><br><b>Open an engine trace</b><br><sub>A battle saved from the engine with one frame per tick; open it at any tick.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/replay-scrubbed-4x.gif" width="100%" alt="The scripted battle that ships with the tests, replayed in the viewer"><br><b>Replay a recorded match</b><br><sub>A real battle recorded at 20 frames a second: play, pause, step one frame, seek by clicking the bar.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/engine-trace.gif" width="100%" alt="An engine trace opened at tick 900, with a unit pinned in the inspector"><br><b>Open an engine trace</b><br><sub>A battle saved from the engine with one frame per tick; open it at any tick.</sub></td>
     <td width="33%" align="center"><img src="docs/media/tile-live-stream.png" width="100%" alt="The viewer attached to a running training environment: LIVE, 31 fps, events arriving"><br><b>Watch a training run live</b><br><sub>Attach to an environment stepping in another process; unwatched, it pays 193 ns a step (2026-09-21).</sub></td>
   </tr>
   <tr>
     <td width="33%" align="center"><img src="docs/media/tile-compare.png" width="100%" alt="The compare panel at GAME OVER: 2407 ticks compared, 3 differ"><br><b>Compare two recordings of one battle</b><br><sub>Both players recorded one match: 2407 ticks compared, 3 differ (2026-09-21), each for a single frame.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/compare-ghost.svg" width="100%" alt="Video placeholder: the second recording ghosted onto the first"><br><b>See where they disagree</b><br><sub>The second source is drawn as hollow ghosts on the first; on a differing tick the ghost steps off the unit.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/compare-ghost.gif" width="100%" alt="Two recordings of one battle, the second drawn on the first as hollow ghosts"><br><b>See where they disagree</b><br><sub>The second source is drawn as hollow ghosts on the first; on a differing tick the ghost steps off the unit.</sub></td>
     <td width="33%" align="center"><img src="docs/media/tile-inspector.png" width="100%" alt="The inspector listing every raw field of the pinned Valkyrie"><br><b>Inspect any unit</b><br><sub>Click a unit to list every field the source carries, raw and unrounded.</sub></td>
   </tr>
   <tr>

@@ -331,13 +331,53 @@ The palette is carried over from the project's earlier Python renderer: grass
 (71,204,218), team 1 red (224,73,41), UI (30,30,40). The bottom player is `ViewState.seat`;
 the board surface is built once per seat and grid setting and blitted on every draw.
 
+## Capturing media
+
+`royaleviser.capture.capture` writes what the window would show, with no window and no clock:
+the README media of all four repos is regenerated from it when the engine changes.
+
+```python
+from royaleviser.capture import capture
+from royaleviser.sources import open_source
+
+src = open_source("battle.msgpack")
+capture(src, "still.png", ticks=(900, 901, 1), scale=24, crop="left")
+capture(src, "clip.gif", ticks=(0, 2400, 8), scale=16, crop="left", fps=20)
+```
+
+- **The suffix picks the format.** `.png` writes one file, or `name-0000.png` upward for a
+  range; `.mp4` and `.gif` are encoded by the ffmpeg binary `imageio-ffmpeg` ships.
+- **`ticks` is `(start, stop, step)` in battle ticks**, the clock the window shows, resolved
+  through the source's `index_at_tick` — not frame indices. Without it the whole source is
+  captured. Use a tick *step* rather than a low `fps` to shorten a long clip: stepping keeps
+  the motion smooth where a low frame rate makes it stutter.
+- **The output is deterministic.** An image in a README that changes when nothing changed is
+  a diff nobody can review, so the two things on screen that follow the wall clock — the
+  draw time and the frame rate, and the LIVE pill with them — are frozen. `live_timing=True`
+  puts them back for a shot whose subject IS the timing.
+- **`crop`** is `full`, `board` (the arena alone), `left` (everything up to where the
+  inspector starts, which keeps the dashboard and the timeline), or a rectangle. A small
+  `scale` does NOT drop the inspector by itself: the compact layout is chosen from a geometry
+  by `app.fit_layout`, so cropping is how a capture leaves that column out.
+- **`view` and `compare`** are the window's own arguments: the seat, the overlays and
+  `hover_uid` to pin a unit in the inspector, and a second source ghosted at the same tick.
+- **A live stream is refused.** It has no timeline to seek, so `capture` raises rather than
+  recording whatever happened to arrive; `tests/run_stream.py --shot` photographs one.
+
+Measured on the scripted battle: the whole two-minute battle cropped `left` at scale 16,
+every eighth tick, is a 1.0 MB gif; the same range every fourth tick is a 0.74 MB mp4; a
+900-tick clip cropped `board` is 0.11 MB. ffmpeg is the `media` extra
+(`pip install royaleviser[media]`) and PNG needs nothing beyond this package, so nobody has
+to install a video encoder to look at a frame.
+
 ## The public surface other front ends use
 
 `royaleviser.__main__` exports the pieces a second front end needs: `add_view_arguments`
 adds the view options to any `argparse` parser, `run_sources` builds and runs the window over
 already-opened sources, and `TITLE` is the window title a caller can find the window by.
-Those three names, the exported `sources.capture_*` converters and the `LIVE_*` constants are
-the surface outside callers depend on; changing them is a breaking change.
+Those three names, `capture.capture` and its `CROPS`, the exported `sources.capture_*`
+converters and the `LIVE_*` constants are the surface outside callers depend on; changing
+them is a breaking change.
 
 ## Performance
 
