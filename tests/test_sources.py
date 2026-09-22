@@ -1175,6 +1175,45 @@ def test_the_engine_s_own_footprints_reach_the_frame_and_the_drawn_rectangle() -
     assert footprint_note(frame) == "", "a frame with every box carried must mark nothing"
 
 
+def test_a_recorded_trace_carries_the_engine_s_footprints_too(tmp_path: Path) -> None:
+    """The third way a battle reaches the window. A stream and a state both carry the box
+    now; a trace is written by a different code path and is the one a reader opens tomorrow."""
+    rust_engine = pytest.importorskip(
+        "royalegym.rust_engine",
+        reason=(
+            "SKIPPED, NOT PASSED: this test asks the compiled engine for its footprints and "
+            "the royalesim extension is not built here"
+        ),
+    )
+    from royaleviser.render import footprint_note
+
+    rec = ReplayRecorder(frame_every_tick=True)
+    env = ClashParallelEnv(
+        engine=rust_engine.RustEngine(),
+        recorder=rec,
+        state_mutator=DefaultStateMutator(decks=[ALL_TYPES, ALL_TYPES]),
+        truncation_cond=StepLimitCondition(12),
+    )
+    env.reset(seed=5)
+    for _ in range(12):
+        env.step({"blue": 0, "red": 0})
+    src = sources.TraceSource(save_trace(rec.trace, tmp_path / "t.json"))
+    frame = sound(src.frame())
+    towers = [u for u in frame.units if u.kind in model.TOWER_KINDS]
+    assert towers and all(u.footprint is not None for u in towers)
+    tiles = {
+        u.name: (
+            (u.footprint[2] - u.footprint[0]) / 18000,
+            (u.footprint[3] - u.footprint[1]) / 18000,
+        )
+        for u in towers
+    }
+    assert tiles == {"KingTower": (4.0, 4.0), "PrincessTower": (3.0, 3.0)}, tiles
+    assert footprint_note(frame) == ""
+    src.close()
+    env.close()
+
+
 def test_a_run_id_travels_from_the_env_to_the_panel_s_mismatch_line() -> None:
     """The other half of the port collision: two runs on one machine share the fixed ports,
     and the frame publisher can get its port while the learner does not, so another run's
