@@ -181,9 +181,9 @@ def test_capture_frame_mid_battle(capture_a: sources.CaptureSource) -> None:
     assert p0.next_card == "Zap" and p0.cycle == ["Cannon", "MegaKnight", "Knight"]
     assert p1.hand == ["?"] * 4 and not p1.hand_known and p1.elixir_known
     assert f.events and all(e.startswith("t") for e in f.events)
-    assert "t17 Blue plays Knight" in f.events and "t17 spawn Blue Knight (3.5, 8.1)" in f.events
+    assert "t17 Blue plays Knight" in f.events and "t17 spawn Blue Knight (3.5, 8.0)" in f.events
     assert (
-        "t34 spawn Red Archer (14.5, 23.8)" in f.events
+        "t34 spawn Red Archer (14.5, 24.0)" in f.events
         and "t67 spawn Red Cannon (11.0, 22.0)" in f.events
     )
     assert not any(" death " in e for e in f.events)
@@ -205,7 +205,7 @@ def test_capture_seek_step_and_the_frozen_end(capture_a: sources.CaptureSource) 
     assert f.tick == SYNTH_TICKS - 1 and f.game_over and not f.overtime
     assert f.crowns == [1, 0] and f.winner == 0
     assert 0 < len(f.events) <= sources.EVENTS_KEPT
-    assert f.events[-1] == "t367 spawn Red Giant (3.5, 26.9)"
+    assert f.events[-1] == "t367 spawn Red Giant (3.5, 27.0)"
     assert "t267 death Red PrincessTower" in f.events and "t167 death Red Cannon" in f.events
     assert [e for e in f.events if " plays " in e] == [
         "t17 Blue plays Knight",
@@ -269,7 +269,7 @@ def test_capture_deploying_state_and_the_play_event(capture_a: sources.CaptureSo
     src = capture_a
     src.seek(src.index_at_tick(17))
     f = sound(src.frame())
-    assert "t17 Blue plays Knight" in f.events and "t17 spawn Blue Knight (3.5, 8.1)" in f.events
+    assert "t17 Blue plays Knight" in f.events and "t17 spawn Blue Knight (3.5, 8.0)" in f.events
     deploying = [u for u in f.units if u.deploy_ticks > 0]
     assert [u.name for u in deploying] == ["Knight"]
     assert all(u.state == sources.LIVE_DEPLOY_STATE for u in deploying)

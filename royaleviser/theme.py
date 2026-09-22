@@ -3,9 +3,10 @@
 The palette is carried over from the project's earlier Python renderer: the checkerboard
 grass, the river, the bridges, blue team 0 / red team 1, the dark UI. The
 layout is that renderer's, reduced to numbers: a dashboard column on the left (the top
-player's hand, then the elixir rows, then the bottom player's hand), the arena beside it at a
-fixed integer pixel-per-tile scale, and -- new -- an inspector column on the right for the
-hovered unit, the events list and the status line.
+player's hand flush with the top-left corner, its elixir row, a short status block with the
+event log, the bottom player's elixir row and hand flush with the bottom-left corner), the
+arena beside it at a fixed integer pixel-per-tile scale, and an inspector column on the right
+for the hovered unit, the events list and the status line.
 
     from royaleviser.theme import DEFAULT, layout
     lay = layout(DEFAULT, scale=24, tiles=(18, 32))   # -> Layout with every rect in pixels
@@ -69,23 +70,24 @@ class Theme:
     # monospace one goes through pygame.font.SysFont (comma-separated candidates, the
     # bundled font when none is installed) for the inspector and the events list.
     font_name: str | None = None
-    font_large: int = 36
-    font_small: int = 24
-    font_tiny: int = 16
+    font_large: int = 40
+    font_small: int = 28
+    font_tiny: int = 20
     font_mono_name: str = "consolas,dejavusansmono,couriernew,monospace"
-    font_mono: int = 14
+    font_mono: int = 18
     # Sizes (pixels)
-    dashboard_w: int = 340  # hand column: 4 cards of 80 + 3 gaps of 5 = 335, plus a 5 px gutter
+    dashboard_w: int = 345  # 4 cards of 80 + 3 gaps of 5 = 335, flush left, then a 10 px gutter
     inspector_w: int = 300  # 0: no inspector column (the compact layout, app.fit_layout)
     tile_px: int = 24  # default pixels per tile (--scale overrides)
     margin: int = 5
     card_w: int = 80
     card_h: int = 100
     card_gap: int = 5
-    elixir_row_h: int = 28
+    elixir_row_h: int = 34
     next_card_w: int = 60
-    status_h: int = 22  # one status line under the arena
+    status_h: int = 26  # one status line under the arena
     timeline_h: int = 18  # scrub bar under the status line (replays only)
+    events_lines: int = 8  # the dashboard's event log shows this many lines at most
     hp_bar_h: int = 4
     unit_min_px: int = 5  # radius floor so a small troop stays visible
     unit_default_radius_tiles_x100: int = 50  # 0.5 tile when a source gives radius 0
@@ -143,19 +145,21 @@ def layout(theme: Theme, scale: int, tiles: tuple[int, int]) -> Layout:
     arena_x = theme.dashboard_w
     inspector_x = arena_x + aw + m
     width = inspector_x + theme.inspector_w if theme.inspector_w else inspector_x
-    hand_h = theme.card_h + 2 * m
-    top_hand = (m, m, theme.dashboard_w - 2 * m, hand_h)
-    top_elixir = (m, m + hand_h, theme.dashboard_w - 2 * m, theme.elixir_row_h)
-    bottom_hand = (m, height - m - hand_h, theme.dashboard_w - 2 * m, hand_h)
+    # The hands sit flush against the window's left edge and its top / bottom edge: the four
+    # cards are the only thing in the column that has a hard edge to line up with.
+    hand_w = 4 * theme.card_w + 3 * theme.card_gap
+    top_hand = (0, 0, hand_w, theme.card_h)
+    top_elixir = (m, theme.card_h + m, theme.dashboard_w - 2 * m, theme.elixir_row_h)
+    bottom_hand = (0, height - theme.card_h, hand_w, theme.card_h)
     bottom_elixir = (
         m,
-        height - m - hand_h - theme.elixir_row_h,
+        height - theme.card_h - m - theme.elixir_row_h,
         theme.dashboard_w - 2 * m,
         theme.elixir_row_h,
     )
     debug_y = top_elixir[1] + top_elixir[3] + m
     debug = (m, debug_y, theme.dashboard_w - 2 * m, bottom_elixir[1] - m - debug_y)
-    timer_w, timer_h = 5 * scale, 2 * scale
+    timer_w, timer_h = 4 * scale, scale + 6  # crowns and the clock in one small box
     timer = (arena_x + aw - timer_w - m, m + m, timer_w, timer_h)
     status = (arena_x, m + ah + m, aw, theme.status_h)
     timeline = (arena_x, status[1] + status[3] + m, aw, theme.timeline_h)

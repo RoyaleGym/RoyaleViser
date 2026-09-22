@@ -98,6 +98,84 @@ class ViewState:
 
 
 @dataclass(slots=True)
+class Learning:
+    """Training status from a learner, for the dashboard panel under the match log.
+
+    The fields are the ones a PPO run against a frozen-pool ladder reports: the learner's own
+    losses, the rollout's throughput and what it scored, and the standing against the pool.
+    Every number is None until a learner supplies it, and the panel shows an em dash in its
+    place, so the field list a reader sees is the same whether or not anything is attached.
+    """
+
+    run: str = ""  # the run or checkpoint name, shown beside the heading
+    # learner
+    iteration: int | None = None
+    policy_loss: float | None = None
+    value_loss: float | None = None
+    entropy: float | None = None
+    kl: float | None = None
+    clip_frac: float | None = None
+    explained_var: float | None = None
+    grad_norm: float | None = None
+    learning_rate: float | None = None
+    # rollout
+    env_steps_per_s: float | None = None
+    engine_ticks_per_s: float | None = None
+    episode_ticks: float | None = None
+    crowns_per_episode: float | None = None
+    towers_per_episode: float | None = None
+    illegal_rate: float | None = None  # share of actions the placement mask rejected
+    elixir_wasted: float | None = None  # elixir lost to a full bar, per episode
+    # ladder
+    elo: float | None = None  # against the frozen pool
+    win_rate: float | None = None
+    pool_size: int | None = None
+    games_vs_pool: int | None = None
+
+
+#: (heading, ((label, attribute, format), ...)) in the order the panel fills its two columns.
+LEARNING_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
+    (
+        "learner",
+        (
+            ("iteration", "iteration", "d"),
+            ("policy loss", "policy_loss", ".3f"),
+            ("value loss", "value_loss", ".3f"),
+            ("entropy", "entropy", ".3f"),
+            ("KL", "kl", ".4f"),
+            ("clip fraction", "clip_frac", ".1%"),
+            ("explained var", "explained_var", ".2f"),
+            ("grad norm", "grad_norm", ".2f"),
+            ("learning rate", "learning_rate", ".1e"),
+        ),
+    ),
+    (
+        "rollout",
+        (
+            ("env steps/s", "env_steps_per_s", ",.0f"),
+            ("engine ticks/s", "engine_ticks_per_s", ",.0f"),
+            ("episode ticks", "episode_ticks", ".0f"),
+            ("crowns / ep", "crowns_per_episode", ".2f"),
+            ("towers / ep", "towers_per_episode", ".2f"),
+            ("illegal actions", "illegal_rate", ".1%"),
+            ("elixir wasted", "elixir_wasted", ".1f"),
+        ),
+    ),
+    (
+        "ladder",
+        (
+            ("ELO vs pool", "elo", ".0f"),
+            ("win rate", "win_rate", ".1%"),
+            ("pool size", "pool_size", "d"),
+            ("games vs pool", "games_vs_pool", ",d"),
+        ),
+    ),
+)
+
+UNSET = "—"  # what a field with no value shows
+
+
+@dataclass(slots=True)
 class Transport:
     """Playback and source facts for the status line and the timeline; owned by the app."""
 
@@ -111,6 +189,7 @@ class Transport:
     at_end: bool = False  # a replay that reached its last frame ("end of capture")
     draw_ms: float = 0.0  # last draw, for the status block
     fps: float = 0.0  # wall-clock frames drawn per second (live: frames received)
+    learning: Learning | None = None  # None: no learner attached
 
 
 @dataclass(slots=True)
@@ -533,6 +612,9 @@ class Renderer:
                     pygame.draw.rect(surface, t.building_outline, inner, 1)
             if u.deploy_ticks > 0:
                 surface.blit(self.disc(r + 1, (*t.deploy_overlay, 140)), (px - r - 2, py - r - 2))
+            if u.deploy_ticks > 1:
+                # A real countdown. A recording carries only the deploying STATE, which
+                # sources.py encodes as 1 tick: the overlay without a number.
                 self.blit_text(
                     f"{u.deploy_ticks * frame.tick_ms / 1000:.1f}",
                     (px, py),
@@ -612,11 +694,11 @@ class Renderer:
         pygame.draw.rect(self.surface, (80, 80, 80), (x, y, w, h), 1)
         top, bottom = 1 - view.seat, view.seat
         clock = clock_text(frame.tick, frame.tick_ms)
-        cy = y + h // 2 - self.line_h["small"] // 2 + 1
-        self.blit_text(clock, (x + w // 2, cy), "small", t.ui_text, "midtop")
-        self.blit_text(str(frame.crowns[top]), (x + 6, cy), "small", t.team_color(top), "topleft")
+        cy = y + h // 2 - self.line_h["tiny"] // 2 + 1
+        self.blit_text(clock, (x + w // 2, cy), "tiny", t.ui_text, "midtop")
+        self.blit_text(str(frame.crowns[top]), (x + 5, cy), "tiny", t.team_color(top), "topleft")
         self.blit_text(
-            str(frame.crowns[bottom]), (x + w - 6, cy), "small", t.team_color(bottom), "topright"
+            str(frame.crowns[bottom]), (x + w - 5, cy), "tiny", t.team_color(bottom), "topright"
         )
         if frame.overtime and not frame.game_over:
             self.blit_text(
@@ -639,16 +721,12 @@ class Renderer:
         lay = self.layout
         top_team, bottom_team = 1 - view.seat, view.seat
         top, bottom = frame.player(top_team), frame.player(bottom_team)
-        info_h = 2 * self.line_h["tiny"] + 2
-        dx, dy, dw, dh = lay.debug
         self._draw_hand(top, lay.top_hand)
         self._draw_elixir_row(top, lay.top_elixir)
-        self._draw_player_info(top, (dx, dy, dw, info_h))
-        self._draw_player_info(bottom, (dx, dy + dh - info_h, dw, info_h))
         self._draw_elixir_row(bottom, lay.bottom_elixir)
         self._draw_hand(bottom, lay.bottom_hand)
-        middle = (dx, dy + info_h + 4, dw, dh - 2 * info_h - 8)
-        self._draw_status_block(frame, middle, transport, view)
+        log_bottom = self._draw_status_block(frame, lay.debug, transport, view)
+        self._draw_learning_block(lay.debug, log_bottom, transport.learning)
 
     def card_cost(self, name: str) -> int | None:
         if name not in self._cost_cache:
@@ -656,11 +734,11 @@ class Renderer:
         return self._cost_cache[name]
 
     def _draw_hand(self, p: Player, rect: Rect) -> None:
-        """Four 80x100 boxes: name, cost badge, dimmed when unaffordable, hatched when unknown."""
+        """Four 80x100 boxes filling ``rect`` exactly: name, cost badge, dimmed when
+        unaffordable, hatched when unknown."""
         t = self.theme
         x, y, _, _ = rect
         cw, ch, gap = t.card_w, t.card_h, t.card_gap
-        y += t.margin
         for i in range(4):
             cx = x + i * (cw + gap)
             box = pygame.Rect(cx, y, cw, ch)
@@ -676,10 +754,10 @@ class Renderer:
             name = p.hand[i] if i < len(p.hand) else "?"
             pygame.draw.rect(self.surface, t.card_bg, box)
             pygame.draw.rect(self.surface, t.card_border, box, 2)
-            ly = y + 6
-            for line in split_name(name, 10)[:3]:
+            ly = y + 5
+            for line in split_name(name, 10)[:2]:
                 self.blit_text(line, (cx + cw // 2, ly), "tiny", t.card_text, "midtop")
-                ly += self.line_h["tiny"] - 2
+                ly += self.line_h["tiny"] - 4
             cost = self.card_cost(name)
             if cost is not None:
                 pygame.draw.circle(self.surface, t.elixir, (cx + 14, y + ch - 14), 11)
@@ -725,36 +803,21 @@ class Renderer:
                 p.next_card or "?", (rx, y + 2 + self.line_h["tiny"] - 3), "tiny", t.ui_text
             )
 
-    def _draw_player_info(self, p: Player, rect: Rect) -> None:
-        """Two lines under (over) the elixir row: the cycle, then crowns and tower hp."""
-        t = self.theme
-        x, y, w, _ = rect
-        lh = self.line_h["tiny"]
-        name = t.team_name[p.team]
-        color = t.team_color(p.team)
-        if p.hand_known and p.cycle:
-            cycle = "cycle " + ", ".join(p.cycle)
-        elif p.deck_known and p.deck:
-            cycle = "deck " + ", ".join(p.deck)
-        elif not p.hand_known:
-            cycle = "cycle: not in this source"
-        else:
-            cycle = "cycle: -"
-        self.blit_text(fit_text(cycle, self.fonts["tiny"], w), (x, y), "tiny", t.ui_dim)
-        hp = " ".join(
-            f"{slot} {'?' if v == UNKNOWN_HP else v}"
-            for slot, v in zip(("K", "L", "R"), p.tower_hp, strict=False)
-        )
-        king = "  king awake" if p.king_active else ""
-        r = self.blit_text(f"{name}", (x, y + lh), "tiny", color)
-        self.blit_text(
-            f"crowns {p.crowns}   towers {hp}{king}", (r.right + 8, y + lh), "tiny", t.ui_text
-        )
-
-    def _draw_status_block(self, frame: Frame, rect: Rect, tr: Transport, view: ViewState) -> None:
+    def _draw_status_block(
+        self, frame: Frame, rect: Rect, tr: Transport, view: ViewState
+    ) -> int:
+        """Draws the source, the transport lines and the match log; returns its bottom y."""
         t = self.theme
         x, y, w, h = rect
         lh = self.line_h["tiny"]
+        mono_h = self.line_h["mono"]
+        # The panel is as tall as its content, not the column: the source, three status lines,
+        # a rule, and at most ``events_lines`` events. What the column has left stays dark.
+        head_h = 4 + self.line_h["small"] + 4 * lh + 6 + 4 + lh
+        n = max(0, min(t.events_lines, (h - head_h) // mono_h))
+        if not self.layout.inspector[2] and view.compare_name:
+            n = max(0, min(n, (h - head_h - 2 * lh) // mono_h))
+        rect = (x, y, w, min(h, head_h + n * mono_h + 4))
         pygame.draw.rect(self.surface, t.ui_panel, rect)
         cy = y + 4
         self.blit_text(
@@ -793,11 +856,96 @@ class Renderer:
         cy += 4
         self.blit_text("events", (x + 4, cy), "tiny", t.ui_dim)
         cy += lh
-        mono_h = self.line_h["mono"]
-        n = max(0, (y + h - cy) // mono_h)
         for line in frame.events[-n:] if n else []:
             self.blit_text(fit_text(line, self.fonts["mono"], w - 8), (x + 4, cy), "mono")
             cy += mono_h
+        return rect[1] + rect[3]
+
+    def learning_columns(self, ln: Learning | None, rows: int) -> list[list[tuple[str, str]]]:
+        """``LEARNING_GROUPS`` as (label, value) rows packed into two columns of at most
+        ``rows`` rows each, a group heading being a row with an empty value.
+
+        A group is kept whole wherever the column it would start in has room for all of it,
+        so a heading never ends up alone at the foot of a column; a group too tall for an
+        empty column is split, and rows that fit in neither column are left out.
+        """
+        cols: list[list[tuple[str, str]]] = [[], []]
+        ci = 0
+        for heading, fields in LEARNING_GROUPS:
+            block = [(heading, "")]
+            for label, attr, fmt in fields:
+                v = getattr(ln, attr, None) if ln is not None else None
+                block.append((label, UNSET if v is None else format(v, fmt)))
+            if cols[ci] and len(cols[ci]) + len(block) > rows and ci + 1 < len(cols):
+                ci += 1
+            for row in block:
+                while ci < len(cols) and len(cols[ci]) >= rows:
+                    ci += 1
+                if ci >= len(cols):
+                    return cols
+                cols[ci].append(row)
+        return cols
+
+    def learning_lines(self, ln: Learning | None) -> list[tuple[str, str]]:
+        """Every learning row in order, however the panel happens to column them. Each value
+        is ``UNSET`` when ``ln`` is None, and so is a field the learner left unset."""
+        return [row for col in self.learning_columns(ln, 10**6) for row in col]
+
+    def _draw_learning_block(self, rect: Rect, top: int, ln: Learning | None) -> None:
+        """The rest of the dashboard column, under the match log: the learner's status.
+
+        It closes the column rather than leaving it dark, and it shows the same field list
+        whether or not a learner is attached. Fields are filled down the left column and then
+        the right; when the column is too short for all of them the last ones are left out,
+        and nothing at all is drawn when there is no room for the heading and one row.
+        """
+        t = self.theme
+        x, y, w, h = rect
+        top += t.margin
+        lh = self.line_h["tiny"]
+        head_h = 4 + lh + 4 + 4
+        avail = y + h - top
+        if avail < head_h + lh:
+            return
+        pygame.draw.rect(self.surface, t.ui_panel, (x, top, w, avail))
+        cy = top + 4
+        self.blit_text("learning", (x + 4, cy), "tiny", t.ui_dim)
+        run = ln.run if ln is not None and ln.run else "no learner attached"
+        self.blit_text(
+            fit_text(run, self.fonts["tiny"], w // 2),
+            (x + w - 4, cy),
+            "tiny",
+            t.ui_text if ln is not None else t.ui_dim,
+            "topright",
+        )
+        cy += lh + 4
+        pygame.draw.line(self.surface, t.ui_border, (x + 4, cy), (x + w - 4, cy))
+        cy += 4
+        rows = max(0, (y + h - cy) // lh)
+        col_w = (w - 8) // 2
+        for ci, col in enumerate(self.learning_columns(ln, rows)):
+            cx = x + 4 + ci * col_w
+            for j, (label, value) in enumerate(col):
+                ry = cy + j * lh
+                if not value:  # a group heading, with a rule running out to the column's edge
+                    self.blit_text(label, (cx, ry), "tiny", t.ui_text)
+                    pygame.draw.line(
+                        self.surface,
+                        t.ui_border,
+                        (cx + self.fonts["tiny"].size(label)[0] + 6, ry + lh // 2),
+                        (cx + col_w - 8, ry + lh // 2),
+                    )
+                    continue
+                self.blit_text(
+                    fit_text(label, self.fonts["tiny"], col_w - 52), (cx + 6, ry), "tiny", t.ui_dim
+                )
+                self.blit_text(
+                    fit_text(value, self.fonts["tiny"], col_w - 8),
+                    (cx + col_w - 6, ry),
+                    "tiny",
+                    t.ui_text if value != UNSET else t.ui_dim,
+                    "topright",
+                )
 
     # ---- under the arena
 

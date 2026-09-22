@@ -202,9 +202,15 @@ def test_source_protocol_is_structural() -> None:
 
 def test_layout_is_the_old_arrangement() -> None:
     lay = theme.layout(theme.DEFAULT, scale=24, tiles=(18, 32))
-    assert lay.arena == (340, 5, 18 * 24, 32 * 24)
-    assert lay.inspector[0] == 340 + 432 + 5
-    assert lay.window[0] == 340 + 432 + 5 + 300
+    assert lay.arena == (345, 5, 18 * 24, 32 * 24)
+    assert lay.inspector[0] == 345 + 432 + 5
+    assert lay.window[0] == 345 + 432 + 5 + 300
+    # The hands are flush with the window's left edge and its top / bottom edge, and end
+    # a gutter short of the arena (4 cards of 80 + 3 gaps of 5 = 335 < 345).
+    assert lay.top_hand[:2] == (0, 0) and lay.top_hand[2] == 335
+    assert lay.bottom_hand[0] == 0 and lay.bottom_hand[1] + lay.bottom_hand[3] == lay.window[1]
+    assert lay.top_hand[0] + lay.top_hand[2] < lay.arena[0]
+    assert lay.timer[3] <= 2 * 24  # the crowns-and-clock box is a small one
     assert lay.window[1] >= 32 * 24 + theme.DEFAULT.status_h + theme.DEFAULT.timeline_h
     assert lay.status[1] == lay.arena[1] + lay.arena[3] + 5
     assert lay.timeline[1] > lay.status[1]

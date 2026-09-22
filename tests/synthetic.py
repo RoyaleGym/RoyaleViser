@@ -48,6 +48,8 @@ from royaleviser.model import (
     Unit,
 )
 
+DEPLOY_S = 1.0  # a troop's deploy time: it shows the countdown and stands still
+
 DECKS = [
     ["Knight", "Archer", "Fireball", "Musketeer", "BabyDragon", "Zap", "Cannon", "MegaKnight"],
     ["Archer", "Cannon", "Fireball", "Zap", "Knight", "GoblinDrill", "Musketeer", "Giant"],
@@ -137,10 +139,13 @@ def walker(
     flying: bool = False,
     radius_tiles: float = 0.5,
 ) -> Unit | None:
-    """A troop walking ``lane`` (tiles) from ``start_s`` at ``speed_tps`` tiles/s; None before."""
+    """A troop walking ``lane`` (tiles) from ``start_s`` at ``speed_tps`` tiles/s; None before.
+
+    It stands on its first node for ``DEPLOY_S`` (the deploy countdown it shows) and only
+    then walks, as a deploying unit does in the game."""
     if t < start_s:
         return None
-    dist = (t - start_s) * speed_tps
+    dist = max(0.0, t - start_s - DEPLOY_S) * speed_tps
     x, y = lane[0]
     i = 0
     while i + 1 < len(lane):
@@ -158,7 +163,7 @@ def walker(
         vx, vy = remaining[0][0] - x, remaining[0][1] - y
         n = (vx * vx + vy * vy) ** 0.5 or 1.0
         dx, dy = int(vx / n * 256), int(vy / n * 256)
-    deploy_ticks = max(0, int((start_s + 1.0 - t) * 1000 / TICK_MS))
+    deploy_ticks = max(0, int((start_s + DEPLOY_S - t) * 1000 / TICK_MS))
     return Unit(
         uid=uid,
         team=team,

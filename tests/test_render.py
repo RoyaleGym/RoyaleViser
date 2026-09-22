@@ -24,7 +24,10 @@ import pytest
 from royaleviser import app, model
 from royaleviser.app import KEYS, App, Compare, compare_text, fit_layout, fit_scale, run
 from royaleviser.render import (
+    LEARNING_GROUPS,
+    UNSET,
     Board,
+    Learning,
     Renderer,
     Transport,
     ViewState,
@@ -273,7 +276,7 @@ def test_fit_layout_drops_the_inspector_for_a_narrow_window() -> None:
     assert fit_layout(DEFAULT, (18, 32), w, h) == (DEFAULT, 24)
     theme, scale = fit_layout(DEFAULT, (18, 32), 712, 1029)  # a narrow slot
     assert theme.inspector_w == 0 and scale == 20
-    assert layout(theme, scale, (18, 32)).window == (705, 700)
+    assert layout(theme, scale, (18, 32)).window == (710, 704)
     assert layout(theme, scale, (18, 32)).inspector[2] == 0
     theme, scale = fit_layout(DEFAULT, (18, 32), 100, 100)  # nothing fits: the smallest compact
     assert theme.inspector_w == 0 and scale == app.MIN_SCALE
@@ -284,8 +287,56 @@ def test_compact_layout_draws_the_compare_lines_in_the_dashboard() -> None:
     r = Renderer(scale=scale, theme=theme)
     view = ViewState(compare_frame=FRAMES[600], compare_name="other", compare_text="a\nb")
     r.draw(FRAMES[600], view, Transport(source_name="s"))
-    assert r.surface.get_size() == (705, 700)
+    assert r.surface.get_size() == (710, 704)
     assert r.compare_lines(view) == ["compare: other  shown", "a", "b"]
+
+
+def test_learning_fields_are_the_same_list_attached_or_not() -> None:
+    r = Renderer(scale=24)
+    detached = r.learning_lines(None)
+    expected = [h for h, _ in LEARNING_GROUPS]
+    expected += [lbl for _, fs in LEARNING_GROUPS for lbl, _, _ in fs]
+    assert sorted(lbl for lbl, _ in detached) == sorted(expected)
+    assert {v for lbl, v in detached if v} == {UNSET}  # headings carry no value
+    partial = Learning(run="ppo-0007", iteration=1420, kl=0.0094, illegal_rate=0.0173)
+    assert [lbl for lbl, _ in r.learning_lines(partial)] == [lbl for lbl, _ in detached]
+    got = dict(r.learning_lines(partial))
+    assert (got["iteration"], got["KL"], got["illegal actions"]) == ("1420", "0.0094", "1.7%")
+    assert got["policy loss"] == UNSET  # a field the learner left unset, not a zero
+    assert got["learner"] == "" and got["ladder"] == ""
+
+
+def test_learning_panel_closes_the_dashboard_under_the_match_log() -> None:
+    """The column under the match log is panel, not window background.
+
+    Before the panel existed the match log ended where its content did and left the rest of
+    the column dark down to the bottom elixir row -- some 190 px at scale 24. What may remain
+    is the one-margin seam between the two panels, so the test is that no run of background
+    is taller than a margin.
+    """
+    r = Renderer(scale=24, help_lines=KEYS)
+    lay, t = r.layout, r.theme
+    x, y, w, h = lay.debug
+    for learning in (None, Learning(run="ppo-0007", iteration=1420)):
+        r.draw(FRAMES[600], ViewState(), Transport(source_name="s", learning=learning))
+        runs, current = [0], 0
+        for py in range(y, y + h):
+            if all(r.surface.get_at((px, py))[:3] == t.ui_bg for px in (x, x + w // 2, x + w - 1)):
+                current += 1
+            else:
+                runs.append(current)
+                current = 0
+        runs.append(current)
+        assert max(runs) <= t.margin, f"{max(runs)} px of dead column with learning={learning}"
+
+
+def test_learning_panel_is_left_out_when_the_column_is_too_short() -> None:
+    theme, scale = fit_layout(DEFAULT, (18, 32), 100, 100)  # the smallest compact layout
+    r = Renderer(scale=scale, theme=theme)
+    r.draw(FRAMES[600], ViewState(), Transport(source_name="s"))  # draws, does not raise
+    tall = Renderer(scale=24)
+    n_fields = sum(len(fs) for _, fs in LEARNING_GROUPS)
+    assert len(tall.learning_lines(None)) == n_fields + len(LEARNING_GROUPS)
 
 
 def test_compare_totals_and_replay_scrubbing() -> None:
