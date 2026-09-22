@@ -58,6 +58,8 @@ def iteration(n: int) -> Learning:
         win_rate=0.564,
         pool_size=6,
         games_vs_pool=2480 + 40 * n,
+        # The open tail: rows the fixed list does not have a place for.
+        extra={"rating": 1191.6 + 2.4 * n, "rating se": 12.7},
     )
 
 

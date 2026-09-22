@@ -140,9 +140,11 @@ every number in it came off the socket. It is a separate message on a separate c
 once per iteration rather than once per step, so it keeps arriving while the environment is
 between rollouts and nothing on the board moves, and a viewer that attaches mid-run is sent
 the last status instead of waiting for the next iteration. A field the learner does not send
-stays an em dash — the panel never invents a zero for a number nobody reported. A learner that
-would rather not import this package sends the same small msgpack datagram itself; the format
-is in [`docs/internals.md`](docs/internals.md).
+stays an em dash — the panel never invents a zero for a number nobody reported. Anything the
+twenty fixed rows cannot hold goes in `Learning.extra`, `{name: number or string}`, drawn
+underneath in the order it was sent. A learner that would rather not import this package sends
+the same small msgpack datagram itself; the format and the five constants it has to match are
+in [`docs/internals.md`](docs/internals.md).
 
 Setup, shared by the whole stack: the repos are cloned side by side into one folder with one
 venv at its root.
@@ -200,13 +202,13 @@ draw:
 Tests:
 
 ```
-cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 68 passed, 3 skipped as of 2026-09-21
+cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 72 passed, 3 skipped as of 2026-09-21
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
 The three skips are the tests that need a recording of a real battle, which the repo does not
 ship; the run names them so they are not mistaken for passes. With the recordings present the
-result is 71 passed.
+result is 75 passed.
 
 Read next: [`docs/internals.md`](docs/internals.md) for the frame model, the recording format,
 the stream protocol, the command line, the layout, the tests and the performance table;

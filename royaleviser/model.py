@@ -155,7 +155,8 @@ class Learning:
     arriving while the environment is between rollouts and no frame is moving. One message is
     the WHOLE status the learner currently knows -- the viewer replaces what it holds rather
     than merging, so the panel never shows a number the learner never asserted at one moment.
-    A field the learner does not send stays None and stays an em dash.
+    A field the learner does not send stays None and stays an em dash, and so does a field
+    whose name it misspells: an unknown key is ignored rather than guessed at.
     """
 
     run: str = ""  # the run or checkpoint name, shown beside the heading
@@ -163,25 +164,29 @@ class Learning:
     iteration: int | None = None
     policy_loss: float | None = None
     value_loss: float | None = None
-    entropy: float | None = None
+    entropy: float | None = None  # nats, over the legal actions
     kl: float | None = None
     clip_frac: float | None = None
     explained_var: float | None = None
     grad_norm: float | None = None
     learning_rate: float | None = None
     # rollout
-    env_steps_per_s: float | None = None
+    env_steps_per_s: float | None = None  # transitions the learner sees per second
     engine_ticks_per_s: float | None = None
-    episode_ticks: float | None = None
-    crowns_per_episode: float | None = None
+    episode_ticks: float | None = None  # mean over the iteration, as are the four below
+    crowns_per_episode: float | None = None  # own minus the opponent's
     towers_per_episode: float | None = None
     illegal_rate: float | None = None  # share of actions the placement mask rejected
     elixir_wasted: float | None = None  # elixir lost to a full bar, per episode
     # ladder
     elo: float | None = None  # against the frozen pool
-    win_rate: float | None = None
+    win_rate: float | None = None  # evaluation games only
     pool_size: int | None = None
     games_vs_pool: int | None = None
+    # Whatever else the learner keeps: {name: number or string}, drawn under the fixed rows in
+    # the order it sent them, so a new number needs no change on this side. The viewer only
+    # formats them (``render.extra_text``); their names and meaning are the learner's.
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable

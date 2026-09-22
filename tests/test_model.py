@@ -187,6 +187,20 @@ def test_a_status_round_trips_and_what_was_not_sent_stays_unset() -> None:
             model.decode_learning(bad)
 
 
+def test_the_learner_carries_its_own_rows_in_extra() -> None:
+    """The fixed twenty cannot hold everything a run keeps, so ``extra`` is the open tail:
+    any names, in the order the learner sent them, numbers or text."""
+    extra = {"rating": 1183.4, "rating_se": 12.7, "cards / match": 8, "gate": "passed"}
+    back = model.decode_learning(model.encode_learning(model.Learning(run="r", extra=extra)))
+    assert back.extra == extra and list(back.extra) == list(extra)  # the order is the wire's
+    assert model.Learning().extra == {}  # nothing sent, nothing drawn
+    # A name that is neither a field nor under "extra" is ignored, so a misspelling leaves the
+    # em dash of the field that stayed unset rather than showing a wrong number.
+    typo = msgspec.msgpack.encode({model.LEARNING_TAG: {"policy_los": 0.5, "kl": 0.01}})
+    lean = model.decode_learning(typo)
+    assert lean.policy_loss is None and lean.kl == 0.01 and lean.extra == {}
+
+
 def test_live_names_table() -> None:
     names = Names.live()
     assert len(names) > 100

@@ -145,6 +145,21 @@ LEARNING_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
 UNSET = "—"  # what a field with no value shows
 
 
+def extra_text(value: Any) -> str:
+    """One of the learner's own ``Learning.extra`` rows, which has no format of its own: an
+    integer with thousands, a float to four significant figures, anything else as it stands.
+    None is unset here as everywhere, so a learner can carry a row it does not always have."""
+    if value is None:
+        return UNSET
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, int):
+        return f"{value:,d}"
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    return str(value)
+
+
 @dataclass(slots=True)
 class Transport:
     """Playback and source facts for the status line and the timeline; owned by the app."""
@@ -831,29 +846,42 @@ class Renderer:
             cy += mono_h
         return rect[1] + rect[3]
 
-    def learning_columns(self, ln: Learning | None, rows: int) -> list[list[tuple[str, str]]]:
-        """``LEARNING_GROUPS`` as (label, value) rows packed into two columns of at most
-        ``rows`` rows each, a group heading being a row with an empty value.
-
-        A group is kept whole wherever the column it would start in has room for all of it,
-        so a heading never ends up alone at the foot of a column; a group too tall for an
-        empty column is split, and rows that fit in neither column are left out.
-        """
-        cols: list[list[tuple[str, str]]] = [[], []]
-        ci = 0
+    def learning_blocks(self, ln: Learning | None) -> list[list[tuple[str, str]]]:
+        """The panel's rows, one list per group, each starting with its heading (a row with
+        an empty value): ``LEARNING_GROUPS`` formatted field by field, then the learner's own
+        ``extra`` rows in the order it sent them, if it sent any."""
+        blocks = []
         for heading, fields in LEARNING_GROUPS:
             block = [(heading, "")]
             for label, attr, fmt in fields:
                 v = getattr(ln, attr, None) if ln is not None else None
                 block.append((label, UNSET if v is None else format(v, fmt)))
-            if cols[ci] and len(cols[ci]) + len(block) > rows and ci + 1 < len(cols):
-                ci += 1
+            blocks.append(block)
+        extra = getattr(ln, "extra", None) or {}
+        if extra:
+            blocks.append([("extra", ""), *((str(k), extra_text(v)) for k, v in extra.items())])
+        return blocks
+
+    def learning_columns(self, ln: Learning | None, rows: int) -> list[list[tuple[str, str]]]:
+        """``learning_blocks`` packed into two columns of at most ``rows`` rows each.
+
+        A group goes whole into the first column with room for all of it, so it is never
+        broken while space for it is going spare and a short group still fits after a tall
+        one has moved on. A group too tall for either column is split across what is left,
+        and rows that fit nowhere are left out -- a heading among them, because a heading
+        with no row under it says nothing.
+        """
+        cols: list[list[tuple[str, str]]] = [[], []]
+        for block in self.learning_blocks(ln):
+            whole = next((c for c in cols if len(c) + len(block) <= rows), None)
+            if whole is not None:
+                whole.extend(block)
+                continue
             for row in block:
-                while ci < len(cols) and len(cols[ci]) >= rows:
-                    ci += 1
-                if ci >= len(cols):
+                free = sum(max(0, rows - len(c)) for c in cols)
+                if free == 0 or (not row[1] and free < 2):
                     return cols
-                cols[ci].append(row)
+                next(c for c in cols if len(c) < rows).append(row)
         return cols
 
     def learning_lines(self, ln: Learning | None) -> list[tuple[str, str]]:

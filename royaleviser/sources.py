@@ -103,6 +103,7 @@ def udp_socket(host: str, port: int) -> socket.socket:
             sock.ioctl(reset_flag, False)
     return sock
 
+
 # The live client's numbers (measured 2026-09-18/20 on client 16.402, RoyaleLive captures).
 LIVE_ARENA = (18 * LIVE_UNITS_PER_TILE, 32 * LIVE_UNITS_PER_TILE)  # native x, y extent
 LIVE_KING_X = 9000  # both kings stand on x 9000 (calibration: (9000,3000) and (9000,29000))
@@ -1086,7 +1087,8 @@ class LearningPublisher:
 
     One message is the whole status (``model.Learning``): the viewer replaces rather than
     merges, so a field the learner stops sending goes back to an em dash rather than standing
-    as a stale number.
+    as a stale number. ``Learning.extra`` carries whatever the fixed rows cannot hold; a
+    status too big for one datagram is counted in ``dropped`` rather than truncated.
     """
 
     def __init__(
@@ -1099,6 +1101,7 @@ class LearningPublisher:
         self._sock = udp_socket(host, port)
         self.address: tuple[str, int] = self._sock.getsockname()[:2]
         self.sent = 0
+        self.dropped = 0  # statuses too big for one datagram
         self._lock = threading.RLock()
         self._status: Learning | None = None
         self._peer: tuple[str, int] | None = None
@@ -1183,8 +1186,12 @@ class LearningPublisher:
         already decided that a viewer is there."""
         if self._closed or self._peer is None or self._status is None:
             return False
+        data = encode_learning(self._status)
+        if len(data) > STREAM_MAX_DATAGRAM:  # a status this big is an ``extra`` gone wrong
+            self.dropped += 1
+            return False
         try:
-            self._sock.sendto(encode_learning(self._status), self._peer)
+            self._sock.sendto(data, self._peer)
         except OSError:
             return False  # the viewer went away between its hello and this send
         self._sent_to = self._peer

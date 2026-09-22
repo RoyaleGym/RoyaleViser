@@ -788,6 +788,39 @@ def a_status() -> Learning:
     )
 
 
+def test_the_constants_a_foreign_sender_needs_are_the_documented_ones() -> None:
+    """docs/internals.md prints these five for a learner that does not import this package;
+    a change here without a change there silently breaks that sender."""
+    assert sources.STREAM_HELLO == b"royaleviser 1"
+    assert sources.STREAM_HEARTBEAT_S == 1.0
+    assert sources.STREAM_ATTACH_TIMEOUT_S == 3
+    assert model.LEARNING_PREFIX == b"\x81\xa8learning"
+    assert sources.STREAM_MAX_DATAGRAM == 65507
+    assert sources.learning_endpoint("127.0.0.1", 9870) == ("127.0.0.1", 9871)
+    learner = sources.LearningPublisher(port=0, pump_thread=False)
+    assert learner.address[0] == "127.0.0.1"  # the default host, not every interface
+    learner.close()
+
+
+def test_a_status_too_big_for_one_datagram_is_counted_not_truncated() -> None:
+    learner = sources.LearningPublisher(port=0, pump_thread=False)
+    src = sources.StreamSource("127.0.0.1", 9999, learner.address)  # a learner, no engine
+    time.sleep(0.05)
+    learner.publish(a_status())  # sent now if the viewer is already there, on pump if not
+    huge = Learning(run="ppo-0007", extra={"log": "x" * (sources.STREAM_MAX_DATAGRAM + 1)})
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end and src.learning is None:
+        learner.pump()
+        src.frame()
+        time.sleep(0.01)
+    assert src.learning == a_status()  # the small one arrived
+    assert learner.publish(huge) is False and learner.dropped == 1
+    src.frame()
+    assert src.learning == a_status()  # still the last one that fitted
+    src.close()
+    learner.close()
+
+
 def test_a_learning_status_and_frames_share_one_socket() -> None:
     """Two senders on two ports, one socket at the viewer: the status lands in ``learning``
     and the frames keep being frames."""

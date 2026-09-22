@@ -143,7 +143,7 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results. In a fresh clone, `pytest -q` gives **68 passed, 3
+The suite has two correct results. In a fresh clone, `pytest -q` gives **72 passed, 3
 skipped**: the capture tests run on the synthetic recordings, and the three tests that pin
 numbers only a recording of a real battle has (2407 ticks both seats hold, 2404 equal, 3
 differ; the Goblin Drill of tick 2974 surfacing 73 ticks later) skip, each with a reason
@@ -151,7 +151,7 @@ beginning `SKIPPED, NOT PASSED`, and `tests/conftest.py` prints them by name at 
 run. With `ROYALELIVE_REPORTS` pointing at a folder that holds
 `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
 `frames-auto-20260920-083112-A.jsonl` (or their `.jsonl.gz`; the default folder is
-`tests/captures`, gitignored) the result is **71 passed**.
+`tests/captures`, gitignored) the result is **75 passed**.
 
 ## The stream protocol
 
@@ -197,7 +197,10 @@ whenever the board did.
    cannot bind one port. `--learning HOST:PORT` moves it.
 2. The viewer says hello to both addresses from its one socket, so the learner attaches on
    the same heartbeat rule as the frame publisher and sends nothing until a viewer is there.
-   Detached, `publish` is one clock read and the socket is polled at most once a second.
+   Detached, `publish` keeps the status and returns after one clock read — 435 ns per call,
+   measured 2026-09-21 over 200k calls, best of three — and the socket is polled at most once
+   a second. It is not in anybody's tick loop either way: it is the learner's own process,
+   and the environment's publisher is untouched by any of this.
 3. A status datagram is msgpack `{"learning": {...}}`: the one-key map makes its first bytes
    (`model.LEARNING_PREFIX`) something a frame can never start with, so `StreamSource` sorts
    the two kinds apart with one comparison and no decode. ~300 bytes, far inside one
@@ -223,9 +226,34 @@ for it in range(iterations):
     learner.publish(Learning(run="ppo-0007", iteration=it, policy_loss=0.0241, elo=1183))
 ```
 
-A learner that would rather not import this package sends the same datagram itself: one
-msgpack map `{"learning": {...}}` with any subset of `Learning`'s field names, to the address
-the `royaleviser 1` hello came from. `tests/run_stream.py` is the end to end check — it
+6. `Learning.extra` is the open tail: `{name: number or string}`, drawn under the fixed rows
+   in the order the learner sent them, so a number the fixed list has no place for needs no
+   change on this side. The viewer only formats them (`render.extra_text`: an integer with
+   thousands, a float to four significant figures, anything else as it stands, `None` as an
+   em dash); the names and their meaning are the learner's. The panel leaves out the rows
+   that do not fit its column, extras first, and a status too big for one datagram is
+   counted in `LearningPublisher.dropped` rather than truncated.
+
+A key that is neither a field name nor `extra` is **ignored**: a misspelled field leaves the
+em dash of the field that stayed unset, rather than showing up as a wrong number somewhere
+else.
+
+A learner that would rather not import this package sends the same datagram itself, and
+needs these five constants to match:
+
+| Constant | Value | What it is |
+|---|---|---|
+| `sources.STREAM_HELLO` | `b"royaleviser 1"` | the viewer's heartbeat, sent to the learner's port once a second |
+| `sources.STREAM_HEARTBEAT_S` | `1.0` | how often it arrives, and how often to look for it |
+| `sources.STREAM_ATTACH_TIMEOUT_S` | `3` | no hello for this long: detached, send nothing |
+| `model.LEARNING_PREFIX` | `b"\x81\xa8learning"` | the first bytes of every status datagram (msgpack for a one-key map named `learning`) |
+| `sources.STREAM_MAX_DATAGRAM` | `65507` | one datagram, UDP over IPv4 |
+
+So: bind `host:port`, read heartbeats, and when one arrives from an address that has not had
+the standing status, send one msgpack map `{"learning": {...}}` — any subset of `Learning`'s
+field names, plus `extra` — to that address. Keeping the last status and re-sending it on a
+fresh hello is the sender's job; without it a viewer attaching mid-run waits for the next
+iteration. `tests/run_stream.py` is the end to end check — it
 publishes the scripted battle and a moving status from one process and draws them in the
 real window (`docs/viewer-learning.png` was made with it).
 
@@ -274,7 +302,7 @@ the renderer computes no size of its own and everything is an integer.
 
 | Column | Width at 24 px/tile | Contents |
 |---|---|---|
-| dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px cards with their cost, dimmed when it is more than the player's elixir), its elixir bar (thousandths) and next card; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading reading "no learner attached" while none does, and the rows that do not fit the column left out); the bottom player's elixir bar and next card, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
+| dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px cards with their cost, dimmed when it is more than the player's elixir), its elixir bar (thousandths) and next card; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading reading "no learner attached" while none does, and the rows that do not fit the column left out); the bottom player's elixir bar and next card, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
 | arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, the crown towers' no-deploy rectangles, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the crowns and clock in a small box top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
 | inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, then whatever else the source carries under "extra"), then the compare lines and the `H` help footer |
 

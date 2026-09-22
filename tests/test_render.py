@@ -34,6 +34,7 @@ from royaleviser.render import (
     clock_text,
     default_board,
     elixir_text,
+    extra_text,
     fit_text,
     split_name,
 )
@@ -306,6 +307,33 @@ def test_learning_fields_are_the_same_list_attached_or_not() -> None:
     assert got["learner"] == "" and got["ladder"] == ""
 
 
+def test_the_learners_own_rows_are_drawn_under_the_fixed_ones() -> None:
+    """``Learning.extra`` is the open tail: rows the learner names itself, in the order it
+    sent them, after the twenty the panel always lists."""
+    r = Renderer(scale=24)
+    fixed = [lbl for lbl, _ in r.learning_lines(Learning())]
+    ln = Learning(
+        run="ppo-0007",
+        iteration=1420,
+        extra={"rating": 1183.4, "rating se": 12.74, "env steps": 48_000_000, "gate": "passed"},
+    )
+    lines = r.learning_lines(ln)
+    assert [lbl for lbl, _ in lines][: len(fixed)] == fixed  # nothing reordered above them
+    assert [lbl for lbl, _ in lines][len(fixed) :] == [
+        "extra",
+        "rating",
+        "rating se",
+        "env steps",
+        "gate",
+    ]
+    got = dict(lines)
+    assert (got["rating"], got["rating se"]) == ("1183", "12.74")
+    assert got["env steps"] == "48,000,000" and got["gate"] == "passed"
+    assert got["extra"] == ""  # a heading, like the other three
+    assert extra_text(None) == UNSET and extra_text(True) == "yes"
+    r.draw(FRAMES[600], ViewState(), Transport(source_name="s", learning=ln))
+
+
 def test_a_status_off_the_wire_fills_the_panel_through_the_app() -> None:
     """The whole path in one test: a learner publishes a status, the StreamSource takes it
     off the same socket the frames come in on, the app hands it to the transport, and the
@@ -321,7 +349,12 @@ def test_a_status_off_the_wire_fills_the_panel_through_the_app() -> None:
     assert a.transport.learning is None  # nothing published yet: "no learner attached"
     assert frames.publish(FRAMES[600])
     status = model.Learning(
-        run="ppo-0007", iteration=1420, policy_loss=0.0, kl=0.0094, elo=1183.0
+        run="ppo-0007",
+        iteration=1420,
+        policy_loss=0.0,
+        kl=0.0094,
+        elo=1183.0,
+        extra={"rating": 1191.6},
     )
     assert learner.publish(status) and learner.sent == 1
     end = time.monotonic() + 2.0
@@ -335,6 +368,7 @@ def test_a_status_off_the_wire_fills_the_panel_through_the_app() -> None:
     assert (lines["iteration"], lines["KL"], lines["ELO vs pool"]) == ("1420", "0.0094", "1183")
     assert lines["policy loss"] == "0.000"  # the learner said zero, so the panel says zero
     assert lines["value loss"] == lines["win rate"] == UNSET  # never sent, so never a number
+    assert lines["rating"] == "1192"  # the learner's own row, off the same datagram
     a.draw(time.perf_counter())  # the real draw, with a status that came off the wire
     assert a.transport.draw_ms > 0
     src.close()
