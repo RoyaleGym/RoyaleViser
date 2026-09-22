@@ -474,3 +474,27 @@ def test_a_number_that_rounds_away_to_nothing_says_how_small_it_is() -> None:
     lines = dict(r.learning_lines(Learning(policy_loss=-3.2e-05, kl=0.0, value_loss=0.0131)))
     got = (lines["policy loss"], lines["KL"], lines["value loss"])
     assert got == ("-3.2e-05", "0.0000", "0.013")
+
+
+def test_an_empty_panel_names_the_port_it_is_listening_on() -> None:
+    """An absence that looks like the ordinary case: a learner whose status port was taken by
+    another run on the same machine publishes nothing and cannot say so, while its
+    environment may still be streaming a battle. Naming the port makes that checkable."""
+    assert learning_run(None) == "no learner attached"
+    assert learning_run(None, "127.0.0.1:9871") == "no learner on 127.0.0.1:9871"
+    assert learning_run(Learning(run="ppo-0007"), "127.0.0.1:9871") == "ppo-0007"
+    r = Renderer(scale=24, help_lines=KEYS)
+    r.draw(FRAMES[600], ViewState(), Transport(source_name="s", learning_peer="127.0.0.1:9871"))
+
+
+def test_the_app_tells_the_panel_where_a_learner_would_be_heard() -> None:
+    pygame.init()
+    src = sources.StreamSource("127.0.0.1", 9870, ("127.0.0.1", 9871))
+    a = App([src], ViewState())
+    a.pull()
+    assert a.transport.learning_peer == "127.0.0.1:9871" and a.transport.learning is None
+    src.close()
+    plain = ListSource(FRAMES, "synthetic")  # a replay has no learner and says nothing of one
+    b = App([plain], ViewState())
+    b.pull()
+    assert b.transport.learning_peer == ""

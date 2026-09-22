@@ -143,7 +143,7 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results. In a fresh clone, `pytest -q` gives **87 passed, 3
+The suite has two correct results. In a fresh clone, `pytest -q` gives **90 passed, 3
 skipped**: the capture tests run on the synthetic recordings, and the three tests that pin
 numbers only a recording of a real battle has (2407 ticks both seats hold, 2404 equal, 3
 differ; the Goblin Drill of tick 2974 surfacing 73 ticks later) skip, each with a reason
@@ -151,7 +151,7 @@ beginning `SKIPPED, NOT PASSED`, and `tests/conftest.py` prints them by name at 
 run. With `ROYALELIVE_REPORTS` pointing at a folder that holds
 `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
 `frames-auto-20260920-083112-A.jsonl` (or their `.jsonl.gz`; the default folder is
-`tests/captures`, gitignored) the result is **90 passed**. Without the `media` extra
+`tests/captures`, gitignored) the result is **93 passed**. Without the `media` extra
 (`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) two more skip.
 
 ## The stream protocol
@@ -260,9 +260,12 @@ else.
 **Two runs on one machine collide, and the panel cannot tell you so.** The ports are fixed,
 so the second run's learner finds the status port taken and publishes nothing — while its
 frame publisher may well get its own port and stream the battle normally. The window then
-shows a live battle under a panel reading "no learner attached", which is indistinguishable
+shows a live battle under a panel reading "no learner", which is nearly indistinguishable
 from a run with no learner at all: the learner that failed to bind has no socket to say so
-on. Measured on 2026-09-22, one run holding 9871 while another streamed frames on 9870.
+on. The panel does what little it can from this side and NAMES THE PORT it is listening on
+("no learner on 127.0.0.1:9871"), so the absence is something a person can check rather than
+a shrug; the asymmetry is what makes it a trap, since the frame publisher may get its port
+while the learner does not, and a moving board is the first thing anyone looks at. Measured on 2026-09-22, one run holding 9871 while another streamed frames on 9870.
 Give a second run its own pair — the learner's sink takes a host and port, and the viewer
 takes `--learning HOST:PORT` — and check the learner's own log if a panel stays empty while
 a battle plays. A related consequence of the same fixed-peer design: each publisher keeps

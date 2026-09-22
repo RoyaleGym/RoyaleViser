@@ -371,6 +371,11 @@ class App:
         if learning is not self.transport.learning:
             self.transport.learning = learning
             self.dirty = True
+        peer = getattr(self.source, "learning_peer", None)
+        named = f"{peer[0]}:{peer[1]}" if peer else ""
+        if named != self.transport.learning_peer:
+            self.transport.learning_peer = named
+            self.dirty = True
         if self.compare is not None and (changed or self.compare.live):
             self.pull_compare(f, changed)
 

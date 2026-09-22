@@ -178,14 +178,23 @@ def extra_text(value: Any) -> str:
     return str(value)
 
 
-def learning_run(ln: Learning | None) -> str:
+def learning_run(ln: Learning | None, peer: str = "") -> str:
     """What the panel writes beside its "learning" heading.
 
     Whether a learner is attached and what it calls itself are two questions: a status with
     no run name is still a learner, so it gets the em dash of any unset field rather than
     the "nothing here" line standing over its own numbers.
+
+    With nothing attached it NAMES THE PORT it is listening on, because the alarming case
+    looks identical to the ordinary one. A learner whose status port was already taken --
+    by another training run on the same machine, which is the usual cause -- publishes
+    nothing and has no socket to say so on, while its environment may well have got its own
+    port and be streaming a battle. The panel then reads "no learner" over a moving board.
+    Naming the port turns that from a shrug into something a person can check.
     """
-    return "no learner attached" if ln is None else (ln.run or UNSET)
+    if ln is not None:
+        return ln.run or UNSET
+    return f"no learner on {peer}" if peer else "no learner attached"
 
 
 @dataclass(slots=True)
@@ -203,6 +212,7 @@ class Transport:
     draw_ms: float = 0.0  # last draw, for the status block
     fps: float = 0.0  # wall-clock frames drawn per second (live: frames received)
     learning: Learning | None = None  # None: no learner attached
+    learning_peer: str = ""  # where a learner would be heard, named when none is
 
 
 @dataclass(slots=True)
@@ -739,7 +749,9 @@ class Renderer:
         self._draw_elixir_row(bottom, lay.bottom_elixir)
         self._draw_hand(bottom, lay.bottom_hand)
         log_bottom = self._draw_status_block(frame, lay.debug, transport, view)
-        self._draw_learning_block(lay.debug, log_bottom, transport.learning)
+        self._draw_learning_block(
+            lay.debug, log_bottom, transport.learning, transport.learning_peer
+        )
 
     def card_cost(self, name: str) -> int | None:
         if name not in self._cost_cache:
@@ -917,7 +929,9 @@ class Renderer:
         is ``UNSET`` when ``ln`` is None, and so is a field the learner left unset."""
         return [row for col in self.learning_columns(ln, 10**6) for row in col]
 
-    def _draw_learning_block(self, rect: Rect, top: int, ln: Learning | None) -> None:
+    def _draw_learning_block(
+        self, rect: Rect, top: int, ln: Learning | None, peer: str = ""
+    ) -> None:
         """The rest of the dashboard column, under the match log: the learner's status.
 
         It closes the column rather than leaving it dark, and it shows the same field list
@@ -937,7 +951,7 @@ class Renderer:
         cy = top + 4
         self.blit_text("learning", (x + 4, cy), "tiny", t.ui_dim)
         self.blit_text(
-            fit_text(learning_run(ln), self.fonts["tiny"], w // 2),
+            fit_text(learning_run(ln, peer), self.fonts["tiny"], w // 2),
             (x + w - 4, cy),
             "tiny",
             t.ui_text if ln is not None else t.ui_dim,
