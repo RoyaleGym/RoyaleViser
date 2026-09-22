@@ -1025,3 +1025,41 @@ def test_a_recording_carries_no_footprint_and_says_nothing_about_one(
     f = capture_a.frame()
     assert f is not None and f.units
     assert all(u.footprint is None for u in f.units)
+
+
+def test_a_burst_of_frames_does_not_push_the_learner_s_status_out() -> None:
+    """Frames and statuses share ONE receive queue, and a rollout publishes frames far faster
+    than the window drains them. When that queue fills, what the kernel throws away is
+    whatever arrives next -- which can be the single status datagram a learner sends that
+    minute, so the panel would read "no learner" over a moving board for eight minutes.
+
+    The burst here is sized to the two buffers it is about: comfortably over the 64 KB a
+    socket gets by default, comfortably under the megabyte ``udp_socket`` asks for.
+    """
+    pub = sources.Publisher(port=0)
+    learner = sources.LearningPublisher(port=0, pump_thread=False)
+    src = sources.StreamSource(*pub.address, learner.address)
+    time.sleep(0.05)
+    pub._pub._last_poll = 0.0
+    learner.pump()
+    assert pub.attached and learner.attached
+
+    big = synthetic.dense_frame(100)
+    one = len(model.encode_frame(big))
+    assert 4_000 < one < sources.STREAM_MAX_DATAGRAM, one
+    burst = 400_000 // one  # over a default 64 KB queue, under STREAM_RCVBUF
+    assert burst * one > 4 * 64 * 1024
+    for i in range(burst):
+        big.tick = i
+        assert pub.publish(big)
+    assert learner.publish(a_status())  # the one status, behind the whole burst
+
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end and src.learning is None:
+        src.frame()
+        time.sleep(0.01)
+    assert src.learning == a_status(), f"the status was lost behind {burst} frames"
+    assert src.index > 0  # and the frames arrived too, or the burst never happened
+    src.close()
+    learner.close()
+    pub.close()
