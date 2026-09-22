@@ -52,6 +52,22 @@ frame rate is the thing it is showing. The copy taken for the README admits 86 d
 of 116, which is what a busy machine looks like, and the README says so rather than cropping
 it out.
 
+## The one picture that is a photograph of a moment
+
+`../viewer-learning-real-run.png` is the window during a training run on this machine, taken
+on 2026-09-22 with `--stream 127.0.0.1:9870 --seconds 25 --shot`. It cannot be regenerated,
+because the run it photographs is over; `../viewer-learning.png` beside it is the stand-in
+that `tests/run_stream.py` can rebuild at any time from a scripted publisher.
+
+What the picture shows, and what it must not be captioned as showing. The learner's own
+column is real and was arriving from RoyaleLearn's sink: iteration 33, policy loss -0.001,
+value loss 0.701, entropy 5.912, KL 0.0053, clip fraction 5.9 %, explained var 0.43, grad
+norm 0.08, learning rate 2.0e-04, and in `extra`, cards / match 32.67. The rollout column is
+real too: 298 env steps/s, 10,558 engine ticks/s, 3669 episode ticks, 1.50 towers per episode.
+**The two ladder tiles are not data.** `ELO vs pool 1200` and `win rate 0.0 %` are what a live
+learner shows when it is never evaluated under its own id, which is the case at this scale,
+and the run was a DIAGNOSTIC rather than the first real run. Any caption says so.
+
 ## Some of these are not freely regenerable
 
 Regenerating an image invalidates any prose that quotes what is inside it, and the generator
@@ -77,7 +93,7 @@ can make or check, and no caption here names one.
 | Picture | Its battle |
 |---|---|
 | `engine-trace.*`, `tile-event-log.png`, `tile-inspector.png`, `../viewer-trace.png` | an engine trace |
-| `live-training-env.png`, `tile-live-stream.png`, `../viewer-learning.png` | a running environment, streaming over UDP |
+| `live-training-env.png`, `tile-live-stream.png`, `../viewer-learning.png`, `../viewer-learning-real-run.png` | a running environment, streaming over UDP |
 | `replay-scrubbed-4x.*`, `compare-ghost.*`, `tile-compare.png`, `tile-paths-and-targets.png`, `tile-synthetic-battle.png` | the scripted battle in `tests/fixtures` |
 | `family.svg` | hand-drawn, no battle |
 

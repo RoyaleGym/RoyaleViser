@@ -402,6 +402,14 @@ viewer attaching mid-run waits for the next iteration. `tests/run_stream.py` is 
 publishes the scripted battle and a moving status from one process and draws them in the
 real window (`docs/viewer-learning.png` was made with it).
 
+A real training run has filled this panel. `docs/viewer-learning-real-run.png` is the window
+attached to one on 2026-09-22, at iteration 33 of a laptop-profile self-play run: the
+learner's column and the rollout column both arriving from RoyaleLearn's own sink. The two
+LADDER tiles in that picture are not data -- a live learner is never evaluated under its own
+id at this scale, so `ELO vs pool` and `win rate` read 1200 and 0.0 % whatever the run is
+doing -- and the run was a diagnostic rather than the first real one. `docs/media/README.md`
+carries the same warning beside the file.
+
 ## The command line
 
 `python -m royaleviser [SOURCE [SOURCE]] [--stream HOST:PORT] [--learning HOST:PORT]
