@@ -821,6 +821,11 @@ class App:
         # panel standing still is only alarming once you know how long it has stood.
         at = getattr(self.source, "learning_at", None)
         tr.learning_age_s = None if at is None else max(0.0, time.monotonic() - at)
+        # A board that has stopped moving is the NORMAL case on a training run -- the
+        # environment publishes for about forty seconds and the learner then thinks for
+        # minutes -- so the viewer must say so on the board rather than looking broken.
+        quiet = getattr(self.source, "quiet_seconds", None)
+        tr.board_age_s = quiet() if callable(quiet) else None
         tr.index = self.source.index
         self.drawn_at = [t for t in self.drawn_at if now - t < 1.0]
         tr.fps = float(len(self.drawn_at))

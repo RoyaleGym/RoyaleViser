@@ -1034,6 +1034,20 @@ class StreamSource:
             f" tick {self._last.tick}{self.quiet_for()}{bad}"
         )
 
+    def quiet_seconds(self) -> float | None:
+        """How long the board has been standing still, or None while it is keeping up.
+
+        None below ``STREAM_QUIET_S`` rather than a small number, so the policy for what
+        counts as quiet lives here beside ``quiet_for`` instead of being decided again by
+        whoever draws it. The owner's report on 2026-09-22 was that the viewer looked broken
+        during a training run; the status line HAD been saying "last 12s ago" the whole time,
+        in small text, which nobody reads while watching a battle.
+        """
+        if not self._times:
+            return None
+        seconds = time.monotonic() - self._times[-1]
+        return seconds if seconds >= STREAM_QUIET_S else None
+
     def quiet_for(self) -> str:
         """ " last N ago" when no frame has arrived for a while, else "".
 

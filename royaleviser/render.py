@@ -247,6 +247,9 @@ class Transport:
     learning: Learning | None = None  # None: no learner attached
     learning_peer: str = ""  # where a learner would be heard, named when none is
     learning_age_s: float | None = None  # how long ago the status arrived, None if never
+    # How long the BOARD has stood still, None while the source is keeping up. The source
+    # decides what counts as quiet; this is only how it is drawn.
+    board_age_s: float | None = None
 
 
 @dataclass(slots=True)
@@ -694,6 +697,7 @@ class Renderer:
         if view.compare_frame is not None and view.show_compare:
             self._draw_compare(view.compare_frame, view.seat)
         self.surface.set_clip(None)
+        self._draw_stale_board(transport)
         self._draw_arena_hud(frame, view)
         self._draw_dashboard(frame, view, transport)
         self._draw_status_line(transport)
@@ -701,6 +705,39 @@ class Renderer:
         if self.layout.inspector[2]:  # the compact layout has no inspector column
             self._draw_inspector(frame, view)
             self._draw_footer(frame, view)
+
+    def _draw_stale_board(self, transport: Transport) -> None:
+        """Say ON the board that it has stopped, when a live source has gone quiet.
+
+        The owner's verdict on 2026-09-22 was that the viewer was "basically useless -- bursts
+        of low fps replay between long pauses". The pauses were a training run's PPO updates
+        and the bursts its rollouts, which is the source's shape rather than a rendering fault,
+        but the window gave a person no way to tell a thinking learner from a dead one. It had
+        been saying "last 12s ago" in the status line the whole time, and nobody reads a status
+        line while watching a battle, so this is a band across the arena instead.
+
+        Deliberately NOT a full-screen veil. The last frame is real and still worth reading,
+        and a window that hides the board whenever a source pauses is the more annoying
+        failure: on a training run the board stands still far more of the time than it moves.
+        """
+        if transport.board_age_s is None:
+            return
+        x, y, w, h = self.layout.arena
+        t = self.theme
+        band_h = self.line_h["small"] + 10
+        top = y + (h - band_h) // 2
+        band = pygame.Surface((w, band_h), pygame.SRCALPHA)
+        band.fill(t.stale_band)
+        self.surface.blit(band, (x, top))
+        seconds = transport.board_age_s
+        ago = f"{int(seconds)}s" if seconds < 60 else f"{int(seconds // 60)}m"
+        self.blit_text(
+            f"waiting for frames  ({ago} since the last one)",
+            (x + w // 2, top + band_h // 2),
+            "small",
+            t.stale_text,
+            anchor="center",
+        )
 
     # ---- arena
 

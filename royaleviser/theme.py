@@ -39,6 +39,10 @@ class Theme:
     # are where a unit stops being on it, so they are drawn rather than left to the eye.
     bridge_rail: Color = (120, 74, 38)
     bridge_rail_w: int = 3
+    # The band drawn across the arena when a live source has gone quiet. Translucent on
+    # purpose: the last frame underneath is real and is still what a person is reading.
+    stale_band: tuple[int, int, int, int] = (18, 18, 22, 190)
+    stale_text: Color = (236, 200, 120)
     # UI
     ui_bg: Color = (30, 30, 40)
     ui_panel: Color = (40, 40, 54)
