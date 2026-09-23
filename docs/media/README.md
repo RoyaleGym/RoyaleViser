@@ -95,7 +95,12 @@ can make or check, and no caption here names one.
 `build_digest`, which is the data it was built from. The two move independently: a rebuild
 from a changed Rust tree leaves `build_digest` alone, so a picture stamped only with the data
 cannot tell you that the thing being pictured changed. Write the binary hash into the note
-beside any new picture taken from a running engine or a fresh trace. The pictures already
+beside any new picture taken from a running engine or a fresh trace, and take it in the
+process that produced the frames. The hash is read off the extension file on disk the
+first time it is asked for and kept for that process, so one fetched afterwards, from a
+second process, describes whatever is on disk by then rather than what drew the picture:
+the after-the-fact stamp again, one level down. Inside a single process they cannot
+diverge on Windows, where the loaded `.pyd` is refused for writing while it is held. The pictures already
 here predate the stamp and are not being given one after the fact; the ones drawn from
 `tests/fixtures` need none, because the fixtures are the committed input and the generator is
 in the repo.
