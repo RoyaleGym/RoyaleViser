@@ -125,3 +125,84 @@ jobs:
           except Exception as e:
               print('engine build_digest= unavailable:', type(e).__name__)
           " >> "$GITHUB_STEP_SUMMARY"
+
+  # A SECOND JOB, because the first one's honesty is the thing that leaves a hole.
+  #
+  # `suite` installs the README's SHORT WAY -- this package alone -- which is what a newcomer
+  # gets and is why it caught a published install block that had never worked. But eight of its
+  # nine skips have ONE cause: no sibling packages. Six name royalegym, one names royalelearn,
+  # and the ninth is the documented-counts guard itself, which skips because "this environment
+  # has no royalegym, so the collected total is a different population". So the unverified
+  # counts and the eight dark tests were never two problems. They are one, and installing the
+  # stack in a job of its own fixes both permanently rather than once.
+  #
+  # `suite` keeps doing the thing only it can do. This job does the thing only it can do. The
+  # engine-backed tests still skip here, because royalesim needs a compiled extension and
+  # nothing builds one yet -- that is sim's cross-repo callee, still a no-op echo, and it is
+  # the same missing build that leaves tests dark in four repos.
+  #
+  # bash on both platforms, unlike `suite`, and deliberately: README FIDELITY is `suite`'s job,
+  # so this one is free to use whatever is shortest. Two copies of the same commands would rot.
+  full-stack:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RoyaleViser
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with: { repository: RoyaleGym/RoyaleGym, path: RoyaleGym }
+      - uses: actions/checkout@v4
+        with: { repository: RoyaleGym/RoyaleSim, path: RoyaleSim }
+      - uses: actions/checkout@v4
+        with: { repository: RoyaleGym/RoyaleLearn, path: RoyaleLearn }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The README's Stage 3. RoyaleSim's tables are GENERATED rather than stored, so a fresh
+      # clone has none and `default_board()` would have no arena to load. Learn lost two CI runs
+      # to skipping this; taking its recipe rather than rediscovering it.
+      - name: generate RoyaleSim's data tables
+        working-directory: RoyaleSim
+        shell: bash
+        run: |
+          python tools/extract_arena.py
+          python tools/extract_cards.py --vintage 2018
+          python tools/extract_cards.py --vintage 2018 --out data/derived/cards.json
+          python tools/extract_globals.py
+
+      - name: install the stack
+        shell: bash
+        run: |
+          python -m pip install -e RoyaleGym
+          python -m pip install -e RoyaleLearn
+          python -m pip install -e "RoyaleViser[media]"
+          python -m pip install pytest hypothesis ruff
+
+      # ROYALELIVE_REPORTS stays unset: the recordings are private and those tests skip here as
+      # they do everywhere. That is the ONE boundary this job does not cross, and it is inherent
+      # rather than a debt.
+      - name: suite
+        working-directory: RoyaleViser
+        shell: bash
+        run: pytest -q
+
+      - name: record what this run was
+        if: always()
+        working-directory: RoyaleViser
+        shell: bash
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "os=${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+          python -c "
+          try:
+              from royalegym.rust_engine import build_digest, core_available
+              print('engine build_digest=', build_digest() if core_available() else 'no-extension')
+          except Exception as e:
+              print('engine build_digest= unavailable:', type(e).__name__)
+          " >> "$GITHUB_STEP_SUMMARY"
