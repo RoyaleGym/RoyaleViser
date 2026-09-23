@@ -1175,3 +1175,49 @@ def test_the_board_fills_what_cannot_be_placed_on_and_rails_the_bridges() -> Non
         if (hx - 1, hy) in b.bridge and (hx + 1, hy) in b.bridge
     )
     assert at_half_cell(*mid) == DEFAULT.bridge
+
+
+def test_a_shot_of_a_live_source_that_never_got_a_frame_is_refused(tmp_path: Path) -> None:
+    """A shot of a live source that never received a frame is a real screenshot of the real
+    window showing an empty board under full panels, and it looks exactly like a photograph of
+    a run that has died. The training session nearly sent one to the owner as the picture of a
+    new feature. It is refused, with the reason, and the exit code says so."""
+    pygame.init()
+    # A stream nobody is publishing on. NOT the default ports: a test that heartbeats 9870
+    # would steal a real run's publisher.
+    src = sources.StreamSource("127.0.0.1", 9996, ("127.0.0.1", 9997))
+    shot = tmp_path / "empty.png"
+    assert run([src], seconds=0.2, shot=str(shot)) == 2
+    assert not shot.exists(), "a picture of nothing was written"
+
+    # A replay always has a frame, so it is never refused.
+    good = tmp_path / "good.png"
+    assert run([ListSource(FRAMES[:5], "synthetic")], seconds=0.2, shot=str(good)) == 0
+    assert good.exists()
+
+
+def test_the_refusal_names_the_likely_cause_when_a_learner_is_talking() -> None:
+    """The most likely cause is the least obvious one. A publisher keeps ONE peer, so a second
+    viewer on a watched stream gets no frames at all -- while its learner panel fills normally,
+    because the status comes from a different sender on a different port. A status arriving
+    with no frames is diagnostic, and the message says so rather than leaving it to be found."""
+    from royaleviser.app import empty_shot_reason
+
+    pygame.init()
+    src = sources.StreamSource("127.0.0.1", 9994, ("127.0.0.1", 9995))
+    a = App([src], ViewState())
+    a.pull()
+    quiet = empty_shot_reason(a)
+    assert "no frame ever arrived" in quiet and "another viewer" not in quiet
+
+    a.transport.learning = Learning(run="ppo-0007")  # a status got through, frames did not
+    loud = empty_shot_reason(a)
+    assert "another viewer attached to that stream is holding it" in loud
+    assert "a learner's status did" in loud
+
+    # A replay is never this case, whatever the panel says.
+    b = App([ListSource(FRAMES, "synthetic")], ViewState())
+    b.pull()
+    b.transport.learning = Learning(run="ppo-0007")
+    assert empty_shot_reason(b) == ""
+    src.close()

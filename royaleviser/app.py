@@ -466,6 +466,35 @@ def empty_frame(units_per_tile: int) -> Frame:
     )
 
 
+def empty_shot_reason(app: App) -> str:
+    """Why a requested ``--shot`` would be a picture of nothing, or "" when it would not.
+
+    A shot of a live source that never received a frame is the worst kind of output: it is a
+    real screenshot of the real window, showing an empty board under a full set of panels, and
+    it looks exactly like a photograph of a run that has died. The training session nearly
+    sent one to the owner as the picture of a new feature.
+
+    The most likely cause is the least obvious one. A publisher keeps ONE peer, the address of
+    the last heartbeat it read, so a second viewer opened on a stream that is already being
+    watched gets no frames at all -- while its LEARNER panel fills normally, because the status
+    goes out on a different port from a different sender. That combination is diagnostic: a
+    status arriving with no frames means something IS running and is not sending here.
+
+    A replay always has a frame, so this is a live-source concern only.
+    """
+    if not app.source.live or app.frame is not None:
+        return ""
+    where = app.source.name
+    if app.transport.learning is not None:
+        return (
+            f"no frame ever arrived from {where}, but a learner's status did. Something is "
+            "running and is not sending frames here: a publisher keeps one peer, so another "
+            "viewer attached to that stream is holding it. Close the other window, or shoot "
+            "it with S"
+        )
+    return f"no frame ever arrived from {where}; nothing was published while this window was open"
+
+
 def shot_path(source: Any, frame: Frame | None, explicit: str | None) -> Path:
     """--shot's path, else 'royaleviser-<source>-t<tick>.png' next to the source file (or cwd).
 
@@ -878,10 +907,15 @@ def run(
         code = 130
     finally:
         if shot is not None:
-            if app.dirty or not app.draw_times:
-                app.draw(time.perf_counter())
-            app.renderer.save(shot)
-            print(f"royaleviser: saved {shot}")
+            empty = empty_shot_reason(app)
+            if empty:
+                print(f"royaleviser: no picture written to {shot}: {empty}", file=sys.stderr)
+                code = code or 2
+            else:
+                if app.dirty or not app.draw_times:
+                    app.draw(time.perf_counter())
+                app.renderer.save(shot)
+                print(f"royaleviser: saved {shot}")
         print(app.stats())
         for s in sources:
             s.close()
