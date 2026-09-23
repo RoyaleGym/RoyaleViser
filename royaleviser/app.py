@@ -264,6 +264,11 @@ def differing_within(a: list[Row], b: list[Row], tolerance: int) -> tuple[int, i
         # on hp, and 0 when they agree on both. NO_PAIR is larger than every hp cost put
         # together, so the cheapest assignment makes as many pairs as CAN be made, and among
         # those makes as many of them agree on hp as can agree.
+        # The bound this construction stands on: at most min(L, R) pairs exist, so the whole
+        # hp bill can never exceed min(L, R), and one refused pair costs L*R+1, which is more.
+        # Cardinality therefore dominates strictly and the optimiser can never buy an hp
+        # agreement by giving up a pair. Change the cost scale and that has to be rechecked;
+        # a test pins it.
         no_pair = len(left) * len(right) + 1
         cost = [
             [

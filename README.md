@@ -273,12 +273,17 @@ for it in range(iterations):
     learner.publish(Learning(run="ppo-0007", iteration=it, policy_loss=0.0241, elo=1183))
 ```
 
-<p align="center"><img src="docs/viewer-learning.png" width="100%" alt="The viewer on a streamed battle with the learning panel filled: run ppo-0007, iteration 1423, its losses, rollout throughput and ladder standing"></p>
+<p align="center"><img src="docs/viewer-learning-real-run.png" width="100%" alt="The viewer attached to a training run, the learning panel filled: iteration 33, its losses, rollout throughput and ladder standing"></p>
 
 That is the same window on a live battle. The panel under the event log is the learner's, and
-every number in it arrived over the network. The numbers in this picture come from
-`tests/run_stream.py`, a test script that stands in for a learner. A real training run's status
-reached the viewer on 2026-09-22, on a laptop, but this picture is not from that run.
+every number in it arrived over the network.
+
+This picture is a real training run, on a laptop on 2026-09-22, at iteration 33. Two things in
+it are not data, and the picture is here rather than a tidier one because saying so is the
+point: `ELO vs pool` and `win rate` read 1200 and 0.0 % because a learner that is still
+training is never played against the pool under its own name, so those two tiles read the same
+whatever the run is doing. It was a diagnostic run rather than a finished one. Everything else
+on the panel is what the learner reported that minute.
 
 It is sent separately from the battle frames and on its own clock, once per training iteration
 rather than once per step. So it keeps updating while the learner is busy and nothing on the

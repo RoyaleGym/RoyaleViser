@@ -1328,3 +1328,26 @@ def test_stacked_units_are_counted_once_each_however_they_moved() -> None:
     three = units([0, 0, 0], [30, 40, 50])
     assert differing_within(three, units([0, 0, 0], [30, 40, 99]), 500) == (0, 1)
     assert differing_within(three, units([0, 0, 0], [30, 99, 98]), 500) == (0, 2)
+
+
+def test_an_hp_agreement_can_never_be_bought_with_a_lost_pair() -> None:
+    """The bound the cost construction stands on. A refused pair must cost more than every hp
+    disagreement added together, or the optimiser could drop a pair to make the rest agree on
+    hp -- turning "these two units are in different places" into "these two have different
+    health", which is a different and much milder claim.
+
+    Set up so that the temptation is real: two units that CAN both be paired, but only in the
+    arrangement where both pairs disagree on hp. Dropping to one pair would make the single
+    remaining pair agree. The honest answer keeps both pairs and reports two hp differences.
+    """
+    from royaleviser.app import differing_within
+
+    left = [(0, "Bats", 0, 0, 10), (0, "Bats", 400, 0, 20)]
+    right = [(0, "Bats", 0, 0, 20), (0, "Bats", 400, 0, 10)]
+    assert differing_within(left, right, 200) == (0, 2)
+
+    # And the arithmetic behind it, at the sizes this sees. The hp bill is at most one per
+    # pair and there are at most min(L, R) pairs; a refused pair costs L*R+1.
+    for rows in range(1, 16):
+        for cols in range(1, 16):
+            assert min(rows, cols) < rows * cols + 1
