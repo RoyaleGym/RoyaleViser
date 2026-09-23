@@ -4,6 +4,21 @@ on:
   pull_request:
   workflow_dispatch:
 
+  # A NIGHTLY, AND WHAT IT DOES NOT DO. It does not detect a break sooner; it guarantees that
+  # somebody eventually looks. Without it, this workflow runs only when I push, so a break that
+  # arrives from OUTSIDE this repo is invisible until my next commit -- which is exactly how the
+  # 2026-09-23 breakage sat unnoticed for hours in two repos at once, and gym's was found only
+  # because gym happened to be committing. The timer BOUNDS the window at about a day rather
+  # than shortening it, and that is the whole of its value.
+  schedule:
+    - cron: '0 11 * * *'
+
+# WHY THE NIGHTLY MATTERS HERE AND NOT ONLY ON ci.yml, which is the less obvious half. The
+# `full-stack` job below checks out RoyaleGym, RoyaleSim and RoyaleLearn at their DEFAULT BRANCH.
+# So this workflow has the same external-dependency exposure as the cross-repo caller does: a
+# sibling's commit can turn it red with no change in this repo and nothing in this history to
+# point at. The integrator named that hazard for `ci.yml`; it is true of three checkouts here.
+
 # The README's OWN commands, verbatim, on both platforms it documents. A workflow that installs
 # some other way tests nothing a reader will experience, and this repo's published install block
 # was broken for the whole public life of these repos without anyone noticing.

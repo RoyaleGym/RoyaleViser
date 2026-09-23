@@ -1,5 +1,24 @@
 name: ci
-on: [push, workflow_dispatch]
+on:
+  push:
+  workflow_dispatch:
+  # A NIGHTLY, AND WHAT IT DOES NOT DO. It does not detect a break sooner; it guarantees that
+  # somebody eventually looks. Without it, this workflow runs only when I push, so a break that
+  # arrives from OUTSIDE this repo is invisible until my next commit -- which is exactly how the
+  # 2026-09-23 breakage sat unnoticed for hours in two repos at once, and gym's was found only
+  # because gym happened to be committing. The timer BOUNDS the window at about a day rather
+  # than shortening it, and that is the whole of its value.
+  schedule:
+    - cron: '0 11 * * *'
+
 jobs:
   cross-repo:
+    # @main IS A DECISION, recorded because it was not one when it was written -- it is the
+    # form the GitHub docs show first, and nobody picked it for its propagation behaviour.
+    # Keeping it, with the trade stated: sim's FIX on 2026-09-23 reached this repo for free and
+    # so did sim's BREAKAGE, with no review here and no commit of mine to point at. That is
+    # continuous deployment from a repo I do not own. Pinning a SHA would contain the next
+    # breakage and equally delay the next fix, and while this callee is a no-op probe there is
+    # nothing to contain. Revisit when it becomes a real cross-repo build: at that point the
+    # thing propagating is an engine build my tests depend on, and the trade changes.
     uses: RoyaleGym/RoyaleSim/.github/workflows/cross-repo.yml@main
