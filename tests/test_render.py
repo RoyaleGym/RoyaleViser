@@ -631,6 +631,20 @@ def drawn_box(r: Renderer, frame: model.Frame, view: ViewState) -> tuple[int, in
     Graded against the pixels rather than against the renderer's own geometry helper: a
     helper that returns the right rectangle and a draw call that uses a different one is
     exactly the bug this is here to catch.
+
+    WHAT IT MEASURES IS "WHAT DIFFERS FROM THE BOARD", NOT "WHAT WAS DRAWN", and the two part
+    company wherever a unit paints a pixel the board already had. A crown tower is the unit at
+    risk, because it stands on its own no-deploy block and its own zone outline. The
+    integrator's P0 gate had the same blind spot in a different form -- it diffed a frame
+    against the same frame with one unit removed -- and on 2026-09-22 it reported this
+    renderer as a regression on the six towers and on nothing else.
+
+    Measured on this tree, it hides nothing: a king tower's drawn rect is 72 x 72 at scale 24
+    and every pixel inside it differs from the board. That is a fact about today's colours,
+    not a property of the technique, so the callers use it on a unit standing on plain grass
+    and pair it with the rect the renderer computes. Neither alone is enough. For a unit on
+    furniture, grade against ``unit_rect_px`` or diff two frames rather than a frame against
+    the board.
     """
     ax, ay, aw, ah = r.layout.arena
     board = r.board_surface(view.seat, view.show_grid).copy()
