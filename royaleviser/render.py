@@ -99,6 +99,10 @@ class ViewState:
     show_grid: bool = False  # tile grid lines
     show_debug: bool = False  # raw numbers on the board: hp, state, deploy/stun ticks
     show_footprints: bool = False  # shade each carried footprint and the taps it refuses
+    # Ring the units whose collision circles overlap the pinned one: the inputs a separation
+    # step is a function of. RECOMPUTED from positions and radii, never recorded -- see
+    # ``Renderer._draw_contact_neighbours``.
+    show_contact: bool = False
     hover_uid: str | int | None = None  # the unit under the mouse, for the inspector
     compare_frame: Frame | None = None  # a second source's frame at the same tick (ghosted)
     selected_uid: str | int | None = None  # a clicked unit: the inspector sticks to it
@@ -697,6 +701,7 @@ class Renderer:
         if view.compare_frame is not None and view.show_compare:
             self._draw_compare(view.compare_frame, view.seat)
         self.surface.set_clip(None)
+        self._draw_contact_neighbours(frame, view)
         self._draw_stale_board(transport)
         self._draw_arena_hud(frame, view)
         self._draw_dashboard(frame, view, transport)
@@ -705,6 +710,58 @@ class Renderer:
         if self.layout.inspector[2]:  # the compact layout has no inspector column
             self._draw_inspector(frame, view)
             self._draw_footer(frame, view)
+
+    def contact_neighbours(self, frame: Frame, uid: str | int) -> list[Unit]:
+        """The units whose collision circles overlap ``uid``'s, by the engine's own rule.
+
+        RECOMPUTED FROM POSITIONS AND RADII. Nothing in any source records which neighbours a
+        separation step actually saw, or the push it applied, so this is what the law SHOULD
+        have been looking at on this tick rather than what it did look at. That distinction is
+        the whole value: when the engine's displacement does not match the ring drawn here,
+        either the ring is wrong or the engine's scan is, and the disagreement is the finding.
+        Sim asked for it on that understanding and is adding the applied push vector to its
+        trace rows so the other half stops being inferred.
+
+        The rule, from the measured contact law: every overlapping neighbour of EITHER side
+        counts, buildings and towers included, and touching counts -- ``d2 <= (R1+R2)^2``. A
+        mover's own radius is capped at 500 against a static, which is why a unit pressed
+        against a tower is pushed as if it were smaller than it is.
+        """
+        me = frame.unit(uid)
+        if me is None or me.radius <= 0:
+            return []
+        out = []
+        for other in frame.units:
+            if other.uid == me.uid or other.radius <= 0:
+                continue
+            static = other.kind != KIND_TROOP
+            mine = min(me.radius, 500) if static else me.radius
+            reach = mine + other.radius
+            dx, dy = me.x - other.x, me.y - other.y
+            if dx * dx + dy * dy <= reach * reach:
+                out.append(other)
+        return out
+
+    def _draw_contact_neighbours(self, frame: Frame, view: ViewState) -> None:
+        """Ring every overlapping neighbour of the pinned unit, and the pinned unit itself."""
+        if not view.show_contact:
+            return
+        uid = view.selected_uid if view.selected_uid is not None else view.hover_uid
+        if uid is None:
+            return
+        me = frame.unit(uid)
+        if me is None:
+            return
+        upt = frame.units_per_tile
+        t = self.theme
+        px, py = self.to_px(me.x, me.y, upt, view.seat)
+        pygame.draw.circle(self.surface, t.contact_self, (px, py), self.px_len(me.radius, upt), 2)
+        for other in self.contact_neighbours(frame, uid):
+            ox, oy = self.to_px(other.x, other.y, upt, view.seat)
+            pygame.draw.circle(
+                self.surface, t.contact_ring, (ox, oy), self.px_len(other.radius, upt), 2
+            )
+            pygame.draw.line(self.surface, t.contact_ring, (px, py), (ox, oy), 1)
 
     def _draw_stale_board(self, transport: Transport) -> None:
         """Say ON the board that it has stopped, when a live source has gone quiet.

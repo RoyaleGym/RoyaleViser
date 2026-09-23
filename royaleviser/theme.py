@@ -43,6 +43,10 @@ class Theme:
     # purpose: the last frame underneath is real and is still what a person is reading.
     stale_band: tuple[int, int, int, int] = (18, 18, 22, 190)
     stale_text: Color = (236, 200, 120)
+    # The contact ring: the pinned unit and the neighbours whose circles overlap it. A colour
+    # of its own because the ring is RECOMPUTED, not recorded, and must not read as engine data.
+    contact_self: Color = (255, 214, 92)
+    contact_ring: Color = (120, 214, 255)
     # UI
     ui_bg: Color = (30, 30, 40)
     ui_panel: Color = (40, 40, 54)
