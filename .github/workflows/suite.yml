@@ -206,6 +206,29 @@ jobs:
         with:
           python-version: '3.12'
 
+      # WHICH SIBLINGS THIS RUN ACTUALLY USED. The three checkouts above take the DEFAULT
+      # BRANCH, so this job's result is not determined by this repo's commit alone: the same
+      # commit can be green today and red tomorrow with nothing in its history changing. That
+      # is not a fault to pin away -- a repo's suite SHOULD be tested against its siblings'
+      # current state -- but it makes a certification non-reproducible unless the run says what
+      # it ran against. So it says.
+      #
+      # ABSENT rather than a skipped line when a checkout is missing, because a missing figure
+      # and a resolved one must not look alike. That is the same rule as every other unreadable
+      # number here: a reader cannot tell "nothing to report" from "nobody reported".
+      - name: which siblings this ran against
+        if: always()
+        shell: bash
+        run: |
+          echo "siblings on ${{ matrix.os }}:" >> "$GITHUB_STEP_SUMMARY"
+          for repo in RoyaleGym RoyaleSim RoyaleLearn; do
+            if [ -d "$repo/.git" ]; then
+              echo "  $repo=$(git -C "$repo" rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "  $repo=ABSENT" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
       # The README's Stage 3. RoyaleSim's tables are GENERATED rather than stored, so a fresh
       # clone has none and `default_board()` would have no arena to load. Learn lost two CI runs
       # to skipping this; taking its recipe rather than rediscovering it.
