@@ -421,13 +421,13 @@ Here is what each piece of the viewer needs.
 ## Status
 
 <p align="center">
-  <img alt="Tests on a clone at 519b484, 2026-09-22: 170 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--22-170_passed%2C_4_skipped-2ea043?style=flat-square">
+  <img alt="pytest on a clone at 519b484, 2026-09-22: 170 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--22-170_passed%2C_4_skipped-2ea043?style=flat-square">
   <img alt="Draw cost" src="https://img.shields.io/badge/draw-2--5_ms_per_frame-2ea043?style=flat-square">
   <img alt="Cost when unwatched" src="https://img.shields.io/badge/unwatched-193_ns_per_step-2ea043?style=flat-square">
 </p>
 
 The test badge is a clone's run at `acd8c48`, measured with `ROYALELIVE_REPORTS` pointed at
-an empty folder. On a machine that has the recordings it is 173 passed, 1 skipped.
+an empty folder. On a machine that has the recordings the same pytest run is 173 passed, 1 skipped.
 
 As of 2026-09-22, this works end to end:
 
