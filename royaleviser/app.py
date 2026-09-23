@@ -226,16 +226,22 @@ def differing_within(a: list[Row], b: list[Row], tolerance: int) -> tuple[int, i
 
     So the units of one team and name on one side are paired with those on the other, and a
     pair counts as agreeing when the two are within ``tolerance`` millitiles. As many pairs
-    are made as CAN be made at once (``max_matching``) rather than greedily nearest-first,
+    are made as CAN be made at once (``cheapest_pairing``) rather than greedily nearest-first,
     which over-reports: two units that could both be accounted for get called a disagreement
     because a closer pair was taken first. What is left unpaired on either side is a unit one
     side has and the other does not, which is the failure the position tolerance must never
     hide, so it counts as differing whatever the tolerance is.
 
-    HP is deliberately NOT part of the pairing and NOT part of the differ count here: a pair
-    that stands in the same place with different hp is a different finding from a unit in the
-    wrong place, and the second return value keeps it visible instead of folding the two into
-    one number that cannot be read back.
+    HP is not part of the DIFFER count: a pair that stands in the same place with different hp
+    is a different finding from a unit in the wrong place, and the second return value keeps
+    it visible instead of folding the two into one number that cannot be read back.
+
+    HP IS part of the pairing, as the tie-break, and has to be. Where several units of one
+    card can pair with each other -- stacked Skeletons, which is how they spawn -- the number
+    of pairs is the same whichever way round they go, so an algorithm that only counts pairs
+    picks arbitrarily and the hp count comes out of that arbitrary choice. Two attempts got a
+    wrong number that way. Pairs that agree on hp are preferred among the pairings that make
+    the most pairs, which changes no differ count and makes the hp count mean something.
     """
     differ = hp_differ = 0
     keys = {(t, n) for t, n, *_ in a} | {(t, n) for t, n, *_ in b}
