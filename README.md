@@ -338,7 +338,7 @@ You do not need all of that to use the viewer.
 ## Status
 
 <p align="center">
-  <img alt="Tests on a clone, 2026-09-22: 155 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--22-155_passed%2C_4_skipped-2ea043?style=flat-square">
+  <img alt="Tests on a clone, 2026-09-22: 157 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--22-157_passed%2C_4_skipped-2ea043?style=flat-square">
   <img alt="Draw cost" src="https://img.shields.io/badge/draw-2--5_ms_per_frame-2ea043?style=flat-square">
   <img alt="Cost when unwatched" src="https://img.shields.io/badge/unwatched-193_ns_per_step-2ea043?style=flat-square">
 </p>
@@ -388,7 +388,7 @@ window refusing to draw something.
 Tests:
 
 ```
-cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 155 passed, 4 skipped on a clone (2026-09-22, b0313bd)
+cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 157 passed, 4 skipped on a clone (2026-09-22, acec042)
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
@@ -396,7 +396,7 @@ Three of those skips are tests that pin numbers only a recording of a real battl
 recordings are private, so your clone does not have them, and the run prints "SKIPPED, NOT
 PASSED" for each one so nobody mistakes a skip for a pass. The fourth needs a parity results
 file from RoyaleSim's replay harness. On the machine that has the recordings, the first three
-run and the count is 158 passed, 1 skipped.
+run and the count is 160 passed, 1 skipped.
 
 Without the `media` extra (`imageio-ffmpeg`), the mp4 and gif test skips as well, and it says so.
 Install it with `.venv\Scripts\python -m pip install -e "RoyaleViser[media]"` from the `Royale`

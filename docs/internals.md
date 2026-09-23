@@ -278,12 +278,12 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at b0313bd on 2026-09-22, with `pytest --collect-only -q` collecting 159:
+The suite has two correct results, and both are one command apart. Measured at acec042 on 2026-09-22, with `pytest --collect-only -q` collecting 161:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **155 passed, 4 skipped** |
-| this machine, with the recordings | **158 passed, 1 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **157 passed, 4 skipped** |
+| this machine, with the recordings | **160 passed, 1 skipped** |
 
 The four skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
@@ -508,6 +508,13 @@ and more than two is an error.
 | `--start-tick T` | the first frame shown (replays). |
 | `--seconds N` | quit by itself after N seconds (unattended runs). |
 | `--shot PATH` | save the last drawn window as a PNG before quitting. |
+
+`--shot` REFUSES to write a picture of a live source that never received a frame, prints why
+on stderr and exits 2. Such a picture is a real screenshot of the real window showing an empty
+board under full panels, and it reads as a photograph of a dead run. The likely cause is worth
+knowing: a publisher keeps ONE peer, so a second viewer on a stream that is already being
+watched gets no frames, while its learner panel fills normally from the other port. A status
+with no frames is diagnostic and the message says so.
 
 `SDL_VIDEODRIVER=dummy` makes `--seconds` and `--shot` work with no display at all, which is
 how the README's images and the render tests are produced. `--help` prints the key list
