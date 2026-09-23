@@ -276,6 +276,43 @@ class ParitySource:
     def _cell(self, row: dict[str, Any]) -> list[int] | None:
         return row.get("truth") if self.side == RECORDING else row.get("sim")
 
+    def first_divergence(
+        self, key: int | None = None, tolerance: int = 0
+    ) -> tuple[int, int, int | None] | None:
+        """The earliest tick where the two sides disagree: ``(tick, key, distance)``.
+
+        WHY THIS AND NOT THE DIFFERENCE COUNT. A count says how far apart the two runs are
+        NOW, which after the first disagreement is mostly accumulated drift: a unit pushed
+        wrongly at tick 900 is still in the wrong place at 1400 without anything new having
+        gone wrong. For a causal law -- contact, spawn point, death timing -- the question is
+        which tick FIRST disagreed, because that is the only one where the inputs on both
+        sides were still the same.
+
+        ``key`` restricts it to one unit, which is the pinned-unit case. Without it this is
+        the first disagreement in the battle, whoever it belongs to.
+
+        ``distance`` is in raw units, or None when the unit exists on one side and not the
+        other at that tick -- a presence difference rather than a position one, which no
+        tolerance can excuse and which is reported rather than folded into a number. Both
+        sides missing the unit is not a disagreement and is skipped.
+
+        Reads the rows the file already holds, so it costs one pass and no decoding.
+        """
+        for tick in self._ticks:
+            for row in self._by_tick[tick]:
+                if key is not None and int(row["key"]) != key:
+                    continue
+                truth, sim = row.get("truth"), row.get("sim")
+                if not truth and not sim:
+                    continue
+                if not truth or not sim:
+                    return tick, int(row["key"]), None
+                dx, dy = int(truth[0]) - int(sim[0]), int(truth[1]) - int(sim[1])
+                d2 = dx * dx + dy * dy
+                if d2 > tolerance * tolerance:
+                    return tick, int(row["key"]), int(d2**0.5)
+        return None
+
     def _unit(self, row: dict[str, Any]) -> Unit | None:
         cell = self._cell(row)
         if not cell:
