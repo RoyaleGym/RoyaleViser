@@ -25,6 +25,11 @@ engine, or a bot that is training right now in another program.
 You can try this one without building the engine: clone it, install one package, run one
 command. You do not need any game files either. [Jump to Try it](#try-it).
 
+Every command on this page is for **Windows PowerShell**, one per line. Paste them one at a time
+rather than as a block. PowerShell cannot chain commands with `&&`, and a pasted `#` comment is
+not a comment in `cmd`. On macOS and Linux the interpreter is `.venv/bin/python` with forward
+slashes, and nothing else about the commands changes.
+
 <p align="center"><img src="docs/viewer-trace.png" width="100%" alt="The viewer on a self-play battle from the engine, with the Blue Valkyrie pinned in the inspector"></p>
 
 That is a battle the engine played against itself, saved to a file and reopened here. On the
@@ -48,8 +53,8 @@ Two recordings of the same scripted battle, one from each player's point of view
 with the tests. They are about 20 KB each, so they came down with your clone.
 
 You need the shared virtual environment from [Setup](#setup) and this one package installed.
-Nothing else. No engine build, no game files, no recordings of your own. Then, from the repo
-folder:
+Nothing else. No engine build, no game files, no recordings of your own. Then move into the
+`RoyaleViser` folder with `cd RoyaleViser` and run this one command:
 
 ```
 ..\.venv\Scripts\python -m royaleviser tests\fixtures\frames-synthetic-A.jsonl.gz --compare tests\fixtures\frames-synthetic-B.jsonl.gz --speed 4 --seconds 8
@@ -75,13 +80,25 @@ royaleviser: 290 draws, mean 4.08 ms, max 370.22 ms
 That is 290 pictures at 4.08 ms each on average. A replay needs 20 a second, so there is a lot of
 room to spare. The 370 ms is the very first draw, which builds the board and loads the fonts.
 
-Drop `--seconds` and the window stays open until you close it. The same command opens the other
-kinds of source:
+Drop `--seconds` and the window stays open until you close it.
+
+The same command opens the other kinds of source. One of them at a time, not all three. A
+recording of a real battle:
 
 ```
-python -m royaleviser frames-my-match.jsonl.gz                     # a recording of a real battle
-python -m royaleviser battle.msgpack --start-tick 900              # a trace saved from the engine
-python -m royaleviser --stream 127.0.0.1:9870                      # an environment running right now
+python -m royaleviser frames-my-match.jsonl.gz
+```
+
+A trace saved from the engine, opened at tick 900:
+
+```
+python -m royaleviser battle.msgpack --start-tick 900
+```
+
+An environment that is running right now, in another process:
+
+```
+python -m royaleviser --stream 127.0.0.1:9870
 ```
 
 Keys in the window: space plays and pauses. The arrow keys step one frame. A click pins a unit,
@@ -226,10 +243,24 @@ and change no code, or hand it a sender yourself. Then attach from another progr
 Nothing is sent until a viewer says hello. Sending stops three seconds after the last viewer goes
 away. So you can leave this switched on in a training run you are not watching.
 
+Three things happen, in three different places. First, in the shell where the training run will
+start and before it starts, name the address the frames go to:
+
 ```
-set ROYALEVISER=127.0.0.1:9870                                  # before the training run starts
-env = ClashSelfPlayVecEnv(8)                                    # binds one publisher, watches game 0
-python -m royaleviser --stream 127.0.0.1:9870                   # in another process
+set ROYALEVISER=127.0.0.1:9870
+```
+
+The vectorised environment reads that when you build it. It binds one publisher and watches
+game 0. None of your own code changes:
+
+```python
+env = ClashSelfPlayVecEnv(8)
+```
+
+Then, in another process, attach the viewer to that same address:
+
+```
+python -m royaleviser --stream 127.0.0.1:9870
 ```
 
 A viewer shows one battle at a time. When you run eight games at once, something has to pick
@@ -237,10 +268,11 @@ which one. So the vectorised environment is the thing that reads `ROYALEVISER`: 
 sender once and hands it to game 0. Eight games all reaching for the viewer's one UDP port is an
 error, not eight streams.
 
-A single environment reads no environment variable of its own. You hand it a sender directly:
+A single environment reads no environment variable of its own. You hand it a sender directly.
+`ViserPublisher` comes from `royalegym.viser`, and on its own it sends to `127.0.0.1:9870`:
 
-```
-env = ClashParallelEnv(RustEngine(), viser=ViserPublisher())   # from royalegym.viser; 127.0.0.1:9870
+```python
+env = ClashParallelEnv(RustEngine(), viser=ViserPublisher())
 ```
 
 While a viewer is attached, one msgpack datagram goes out per step. Measured: 2.6 KB for 18 units
@@ -309,32 +341,78 @@ datagram itself. The format and the six constants it has to match are in
 
 ### Setup
 
-The whole stack shares one setup. Clone the repos side by side into one folder, with one virtual
-environment at its root.
+The whole stack shares one setup. The repos sit side by side in one folder, with one virtual
+environment at its root. You do not need all of it to use the viewer, so it comes in two parts.
+
+**The short way, for the viewer on its own.** No Rust, no engine build, no game files. You need
+Python 3.12 and git. Run these from wherever you keep your projects, one line at a time:
 
 ```
-mkdir Royale && cd Royale
+mkdir Royale
+cd Royale
+git clone https://github.com/RoyaleGym/RoyaleViser.git
+python -m venv .venv
+.venv\Scripts\python -m pip install -e RoyaleViser
+```
+
+The last line downloads pygame, msgspec and numpy, which is a few tens of MB. You now have the
+two recordings that ship with the tests, and the board is drawn from a copy of the arena built
+into this package. That is enough for [Try it](#try-it), for streams, and for saving a PNG.
+
+**The rest of the stack**, if you want to open an engine trace or record one yourself. Do the
+short way first, because the rest builds on the folder, the environment and the clone it made.
+The engine is Rust, so this part also needs a Rust toolchain from [rustup.rs](https://rustup.rs).
+Add the other three clones and the build tools, from the `Royale` folder:
+
+```
 git clone https://github.com/RoyaleGym/RoyaleSim.git
 git clone https://github.com/RoyaleGym/RoyaleGym.git
-git clone https://github.com/RoyaleGym/RoyaleViser.git
 git clone https://github.com/RoyaleGym/RoyaleLearn.git
-python -m venv .venv                                                    # Python 3.12
 .venv\Scripts\python -m pip install maturin pytest hypothesis ruff
-cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json && ..\.venv\Scripts\python tools\extract_globals.py && cd ..   # generates RoyaleSim/data/derived/
-cd RoyaleSim && ..\.venv\Scripts\maturin develop --release && cd ..     # builds the engine into the venv. Give it a few minutes and some free memory.
+```
+
+Next, generate the card and arena data the engine reads. This writes `RoyaleSim/data/derived/`,
+which no clone carries and the engine cannot start without. Keep `--vintage 2018` on both
+`extract_cards.py` lines, because that is the card table the repo ships:
+
+```
+cd RoyaleSim
+..\.venv\Scripts\python tools\extract_arena.py
+..\.venv\Scripts\python tools\extract_cards.py --vintage 2018
+..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
+..\.venv\Scripts\python tools\extract_globals.py
+```
+
+Then build the engine into the environment, from that same `RoyaleSim` folder. Give it a few
+minutes and some free memory. It prints very little while it works, so a long quiet stretch is
+not a hang:
+
+```
+..\.venv\Scripts\maturin develop --release
+cd ..
+```
+
+Then install the Python packages, back in the `Royale` folder:
+
+```
 .venv\Scripts\python -m pip install -e RoyaleGym
 .venv\Scripts\python -m pip install -e RoyaleViser
 .venv\Scripts\python -m pip install -e RoyaleLearn
-.venv\Scripts\python -m pip install -e "RoyaleLearn[torch]"   # only if you want to train; it is a big download
 ```
 
-You do not need all of that to use the viewer.
+One more line, only if you want to train. It is a big download:
+
+```
+.venv\Scripts\python -m pip install -e "RoyaleLearn[torch]"
+```
+
+Here is what each piece of the viewer needs.
 
 - **Recordings, streams and the scripted battle** need only the virtual environment and
   `pip install -e RoyaleViser`. That pulls in pygame, msgspec and numpy. Without RoyaleGym the
   board is drawn from a copy of the arena built into this package.
 - **Opening a trace** needs RoyaleGym as well. RoyaleGym then reads the arena out of the
-  RoyaleSim checkout (`data/derived/`, which the `extract_*` line above generates), not out of
+  RoyaleSim checkout (`data/derived/`, which the `extract_*` lines above generate), not out of
   the engine build.
 - **Recording a trace yourself** needs the engine build too, so you need the whole recipe.
 - **mp4 and gif out of `capture`** need the `media` extra, which brings ffmpeg with it. A PNG
@@ -343,13 +421,13 @@ You do not need all of that to use the viewer.
 ## Status
 
 <p align="center">
-  <img alt="Tests on a clone at 455d6f9, 2026-09-22: 165 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--22-165_passed%2C_4_skipped-2ea043?style=flat-square">
+  <img alt="Tests on a clone at 447f18a, 2026-09-22: 169 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--22-169_passed%2C_4_skipped-2ea043?style=flat-square">
   <img alt="Draw cost" src="https://img.shields.io/badge/draw-2--5_ms_per_frame-2ea043?style=flat-square">
   <img alt="Cost when unwatched" src="https://img.shields.io/badge/unwatched-193_ns_per_step-2ea043?style=flat-square">
 </p>
 
 The test badge is a clone's run at `acd8c48`, measured with `ROYALELIVE_REPORTS` pointed at
-an empty folder. On a machine that has the recordings it is 168 passed, 1 skipped.
+an empty folder. On a machine that has the recordings it is 172 passed, 1 skipped.
 
 As of 2026-09-22, this works end to end:
 
@@ -393,10 +471,14 @@ window refusing to draw something.
 - A recording holds only the recording player's hand. The opponent's shows as "hand: not in this
   source" until the results screen. A trace's cycle past the revealed cards shows as "next ?".
 
-Tests:
+Tests. Start in the `Royale` folder. On a clone the first line prints 169 passed, 4 skipped
+(2026-09-22, 455d6f9), and the second prints nothing at all when it is happy. Both tools come
+from the `pip install maturin pytest hypothesis ruff` line in [Setup](#setup), so the short way
+on its own does not have them:
 
 ```
-cd RoyaleViser && ..\.venv\Scripts\python -m pytest -q        # 165 passed, 4 skipped on a clone (2026-09-22, 455d6f9)
+cd RoyaleViser
+..\.venv\Scripts\python -m pytest -q
 ..\.venv\Scripts\python -m ruff check royaleviser tests
 ```
 
@@ -404,7 +486,7 @@ Three of those skips are tests that pin numbers only a recording of a real battl
 recordings are private, so your clone does not have them, and the run prints "SKIPPED, NOT
 PASSED" for each one so nobody mistakes a skip for a pass. The fourth needs a parity results
 file from RoyaleSim's replay harness. On the machine that has the recordings, the first three
-run and the count is 168 passed, 1 skipped.
+run and the count is 172 passed, 1 skipped.
 
 Without the `media` extra (`imageio-ffmpeg`), the mp4 and gif test skips as well, and it says so.
 Install it with `.venv\Scripts\python -m pip install -e "RoyaleViser[media]"` from the `Royale`
