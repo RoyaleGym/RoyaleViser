@@ -52,6 +52,15 @@ def collected() -> int:
 #
 # So: the two full-stack figures are guarded and the bare-clone one is not. If that third figure
 # goes stale, nothing here catches it.
+#
+# AND THE IDENTITY THIS GUARD RESTS ON IS FALSE IN GENERAL. `passed + skipped == collected` holds
+# only while no module skips AT IMPORT: a module-level `importorskip` yields ZERO collected items
+# and ONE reported skip, so the outcome line can EXCEED the collection. This repo has three such
+# modules (test_model, test_sources, test_learner_protocol). The guard is sound only because it
+# SKIPS ITSELF in the one environment where all three fire -- the bare clone with no royalegym --
+# so it never evaluates the case that would break it. That is luck with a reason rather than
+# design. Anyone widening it to the bare clone must take collected from `--collect-only` instead
+# of summing the outcome; the workflow emits it on both jobs for exactly that reason.
 COUNT = r"(\d+)[ _]passed(?:%2C)?,?[ _](\d+)[ _]skipped"
 
 

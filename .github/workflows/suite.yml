@@ -109,6 +109,22 @@ jobs:
         working-directory: RoyaleViser
         run: ../.venv/bin/python -m ruff check royaleviser tests
 
+      # COLLECTED, reported by the run rather than derived from its outcome line. The
+      # integrator put "148 collected" in this repo's certification row by adding 139 passed
+      # and 9 skipped, and that arithmetic is UNSOUND HERE: a module-level `importorskip`
+      # yields ZERO collected items and ONE reported skip, so passed + skipped can exceed
+      # collected and no sum recovers the difference. This repo has three such modules
+      # (test_model.py, test_sources.py, test_learner_protocol.py), and the clone-shaped job
+      # is exactly the environment where all three fire. The fix is not better arithmetic; it
+      # is the run saying the number.
+      - name: collected
+        working-directory: RoyaleViser
+        shell: bash
+        if: always()
+        run: |
+          echo "collected on ${{ matrix.os }}:" >> "$GITHUB_STEP_SUMMARY"
+          pytest -q --collect-only 2>&1 | tail -1 | tee -a "$GITHUB_STEP_SUMMARY"
+
       # Gym's rule: a count is never recorded without the build digest. This repo's suite runs
       # with no engine at all, so the honest record is that there was none rather than a blank.
       - name: record what this run was
@@ -191,6 +207,19 @@ jobs:
         working-directory: RoyaleViser
         shell: bash
         run: pytest -q
+
+      # COLLECTED, reported by the run rather than derived from its outcome line. A module-level
+      # `importorskip` yields ZERO collected items and ONE reported skip, so passed + skipped can
+      # EXCEED collected and no sum recovers the difference. This repo has three such modules.
+      # The integrator put "148 collected" in its certification row by summing 139 and 9; no run
+      # ever reported that number. The fix is not better arithmetic, it is the run saying it.
+      - name: collected
+        working-directory: RoyaleViser
+        shell: bash
+        if: always()
+        run: |
+          echo "collected on ${{ matrix.os }}:" >> "$GITHUB_STEP_SUMMARY"
+          pytest -q --collect-only 2>&1 | tail -1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: record what this run was
         if: always()
