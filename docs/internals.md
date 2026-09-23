@@ -278,12 +278,12 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at 447f18a on 2026-09-22, with `pytest --collect-only -q` collecting 173:
+The suite has two correct results, and both are one command apart. Measured at 519b484 on 2026-09-22, with `pytest --collect-only -q` collecting 174:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **169 passed, 4 skipped** |
-| this machine, with the recordings | **172 passed, 1 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **170 passed, 4 skipped** |
+| this machine, with the recordings | **173 passed, 1 skipped** |
 
 The four skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974

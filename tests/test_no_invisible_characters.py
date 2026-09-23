@@ -33,10 +33,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-#: Written as escapes, never as the characters themselves. A file that names an invisible
-#: character by pasting it is the defect this module exists for.
-ALLOWED = {"\t", "\n", "\r"}
-NAMED_INVISIBLE = {" ", "​", "‌", "‍", "⁠", "﻿", " "}
+#: Built from CODE POINTS, never written as the characters themselves and never as string
+#: escapes either. The first version of this line used "\\u00a0" and friends; whatever wrote the
+#: file resolved them, so the set naming seven invisible characters was SPELT with seven
+#: invisible characters. It went unnoticed until the file was committed, because the sweep reads
+#: `git ls-files` and an untracked file is not swept -- so the guard could not see itself until
+#: it was tracked, and then caught itself on the first run. chr() cannot be resolved by an editor,
+#: a heredoc or a paste.
+ALLOWED = {chr(0x09), chr(0x0A), chr(0x0D)}
+NAMED_INVISIBLE = {chr(c) for c in (0x00A0, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x202F)}
 
 
 def tracked_text_files() -> list[Path]:
