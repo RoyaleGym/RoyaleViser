@@ -3,11 +3,12 @@
     python -m royaleviser --parity <name>.parity.json
 
 RoyaleSim's replay harness plays a recorded battle through the engine and scores the two
-per-tick states against each other. Run with ``--trace`` it also writes every scored unit-tick
-as a row: the tick, the unit, where the RECORDING had it and where the ENGINE put it. That
-file is a whole battle from both sides, and this module turns each side into a viewer source,
-so the question the numbers answer as a percentage ("99.24 % of positions within 250") can be
-answered as a picture: WHERE do they part, and what was the unit doing when they did.
+per-tick states against each other. Run with ``--trace`` it also writes a row per scored
+MATCHED pair: the tick, the unit, where the RECORDING had it and where the ENGINE put it.
+This module turns each side of those rows into a viewer source, so a figure like "84.6 % of
+unit-ticks within a quarter tile" -- what the harness's own aggregate over the recordings on
+this machine reports, `Score.within[0]` over `unit_ticks` -- can be looked at instead of read:
+WHERE do they part, and what was the unit doing when they did.
 
     src = ParitySource(path, RECORDING)      # what the recording had
     eng = ParitySource(path, ENGINE)         # what the engine did with the same battle
@@ -27,8 +28,10 @@ game agree least.
 WHAT A PARITY FILE DOES NOT HAVE, and what this does about it. No elixir, no hands, no decks:
 those say "not in this source" the way a recording's opponent does. No crowns and no result.
 No collision radius and no footprint, so buildings and towers draw at the viewer's marked
-fallback size. The path is a COUNT of nodes, not the nodes, so it rides in the inspector's
-extra rather than being drawn as a path that was never recorded. Tower slots are not named in
+fallback size. No maximum hp, so no hp bars: the most a unit was seen with is a lower bound,
+and it is in the inspector under a name that says so rather than standing in for a maximum.
+The path is a COUNT of nodes, not the nodes, so it rides in the inspector's extra rather than
+being drawn as a path that was never recorded. Tower slots are not named in
 the file, so the dashboard's tower rows stay unknown while the towers themselves stand on the
 board with their hp.
 
@@ -90,6 +93,11 @@ def kind_of(name: str, names: Names) -> int:
     A card the table does not have is a TROOP rather than a guess at a building, because a
     troop is drawn as a disc of the default radius and a building as a box -- and a box is a
     claim about the ground it stands on.
+
+    Feed this the entity's OWN card, never the root it was attributed to. A Tombstone's
+    Skeletons carry the Tombstone's card id in both the recording and the harness's `root`,
+    and 27000009 is inside the building range, so rooting them would draw four skeletons as
+    four buildings, each with a guessed footprint and the marks that go with one.
     """
     if name in TOWER_ROOTS:
         return TOWER_ROOTS[name]
@@ -135,18 +143,46 @@ class ParitySource:
         report = json.loads(self.path.read_text(encoding="utf-8"))
         trace = report.get("trace") or []
         if not trace:
+            # An unplayable fixture is never played, so no flag would have produced rows. Its
+            # report says why in a field this would otherwise talk over. A report that IS
+            # playable and carries `unplayable_reasons` was played up to a cut (`prefix_until`)
+            # and does get rows under --trace, so only `playable: false` takes this branch.
+            if report.get("playable") is False:
+                why = "; ".join(str(r) for r in (report.get("unplayable_reasons") or ()))
+                raise ValueError(
+                    f"{self.path.name} is a report on a fixture the harness could not play"
+                    + (f": {why}" if why else ", and it does not say why")
+                )
             raise ValueError(
                 f"{self.path.name} has no per-tick rows: write it with the harness's --trace"
             )
         self.fixture = str(report.get("fixture") or self.path.stem)
         self.name = f"{self.side} {self.fixture}"
-        # key -> (team, name, kind, max hp seen). The card is the ROOT card the harness
-        # attributes the unit to, which is what a watcher would call it.
-        pairs = {int(p["truth_key"]): (int(p["side"]), str(p["root"])) for p in report["pairs"]}
+        # key -> (team, root card, the engine entity's OWN card, how it was rooted). The root
+        # is what both sides call the unit, because a recording carries the root's card id for
+        # a spawned unit too; ``sim_card`` is the only place the file names the entity itself,
+        # and that is what decides whether a box gets drawn under it.
+        pairs = {
+            int(p["truth_key"]): (
+                int(p["side"]),
+                str(p["root"]),
+                str(p.get("sim_card") or p["root"]),
+                str(p.get("root_how") or ""),
+            )
+            for p in report["pairs"]
+        }
         self._by_tick: dict[int, list[dict[str, Any]]] = {}
-        # The most this side was ever seen with. Per SIDE, not shared: the two sides are two
-        # simulations, and taking the engine's hp as the recording's maximum would draw a
-        # recording's hp bar against a number the recording never reached.
+        # The most hp this side was ever seen with. That is a LOWER BOUND on the unit's
+        # maximum, not the maximum: a parity report carries no max hp at all, the recording's
+        # own frames are up to a dozen ticks apart, and a unit whose rows begin mid-life is
+        # never once seen whole. On the recordings here 18 entities of 3915 are never seen at
+        # full hp and seven of them are crown towers, the worst first and forever at 53 %.
+        #
+        # So it does not become ``max_hp``. The renderer draws an hp bar only when
+        # ``0 <= hp < max_hp``, so a max_hp of the most-seen value would draw a half-dead
+        # tower as an untouched one and, once a later hit landed, draw a bar against a maximum
+        # the unit never had. ``max_hp`` stays 0, which is this viewer's word for "not in this
+        # source", and the bound goes in the inspector where it is labelled.
         self._max_hp: dict[int, int] = {}
         column = "truth" if side == RECORDING else "sim"
         for row in trace:
@@ -160,24 +196,57 @@ class ParitySource:
             len(report.get("unmatched_truth") or ()),
             len(report.get("unmatched_sim") or ()),
         )
+        # The tick the ENGINE declared the battle over. The harness stops ticking it there and
+        # keeps snapshotting the frozen state, and scores everything past it as
+        # ``after_engine_end`` because it is frozen. Without this the tail reads as a large
+        # unexplained divergence, which is the one part of the battle the file has already
+        # told the viewer not to score. It is NOT game_over: the report has no winner, and
+        # game_over with no winner draws "draw" on the board, which would be inventing one.
+        end = report.get("engine_end_tick")
+        self.engine_end_tick: int | None = None if end is None else int(end)
+        # How far the harness was asked to play, when it was cut short of the whole battle.
+        cut = report.get("prefix_until")
+        self.prefix_until: int | None = None if cut is None else int(cut)
         self._ticks = sorted(self._by_tick)
         self.length = len(self._ticks)
         self.index = 0
-        self._events = self._divergence_events(report)
+        self._events = self._divergence_events(report)  # needs engine_end_tick, set above
 
     def _divergence_events(self, report: dict[str, Any]) -> dict[int, list[str]]:
         """The harness's own reading of where this battle first parted, on the tick it says.
 
         It is the one line in the report that names a MOMENT rather than a total, so it
         belongs in the events list where a reader can scrub to it.
+
+        THE ONSET LINE IS NOT ALWAYS THERE, and that is the point. Only one of the harness's
+        four divergence paths measures a growing position error and dates the moment it began;
+        the other three are a pair alive on one side only, an unmatched recording entity and an
+        unmatched engine entity, and all three set the onset equal to the tick and carry no
+        distance at all. Announcing an error that passed a threshold on those would be a
+        position claim the same file contradicts, printed on the same tick as the real line.
+        The position case is the one whose ``what`` begins "position error"; nothing else in
+        the report says which path it came from.
         """
+        out: dict[int, list[str]] = {}
+        if self.engine_end_tick is not None:
+            out.setdefault(self.engine_end_tick, []).append(
+                f"t{self.engine_end_tick} the engine ended the battle; "
+                "its side is frozen from here and the harness stops scoring it"
+            )
+        if self.prefix_until is not None:
+            out.setdefault(self.prefix_until, []).append(
+                f"t{self.prefix_until} the harness was only asked to play this far"
+            )
         d = report.get("first_divergence")
         if not d:
-            return {}
-        out: dict[int, list[str]] = {}
+            return out
         onset, tick = int(d.get("onset_tick", d["tick"])), int(d["tick"])
-        out.setdefault(onset, []).append(f"t{onset} error passes 250: {d['card']} ({d['cause']})")
-        out.setdefault(tick, []).append(f"t{tick} first divergence: {d['card']}, {d['what']}")
+        what = str(d.get("what") or "")
+        if what.startswith("position error") and onset != tick:
+            out.setdefault(onset, []).append(
+                f"t{onset} the gap starts opening: {d['card']} ({d['cause']})"
+            )
+        out.setdefault(tick, []).append(f"t{tick} first divergence: {d['card']}, {what}")
         return out
 
     def _cell(self, row: dict[str, Any]) -> list[int] | None:
@@ -188,19 +257,21 @@ class ParitySource:
         if not cell:
             return None  # the unit is not alive on this side at this tick
         key = int(row["key"])
-        team, root = self._pairs.get(key, (0, str(row.get("card") or "")))
+        team, root, own_card, how = self._pairs.get(
+            key, (0, str(row.get("card") or ""), str(row.get("card") or ""), "")
+        )
         name = root or str(row.get("card") or f"#{key}")
         x, y, hp, fourth, path_n, target = (int(v) for v in cell)
         deploying = self.side == RECORDING and fourth in DEPLOY_STATES
         return Unit(
             uid=key,
             team=team,
-            kind=kind_of(name, self.names),
+            kind=kind_of(own_card, self.names),
             name=name,
             x=x,
             y=y,
             hp=hp,
-            max_hp=self._max_hp.get(key, 0),
+            max_hp=0,  # a parity file has no maximum; see _max_hp above
             radius=0,
             flying=False,  # not in the file; the viewer draws no shadow rather than a wrong one
             deploy_ticks=1 if deploying else 0,
@@ -218,6 +289,14 @@ class ParitySource:
                 # engine entities. Not a uid here, so it is a number to read rather than a line
                 # to draw (see the class docstring).
                 "engine_target_index": None if self.side != ENGINE or target < 0 else target,
+                # What the engine calls this entity, and how the harness attributed it to the
+                # card above. A spawned unit is named for its spawner on both sides, because
+                # that is the card a recording carries for it; this is where its own is.
+                # The most hp this side was ever seen with, which is a lower bound on the
+                # unit's maximum and not the maximum. Named so nobody reads it as one.
+                "most_hp_seen": self._max_hp.get(key, 0),
+                "engine_card": own_card,
+                "rooted_how": how,
             },
         )
 

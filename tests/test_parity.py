@@ -144,14 +144,22 @@ def test_each_side_is_the_battle_that_side_had(parity_file: Path) -> None:
     assert knight_b.extra["attacking"] is False
 
 
-def test_max_hp_is_the_most_that_unit_was_ever_seen_with(parity_file: Path) -> None:
-    """A parity file has hp and no maximum, and an hp bar needs both. The most the unit was
-    ever seen with is what the file itself supports; nothing is read out of a card table."""
+def test_a_unit_s_maximum_hp_is_not_in_the_file_and_is_not_invented(parity_file: Path) -> None:
+    """The most a unit was SEEN with is a lower bound, not its maximum: a report carries no
+    maximum, the recording's frames are ticks apart, and a unit whose rows begin mid-life is
+    never once seen whole. Standing that bound in for a maximum draws a half-dead tower as an
+    untouched one, because the renderer draws a bar only while hp is under the maximum."""
     rec, _ = open_parity(parity_file)
     rec.seek(2)
     f = rec.frame()
-    assert f.unit(9).hp == 378 and f.unit(9).max_hp == 380  # 380 on the first tick
-    assert f.unit(1).max_hp == 4824
+    assert f.unit(9).hp == 378
+    assert f.unit(9).max_hp == 0  # 0 is this viewer's "not in this source": no bar is drawn
+    assert f.unit(1).max_hp == 0
+    # The bound is kept, in the inspector, under a name nobody can read as a maximum.
+    assert f.unit(9).extra["most_hp_seen"] == 380
+    assert f.unit(1).extra["most_hp_seen"] == 4824
+    # And the renderer draws no bar for it, which is the point of the 0.
+    assert not (f.unit(9).max_hp > 0 and 0 <= f.unit(9).hp < f.unit(9).max_hp)
 
 
 def test_the_harness_s_reading_of_where_they_parted_is_an_event(parity_file: Path) -> None:
@@ -159,13 +167,8 @@ def test_the_harness_s_reading_of_where_they_parted_is_an_event(parity_file: Pat
     reader can scrub to it rather than staying in a total."""
     rec, _ = open_parity(parity_file)
     assert rec.frame().events == []
-    rec.seek(rec.index_at_tick(101))
-    assert rec.frame().events == ["t101 error passes 250: Knight (walking)"]
     rec.seek(2)
-    assert rec.frame().events == [
-        "t101 error passes 250: Knight (walking)",
-        "t102 first divergence: Knight, 1100 native apart",
-    ]
+    assert rec.frame().events == ["t102 first divergence: Knight, 1100 native apart"]
 
 
 def test_the_two_sides_seek_to_the_same_tick(parity_file: Path) -> None:
@@ -276,8 +279,8 @@ def test_each_side_s_max_hp_is_its_own(tmp_path: Path) -> None:
     path = tmp_path / "hp.parity.json"
     path.write_text(json.dumps(report(rows, [(7, 0, "Knight")])), encoding="utf-8")
     rec, eng = open_parity(path)
-    assert rec.frame().unit(7).max_hp == 900  # the most the RECORDING ever showed
-    assert eng.frame().unit(7).max_hp == 1452
+    assert rec.frame().unit(7).extra["most_hp_seen"] == 900  # the most the RECORDING showed
+    assert eng.frame().unit(7).extra["most_hp_seen"] == 1452
 
 
 def test_overtime_is_the_same_tick_it_would_be_in_the_recording(tmp_path: Path) -> None:
@@ -357,3 +360,116 @@ def test_the_command_line_pairs_a_parity_view_by_key(parity_file: Path) -> None:
     assert app.agreement.pair_by_uid and app.agreement.tolerance == DEFAULT_TOLERANCE
     for s in srcs:
         s.close()
+
+
+def test_a_spawner_s_troops_are_troops_and_do_not_claim_ground(tmp_path: Path) -> None:
+    """A recording carries the SPAWNER's card id for a unit a spawner emitted -- a Tombstone's
+    Skeletons carry 27000009 -- and the harness roots them the same way. Kinding off that root
+    makes every skeleton a BUILDING, and the renderer then draws each one as a footprint-sized
+    box with the marks that say its size was guessed. The file names the entity itself in
+    `sim_card`, and that is what decides whether a box goes under it."""
+    rows = [
+        row(10, 5, "Tombstone", [9000, 9000, 650, 0, 0, -1], [9000, 9000, 650, 0, 0, -1]),
+        row(10, 6, "Tombstone", [9200, 9200, 81, 1, 2, -1], [9200, 9200, 81, 0, 2, -1]),
+    ]
+    d = report(rows, [(5, 0, "Tombstone"), (6, 0, "Tombstone")])
+    d["pairs"][0].update(sim_card="Tombstone", root_how="deployed")
+    d["pairs"][1].update(sim_card="Skeletons", root_how="spawner")  # a skeleton it emitted
+    path = tmp_path / "spawn.parity.json"
+    path.write_text(json.dumps(d), encoding="utf-8")
+
+    rec, eng = open_parity(path)
+    f = rec.frame()
+    hut, skeleton = f.unit(5), f.unit(6)
+    assert hut.kind == model.KIND_BUILDING
+    assert skeleton.kind == model.KIND_TROOP, "a skeleton was drawn as a building"
+    # Both still carry the root as their name, because that is what a recording has for them,
+    # and the entity's own card is one look away.
+    assert hut.name == skeleton.name == "Tombstone"
+    assert skeleton.extra["engine_card"] == "Skeletons"
+    assert skeleton.extra["rooted_how"] == "spawner"
+    assert eng.frame().unit(6).kind == model.KIND_TROOP  # and on the engine's side too
+
+    # The consequence the kinding drives: a troop is not counted among the guessed sizes.
+    from royaleviser.render import footprint_note
+
+    assert footprint_note(f) == "1 of 1 building sizes guessed"
+
+
+def test_only_a_position_divergence_is_announced_as_a_gap_opening(tmp_path: Path) -> None:
+    """Three of the harness's four divergence paths carry no distance at all: they set the
+    onset equal to the tick and describe a unit alive on one side only. Announcing that an
+    error passed a threshold on those is a position claim the same file contradicts."""
+    rows = [
+        row(t, 7, "Knight", [3500, 8000, 900, 1, 0, -1], [3500, 8000, 900, 0, 0, -1])
+        for t in (100, 101)
+    ]
+    spawn = {
+        "tick": 101,
+        "truth_key": 7,
+        "side": 0,
+        "card": "Knight",
+        "families": [],
+        "what": "alive in the truth, gone or not yet spawned in the sim (for 9 frames by tick 101)",
+        "cause": "spawn",
+        "onset_tick": 101,  # the non-position paths set the onset to the tick
+        "detail": "",
+    }
+    path = tmp_path / "spawn-div.parity.json"
+    path.write_text(json.dumps(report(rows, [(7, 0, "Knight")], spawn)), encoding="utf-8")
+    rec, _ = open_parity(path)
+    rec.seek(1)
+    lines = rec.frame().events
+    assert lines == ["t101 first divergence: Knight, " + spawn["what"]]
+    assert not [line for line in lines if "gap starts opening" in line or "250" in line]
+
+
+def test_the_tick_the_engine_stopped_is_shown_rather_than_read_as_divergence(
+    tmp_path: Path,
+) -> None:
+    """Past its own end the engine's side is frozen and the harness stops scoring it. Without
+    the tick, the tail of a battle reads as a large unexplained disagreement -- the one part
+    of it the file has already said not to score."""
+    rows = [
+        row(t, 7, "Knight", [3500, 8000 + t, 900, 1, 0, -1], [3500, 8000, 900, 0, 0, -1])
+        for t in (100, 101, 102)
+    ]
+    d = report(rows, [(7, 0, "Knight")])
+    d["engine_end_tick"] = 101
+    d["prefix_until"] = 102
+    path = tmp_path / "end.parity.json"
+    path.write_text(json.dumps(d), encoding="utf-8")
+    rec, eng = open_parity(path)
+    assert rec.engine_end_tick == eng.engine_end_tick == 101
+    rec.seek(rec.index_at_tick(101))
+    assert any("the engine ended the battle" in line for line in rec.frame().events)
+    rec.seek(rec.index_at_tick(102))
+    assert any("only asked to play this far" in line for line in rec.frame().events)
+    # It is NOT game_over: the report carries no winner, and a game_over with no winner draws
+    # "draw" on the board, which would be inventing a result.
+    assert not rec.frame().game_over and rec.frame().winner == model.NO_WINNER
+
+
+def test_a_fixture_the_harness_could_not_play_says_so_rather_than_naming_a_flag(
+    tmp_path: Path,
+) -> None:
+    """An unplayable fixture is never played, so no flag would have produced rows, and the
+    report says why in a field the --trace advice talks over."""
+    d = report([], [])
+    d["playable"] = False
+    d["unplayable_reasons"] = ["card 26000038 does not load", "deck has 7 cards"]
+    path = tmp_path / "unplayable.parity.json"
+    path.write_text(json.dumps(d), encoding="utf-8")
+    with pytest.raises(ValueError, match="could not play"):
+        ParitySource(path)
+    with pytest.raises(ValueError, match="does not load"):
+        ParitySource(path)
+    # A report that IS playable but was cut short does get rows under --trace, so it keeps the
+    # flag advice: 42 of the 73 real reports on this machine are that shape.
+    cut = report([], [])
+    cut["unplayable_reasons"] = ["one deploy could not be loaded"]
+    cut["prefix_until"] = 187
+    cut_path = tmp_path / "cut.parity.json"
+    cut_path.write_text(json.dumps(cut), encoding="utf-8")
+    with pytest.raises(ValueError, match="--trace"):
+        ParitySource(cut_path)
