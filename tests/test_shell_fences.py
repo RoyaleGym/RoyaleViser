@@ -97,6 +97,12 @@ def test_the_checker_is_the_vendored_copy_and_not_a_local_rewrite() -> None:
     present in a clone. What it can do is hold the copy to the shape that makes it a
     copy: no imports beyond the standard library, so it runs anywhere, and the self-test
     and entry point still present so a reader can run it.
+
+    The import rule asks the QUESTION rather than listing the answers. It used to compare
+    against a hardcoded {re, sys, pathlib, __future__}, which is not the property: when the
+    checker grew a `unicodedata` import -- standard library, present in every clone -- the
+    test failed and blamed the checker. A list of known-good names is a different claim from
+    "ships with Python", and it fails on the first correct change.
     """
     text = CHECKER.read_text(encoding="utf-8")
     assert "def selftest(" in text, "the vendored checker has lost its self-test"
@@ -104,11 +110,12 @@ def test_the_checker_is_the_vendored_copy_and_not_a_local_rewrite() -> None:
     imports = {
         line.split()[1].split(".")[0]
         for line in text.splitlines()
-        if line.startswith("import ") or line.startswith("from ")
+        if line.startswith(("import ", "from "))
     }
-    assert imports <= {"re", "sys", "pathlib", "__future__"}, (
-        f"the vendored checker imports {sorted(imports - {'re', 'sys', 'pathlib', '__future__'})}, "
-        "so it no longer runs on a fresh clone with nothing installed"
+    outside = imports - sys.stdlib_module_names - {"__future__"}
+    assert not outside, (
+        f"the vendored checker imports {sorted(outside)}, which is not in the standard "
+        "library, so it no longer runs on a fresh clone with nothing installed"
     )
 
 
