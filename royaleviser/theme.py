@@ -31,6 +31,14 @@ class Theme:
     bridge: Color = (255, 175, 120)
     grid_line: Color = (135, 146, 43)
     tower_zone: Color = (120, 130, 40)  # outline of a crown tower's no-deploy rect
+    # Ground nothing may be placed on, filled rather than outlined: the river's corners, the
+    # back rows and the blocks under the crown towers. A player cannot use it, so it is not
+    # grass, and the viewer should not make someone infer that from an outline.
+    no_deploy_fill: Color = (150, 150, 146)
+    # The bridge's two long sides. A bridge is the only ground across the river and its edges
+    # are where a unit stops being on it, so they are drawn rather than left to the eye.
+    bridge_rail: Color = (120, 74, 38)
+    bridge_rail_w: int = 3
     # UI
     ui_bg: Color = (30, 30, 40)
     ui_panel: Color = (40, 40, 54)
@@ -45,9 +53,11 @@ class Theme:
     # Entities
     troop_outline: Color = (0, 0, 0)
     building_outline: Color = (50, 50, 50)
-    # A building's collision radius, drawn inside its footprint box. Darker than the box's
-    # outline so the two shapes read as two different things rather than as one ornament.
+    # A building's collision radius: the body, filled in the team's colour with this as its
+    # edge. The footprint box around it is drawn in ``footprint_box`` instead, because the
+    # ground a building stands on is a fact about the board rather than about whose it is.
     collision_circle: Color = (20, 20, 20)
+    footprint_box: Color = (245, 245, 245)
     # A building drawn at a size the frame did not carry, and the footprint overlay (B).
     # The guess colour is the warning red so a guessed size reads as one on a first look.
     footprint_guess: Color = (255, 80, 80)

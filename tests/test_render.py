@@ -88,6 +88,7 @@ def test_draws_every_checkpoint_without_error(scale: int, seat: int) -> None:
         DEFAULT.grass_light,
         DEFAULT.grass_dark,
         DEFAULT.tower_zone,
+        DEFAULT.no_deploy_fill,  # the back row: ground nothing may be placed on
     )
 
 
@@ -1084,19 +1085,28 @@ def test_the_filled_shape_is_the_hitbox_and_the_outline_is_the_ground(seat: int)
     team = DEFAULT.team_color(cannon.team)
     body = r.px_len(cannon.radius, upt)
 
-    # Filled at the centre, and still filled just inside the circle's edge.
+    # The BODY carries the team's colour: filled at the centre and just inside its edge.
     assert r.surface.get_at((cx, cy))[:3] == team
     assert r.surface.get_at((cx + body - 3, cy))[:3] == team
-    # Not filled between the circle and the box: that is ground, not building.
+    # Between the circle and the box is ground, so it is neither filled nor the team's.
     between = (cx + body + 6, cy)
     assert between[0] < box.right - 3
     assert r.surface.get_at(between)[:3] != team
-    # The box is still there as an outline, at its full three tiles.
-    edge = [
+    # The team's colour goes no further than the body.
+    team_px = [
         px
         for px in range(r.layout.arena[2])
         if r.surface.get_at((r.layout.arena[0] + px, cy))[:3] == team
     ]
+    assert max(team_px) - min(team_px) + 1 <= 2 * body + 2
+    # The BOX is a neutral outline at its full three tiles: the ground is a fact about the
+    # board, not about whose building stands on it.
+    edge = [
+        px
+        for px in range(r.layout.arena[2])
+        if r.surface.get_at((r.layout.arena[0] + px, cy))[:3] == DEFAULT.footprint_box
+    ]
+    assert edge, "the footprint box is not drawn in the neutral colour"
     assert max(edge) - min(edge) + 1 == 3 * 24
 
 
@@ -1119,3 +1129,49 @@ def test_a_building_with_no_hitbox_is_still_something_you_can_see() -> None:
         for px in range(aw)
         if r.surface.get_at((ax + px, ay + py))[:3] == DEFAULT.footprint_guess
     ], "a guessed size is still marked"
+
+
+def test_the_board_fills_what_cannot_be_placed_on_and_rails_the_bridges() -> None:
+    """Two things a watcher has to know about the ground and could only infer before: where
+    nothing may be placed, and where a bridge stops. The first was four faint edges around a
+    region, which reads as decoration beside the grass; the second was nothing at all."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    board = r.board_surface(0, False)
+    b = r.board
+    ah = r.layout.arena[3]
+    s = 24
+
+    def at_half_cell(hx: int, hy: int) -> tuple[int, int, int]:
+        x = hx * s // b.half + 1
+        y = ah - hy * s // b.half - 2
+        return board.get_at((x, y))[:3]
+
+    assert b.no_deploy, "the arena carries no no-deploy cells to draw"
+    for hx, hy in sorted(b.no_deploy)[:40]:
+        assert at_half_cell(hx, hy) == DEFAULT.no_deploy_fill, (hx, hy)
+    # Grass is still grass: a cell nobody blocked is untouched.
+    open_cells = [(hx, hy) for hx in range(b.half * 4, b.half * 6) for hy in range(20, 24)]
+    open_cells = [c for c in open_cells if c not in b.no_deploy and c not in b.water]
+    assert open_cells
+    assert all(at_half_cell(*c) in (DEFAULT.grass_light, DEFAULT.grass_dark) for c in open_cells)
+
+    # Every bridge cell with no bridge beside it carries a rail on that side.
+    rails = 0
+    for hx, hy in b.bridge:
+        x0 = hx * s // b.half
+        x1 = (hx + 1) * s // b.half
+        y = ah - hy * s // b.half - s // (2 * b.half)
+        if (hx - 1, hy) not in b.bridge:
+            assert board.get_at((x0, y))[:3] == DEFAULT.bridge_rail, (hx, hy, "left")
+            rails += 1
+        if (hx + 1, hy) not in b.bridge:
+            assert board.get_at((x1 - 1, y))[:3] == DEFAULT.bridge_rail, (hx, hy, "right")
+            rails += 1
+    assert rails >= 8, f"only {rails} rails on two bridges"
+    # The middle of a bridge is bridge, not rail: the rails are its sides.
+    mid = next(
+        (hx, hy)
+        for hx, hy in sorted(b.bridge)
+        if (hx - 1, hy) in b.bridge and (hx + 1, hy) in b.bridge
+    )
+    assert at_half_cell(*mid) == DEFAULT.bridge

@@ -652,18 +652,23 @@ class Renderer:
                 pygame.draw.line(surf, t.grid_line, (tx * s, 0), (tx * s, ah - 1))
             for ty in range(1, tiles_y):
                 pygame.draw.line(surf, t.grid_line, (0, ty * s), (aw - 1, ty * s))
-        # No-deploy zones: the edges of the cell set, so each zone gets one faint outline.
+        # The bridges' two long sides. A bridge is the only ground across the river, and its
+        # edge is where a unit stops being on it, so it is drawn rather than left to the eye:
+        # a rail on each half-cell whose left or right neighbour is not bridge.
         line = pygame.draw.line
-        for hx, hy in b.no_deploy:
+        for hx, hy in b.bridge:
             x, y, w, h = cell(hx, hy)
-            if (hx - 1, hy) not in b.no_deploy:
-                line(surf, t.tower_zone, (x, y), (x, y + h - 1), t.tower_zone_w)
-            if (hx + 1, hy) not in b.no_deploy:
-                line(surf, t.tower_zone, (x + w - 1, y), (x + w - 1, y + h - 1), t.tower_zone_w)
-            if (hx, hy - 1) not in b.no_deploy:
-                line(surf, t.tower_zone, (x, y + h - 1), (x + w - 1, y + h - 1), t.tower_zone_w)
-            if (hx, hy + 1) not in b.no_deploy:
-                line(surf, t.tower_zone, (x, y), (x + w - 1, y), t.tower_zone_w)
+            if (hx - 1, hy) not in b.bridge:
+                line(surf, t.bridge_rail, (x, y), (x, y + h - 1), t.bridge_rail_w)
+            if (hx + 1, hy) not in b.bridge:
+                line(surf, t.bridge_rail, (x + w - 1, y), (x + w - 1, y + h - 1), t.bridge_rail_w)
+
+        # Ground nothing may be placed on, FILLED rather than outlined. It used to be four
+        # faint edges, which asks a reader to infer a region from its border and reads as
+        # decoration next to the grass; a player cannot use this ground, so it does not look
+        # like ground they can use. Drawn after the water, so the river's own corners take it.
+        for hx, hy in b.no_deploy:
+            rect(surf, t.no_deploy_fill, cell(hx, hy))
         for hx0, hy0, hx1, hy1 in (*b.king_zones, *b.princess_zones):
             x0 = hx0 * s // b.half
             x1 = hx1 * s // b.half
@@ -763,18 +768,19 @@ class Renderer:
                 # Cannon's box is 3 tiles and its radius 0.6.
                 rect = self.unit_rect_px(u, upt, seat)
                 body = self.px_len(u.radius, upt) if u.radius > 0 else 0
-                # The team's colour is the OUTERMOST ring, so the drawn extent is the
-                # footprint exactly; a dark hairline over the top of it would eat a pixel at
-                # each edge and the box would read two pixels narrower than the ground it
-                # stands for.
-                pygame.draw.rect(surface, color, rect, 2)
+                # The TEAM's colour is the body's, and the box is drawn in a neutral one: the
+                # ground a building stands on is a fact about the board, and whose building it
+                # is is a fact about the building. One ring, no hairline over it, so the drawn
+                # extent is the footprint exactly rather than two pixels inside it.
+                pygame.draw.rect(surface, t.footprint_box, rect, 2)
                 if body > 0:
                     pygame.draw.circle(surface, color, (px, py), body)
                     pygame.draw.circle(surface, t.collision_circle, (px, py), body, 1)
                 else:
                     # No radius, so there is no body to draw and an outline alone would be a
                     # building you can see through. Every recording is this case: the box is
-                    # filled instead, and the marks below say its size was guessed.
+                    # filled in the team's colour instead, and the marks below say its size was
+                    # guessed.
                     pygame.draw.rect(surface, color, rect.inflate(-4, -4))
                     pygame.draw.rect(surface, t.building_outline, rect.inflate(-4, -4), 1)
                 if u.footprint is None:
