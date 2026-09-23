@@ -29,6 +29,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: RoyaleViser
+          # FULL history, not the default shallow one. test_documented_counts asserts that the
+          # commit each figure names resolves with `git cat-file -t`, which is the thing that
+          # stops a number being quoted against a commit nobody can look up. A depth-1 clone has
+          # none of them, so the guard fails for want of history rather than for a stale number.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
