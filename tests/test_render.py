@@ -990,7 +990,7 @@ def test_as_many_pairs_are_made_as_can_be_made_at_once() -> None:
     """Greedy nearest-first over-reports: it takes the closest pair and strands the rest.
     Two Bats at 0 and 300 against two at 200 and 400 with a quarter-tile tolerance can BOTH
     be accounted for, and greedy takes 300-200 first and calls 0 against 400 a disagreement."""
-    from royaleviser.app import differing_within, max_matching
+    from royaleviser.app import differing_within
 
     left = [(0, "Bats", 0, 0, 10), (0, "Bats", 300, 0, 10)]
     right = [(0, "Bats", 200, 0, 10), (0, "Bats", 400, 0, 10)]
@@ -998,9 +998,6 @@ def test_as_many_pairs_are_made_as_can_be_made_at_once() -> None:
     # A unit that genuinely cannot be paired is still counted.
     assert differing_within(left, [(0, "Bats", 200, 0, 10)], 250) == (1, 0)
     assert differing_within(left, [(0, "Bats", 9000, 0, 10)], 250) == (2, 0)
-    # The matching itself: every left index that can be paired, is.
-    assert max_matching([[0], [0, 1]]) == {0: 0, 1: 1}
-    assert max_matching([[], []]) == {}
 
 
 def test_the_comparison_does_not_depend_on_the_order_the_units_were_listed_in() -> None:
@@ -1272,3 +1269,62 @@ def test_a_frame_never_differs_from_itself() -> None:
     c.note(0, f)
     c.note(1, copy.deepcopy(f))
     assert c.results[f.tick][2] == 0 and c.results[f.tick][3] == 0
+
+
+def test_the_cheapest_pairing_is_the_cheapest() -> None:
+    """An optimiser that is subtly wrong is worse than a greedy one that is obviously wrong,
+    so this one is graded against brute force rather than against its own reasoning: every
+    permutation, on random matrices, on both shapes, including the rectangular case the
+    caller reaches whenever the two sides hold different numbers of a card."""
+    import itertools
+    import random
+
+    from royaleviser.app import cheapest_pairing
+
+    rng = random.Random(20260922)
+    for _ in range(300):
+        n, m = rng.randint(1, 5), rng.randint(1, 5)
+        cost = [[rng.randint(0, 9) for _ in range(m)] for _ in range(n)]
+        pairs = cheapest_pairing(cost)
+        got = sum(cost[i][j] for i, j in pairs)
+
+        # Brute force: assign every row to a distinct column (or every column to a distinct
+        # row when there are fewer columns), and take the cheapest total.
+        rows, cols = range(n), range(m)
+        if n <= m:
+            best = min(sum(cost[i][c[i]] for i in rows) for c in itertools.permutations(cols, n))
+            assert len(pairs) == n
+        else:
+            best = min(sum(cost[r[j]][j] for j in cols) for r in itertools.permutations(rows, m))
+            assert len(pairs) == m
+        assert got == best, (cost, pairs, got, best)
+        # Every row and every column is used at most once.
+        assert len({i for i, _ in pairs}) == len(pairs)
+        assert len({j for _, j in pairs}) == len(pairs)
+
+
+def test_stacked_units_are_counted_once_each_however_they_moved() -> None:
+    """The cell neither of the earlier tests visited. "A real hp change still reads 1" was
+    checked at DISTINCT positions, where the distance already picks the right partner; the
+    case the bug was always about is units at the SAME position, which is how Skeletons
+    spawn. The whole cross-product is here: stacked or distinct, against identical, one hp
+    changed, both changed, one missing."""
+    from royaleviser.app import differing_within
+
+    def units(positions: list[int], hps: list[int]) -> list[tuple[int, str, int, int, int]]:
+        return [
+            (0, "Skeletons", 1000 + dx, 1000, hp) for dx, hp in zip(positions, hps, strict=True)
+        ]
+
+    for name, positions in (("stacked", [0, 0]), ("distinct", [0, 400])):
+        base = units(positions, [30, 50])
+        assert differing_within(base, units(positions, [30, 50]), 500) == (0, 0), name
+        assert differing_within(base, units(positions, [30, 77]), 500) == (0, 1), name
+        assert differing_within(base, units(positions, [77, 50]), 500) == (0, 1), name
+        assert differing_within(base, units(positions, [7, 8]), 500) == (0, 2), name
+        assert differing_within(base, units(positions[:1], [30]), 500) == (1, 0), name
+
+    # Three stacked, one changed: still one. This is the shape a Skeleton Army makes.
+    three = units([0, 0, 0], [30, 40, 50])
+    assert differing_within(three, units([0, 0, 0], [30, 40, 99]), 500) == (0, 1)
+    assert differing_within(three, units([0, 0, 0], [30, 99, 98]), 500) == (0, 2)

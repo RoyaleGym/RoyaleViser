@@ -242,78 +242,100 @@ def differing_within(a: list[Row], b: list[Row], tolerance: int) -> tuple[int, i
     for key in sorted(keys):
         left = sorted(r for r in a if (r[0], r[1]) == key)
         right = sorted(r for r in b if (r[0], r[1]) == key)
-        # TWO SIDES THAT HOLD THE SAME UNITS DIFFER IN NOTHING, and saying otherwise is the one
-        # answer this must never give. It gave it: a maximum matching is only maximum in
-        # CARDINALITY, so where several units of one card sit within the tolerance of each
-        # other the augmenting step is free to pair each with the wrong twin, and the hp
-        # comparison then runs over that arbitrary choice. Two stacked Skeletons with
-        # different hp read as two hp disagreements between a frame and itself.
         if left == right:
             continue
-        near = [
-            sorted(
-                (
-                    j
-                    for j, (_, _, x1, y1, _) in enumerate(right)
-                    if (x0 - x1) ** 2 + (y0 - y1) ** 2 <= tolerance * tolerance
-                ),
-                # Among the partners a unit MAY take, prefer one it also agrees with on hp,
-                # then the nearest. Cardinality is the same whatever order Kuhn tries them in,
-                # so this costs nothing and stops an arbitrary choice inventing a difference.
-                key=lambda j: (
-                    right[j][4] != hp0,
-                    (x0 - right[j][2]) ** 2 + (y0 - right[j][3]) ** 2,
-                    j,
-                ),
-            )
+        # WHICH units are paired with which decides the hp count, so it cannot be left to
+        # whatever a cardinality-only matching happens to return. Two attempts at this were
+        # wrong in the same way: a maximum matching is maximum in CARDINALITY, and among the
+        # matchings of that size it is free to pair each unit with the wrong twin.
+        # Preferring an hp-agreeing partner in the candidate order is not enough either,
+        # because the augmenting step re-routes what it has already matched -- it holds only
+        # where the distance already broke the tie, which is to say everywhere except the
+        # stacked case the problem is about. Skeletons spawn stacked.
+        #
+        # So the pairing is chosen rather than accepted: the cost of a pair is NO_PAIR when
+        # the two are further apart than the tolerance, 1 when they agree on position and not
+        # on hp, and 0 when they agree on both. NO_PAIR is larger than every hp cost put
+        # together, so the cheapest assignment makes as many pairs as CAN be made, and among
+        # those makes as many of them agree on hp as can agree.
+        no_pair = len(left) * len(right) + 1
+        cost = [
+            [
+                no_pair
+                if (x0 - x1) ** 2 + (y0 - y1) ** 2 > tolerance * tolerance
+                else int(hp0 != hp1)
+                for _, _, x1, y1, hp1 in right
+            ]
             for _, _, x0, y0, hp0 in left
         ]
-        pairing = max_matching(near)
-        differ += max(len(left), len(right)) - len(pairing)
-        hp_differ += sum(1 for i, j in pairing.items() if left[i][4] != right[j][4])
+        paired = [(i, j) for i, j in cheapest_pairing(cost) if cost[i][j] < no_pair]
+        differ += max(len(left), len(right)) - len(paired)
+        hp_differ += sum(cost[i][j] for i, j in paired)
     return differ, hp_differ
 
 
-def max_matching(near: list[list[int]]) -> dict[int, int]:
-    """As many left-to-right pairs as can be made at once, {left index: right index}.
+def cheapest_pairing(cost: list[list[int]]) -> list[tuple[int, int]]:
+    """The assignment of rows to columns with the least total cost, as (row, column) pairs.
 
-    Kuhn's augmenting path, which is short because the lists are short: a few units of one
-    card on one tick. Why not greedy nearest-first, which is what this used to be:
+    The Hungarian algorithm in its shortest-augmenting-path form, on a rectangular matrix
+    with at least as many columns as rows (the caller's matrix is transposed here when it is
+    not). Every row is assigned; it is the CALLER that decides which assignments mean
+    anything, by giving an impossible pair a cost larger than every possible one added
+    together and then throwing those pairs away.
 
-    - Greedy OVER-REPORTS. Two Bats at 0 and 300 against two at 200 and 400, tolerance 250:
-      greedy takes the closest pair first (300-200), which strands 0 and 400 at 400 apart, and
-      calls one unit differing. Both pairs can be made within the tolerance at once, so the
-      honest answer is none. The window would report a disagreement the data does not contain.
-    - Greedy was decided by LIST POSITION on a tie, and the two sides of a comparison order
-      their units independently. Identical worlds could report different numbers depending on
-      which order each source happened to list its units in.
+    Why an assignment and not a maximum matching, which is what this used to be. A maximum
+    matching answers "how many pairs can be made", and two matchings of that size can pair
+    the same units differently. Anything read off WHICH units were paired -- here, how many
+    pairs disagree on hp -- then depends on an arbitrary choice, and the two attempts before
+    this one both got a wrong number that way. A cheapest assignment makes the choice on the
+    caller's terms instead, and one number comes out of one algorithm.
 
-    A maximum matching is a property of the two sets, not of their order, and the rows are
-    sorted before this is called, so the CARDINALITY it returns is the same whatever order the
-    frames arrived in. It answers "how many of these units can be accounted for", which is the
-    question the differ count claims to answer.
-
-    WHICH maximum matching it returns is not determined, and that matters to the caller: two
-    matchings of the same size can pair the same units differently, so anything read off the
-    pairs rather than off their number depends on the choice. The caller orders each
-    candidate list to make the choice a good one and short-circuits the case where the two
-    sides are equal (``differing_within``).
+    It is O(n^2 m), which is nothing at these sizes: the rows are the units of one card on
+    one side of one tick, a handful, fifteen for a Skeleton Army. ``tests/test_render.py``
+    checks it against brute force over every permutation for small random matrices, because
+    an optimiser that is subtly wrong is worse than a greedy one that is obviously wrong.
     """
-    match_r: dict[int, int] = {}
-
-    def augment(i: int, seen: set[int]) -> bool:
-        for j in near[i]:
-            if j in seen:
-                continue
-            seen.add(j)
-            if j not in match_r or augment(match_r[j], seen):
-                match_r[j] = i
-                return True
-        return False
-
-    for i in range(len(near)):
-        augment(i, set())
-    return {i: j for j, i in match_r.items()}
+    if not cost or not cost[0]:
+        return []
+    if len(cost) > len(cost[0]):
+        turned = [list(col) for col in zip(*cost, strict=True)]
+        return [(i, j) for j, i in cheapest_pairing(turned)]
+    n, m = len(cost), len(cost[0])
+    big = sum(max(row) for row in cost) + 1
+    # 1-based potentials and the column -> row assignment, as the algorithm is usually given.
+    u, v = [0] * (n + 1), [0] * (m + 1)
+    at_col = [0] * (m + 1)  # at_col[j] is the row assigned to column j, 0 for none
+    came_from = [0] * (m + 1)
+    for row in range(1, n + 1):
+        at_col[0] = row
+        col = 0
+        least = [big] * (m + 1)
+        done = [False] * (m + 1)
+        while True:
+            done[col] = True
+            here, step, best = at_col[col], big, -1
+            for j in range(1, m + 1):
+                if done[j]:
+                    continue
+                through = cost[here - 1][j - 1] - u[here] - v[j]
+                if through < least[j]:
+                    least[j], came_from[j] = through, col
+                if least[j] < step:
+                    step, best = least[j], j
+            for j in range(m + 1):
+                if done[j]:
+                    u[at_col[j]] += step
+                    v[j] -= step
+                else:
+                    least[j] -= step
+            col = best
+            if at_col[col] == 0:
+                break
+        while col:
+            previous = came_from[col]
+            at_col[col] = at_col[previous]
+            col = previous
+    return [(at_col[j] - 1, j - 1) for j in range(1, m + 1) if at_col[j]]
 
 
 def compare_text(main: Frame, other: Frame, tolerance: int = 0) -> str:
