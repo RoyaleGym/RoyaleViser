@@ -835,6 +835,49 @@ class Renderer:
             x1, y1 = self.to_px(twin.x, twin.y, other.units_per_tile, view.seat)
             pygame.draw.line(self.surface, t.divergence_arrow, (x0, y0), (x1, y1), 2)
             pygame.draw.circle(self.surface, t.divergence_arrow, (x1, y1), 4)
+            # A's SECOND arrow: the push the engine actually applied on this tick, drawn from
+            # the unit rather than to it. A push the wrong way and a push too far are the same
+            # number in a distance column and nothing alike here. Absent field: no arrow at
+            # all. Present and zero: no arrow either, but that is a FACT about the tick, and
+            # the two are told apart by the count line rather than by the empty space.
+            push = u.extra.get("push")
+            if push is not None and (push[0] or push[1]):
+                px = x0 + self.px_len(int(push[0]), upt)
+                py = y0 + self.px_len(int(push[1]), upt)
+                pygame.draw.line(self.surface, t.push_arrow, (x0, y0), (px, py), 2)
+                pygame.draw.circle(self.surface, t.push_arrow, (px, py), 3)
+
+    def ring_disagrees_with_the_file(self, frame: Frame, uid: str | int) -> str:
+        """"" unless the recomputed ring and the engine's own neighbour count differ.
+
+        THIS IS WHAT TURNS THE RING FROM A PICTURE INTO A CHECK, and it is the reason the count
+        was asked for alongside the push vector. The ring is recomputed from positions and
+        radii, so on its own a wrong-looking ring is equally consistent with the rule here being
+        wrong. Against the count the engine recorded, exactly one of the two is wrong and the
+        disagreement is worth chasing.
+
+        Most ticks agree trivially: on the 38,107-row trace sim measured, 33,724 rows have a
+        count of ZERO because nothing overlaps. A ring showing neighbours where the file says 0
+        is the interesting case rather than a fault in the field.
+
+        Empty when the file carries no push for this unit, because then there is nothing to
+        disagree with -- not a silent pass.
+        """
+        unit = frame.unit(uid)
+        push = unit.extra.get("push") if unit is not None else None
+        if push is None:
+            return ""
+        # A SOURCE WITH NO RADII CANNOT BE CHECKED, and saying nothing here would be worse than
+        # useless. A parity trace carries no collision radius at all, so the ring is empty on
+        # every tick of it; compared against the engine's count that reads as a disagreement on
+        # every tick the engine saw anything, which is a stream of false findings in the one
+        # place this check was built to be used. Refuse and say why instead.
+        if not any(u.radius for u in frame.units):
+            return "no radii in this source: the ring cannot be compared"
+        mine, theirs = len(self.contact_neighbours(frame, uid)), int(push[2])
+        if mine == theirs:
+            return ""
+        return f"ring {mine} / engine {theirs}"
 
     def _draw_stale_board(self, transport: Transport) -> None:
         """Say ON the board that it has stopped, when a live source has gone quiet.

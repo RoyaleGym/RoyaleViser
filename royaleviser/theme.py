@@ -50,6 +50,9 @@ class Theme:
     # The divergence arrow: this side's position to the other side's. Distinct from the
     # contact ring because one is measured from two sources and the other is recomputed.
     divergence_arrow: Color = (255, 92, 148)
+    # The push the ENGINE applied, from sim's trace rows. A third colour because it is recorded
+    # where the ring is recomputed and the divergence is measured from two sides.
+    push_arrow: Color = (120, 255, 168)
     # UI
     ui_bg: Color = (30, 30, 40)
     ui_panel: Color = (40, 40, 54)

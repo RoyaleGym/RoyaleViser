@@ -344,6 +344,19 @@ class ParitySource:
             state=fourth if self.side == RECORDING else None,
             extra={
                 "path_n": path_n,
+                # The separation step the ENGINE applied on this tick: (dx, dy, neighbours),
+                # clamped, i.e. the value that explains the position delta rather than what the
+                # law wanted before the 150 cap. RoyaleSim 786c738 gives it its own optional
+                # row field precisely so ABSENT and ZERO stay different: most ticks nothing
+                # overlaps and the push is a real (0, 0, 0), while a row with no engine entry
+                # carries no `push` key at all. None here means the file did not say; a triple
+                # means it did, whatever the numbers are. The recording has no such thing, so
+                # this is engine-side only.
+                "push": (
+                    tuple(row["push"])
+                    if self.side == ENGINE and row.get("push") is not None
+                    else None
+                ),
                 "attacking": bool(fourth) if self.side == ENGINE else None,
                 "apart": row.get("dist"),
                 # The engine's own index for what it was shooting at, in the harness's list of
