@@ -754,20 +754,29 @@ class Renderer:
                     end = (px + dx * (r + 4) // 256, py + dy * (r + 4) // 256)
                     pygame.draw.line(surface, t.direction_line, (px, py), end, 2)
             else:
-                rect = self.unit_rect_px(u, upt, seat)
-                pygame.draw.rect(surface, color, rect)
-                pygame.draw.rect(surface, t.building_outline, rect, 2)
                 # The box and the circle are two different real quantities, so they are drawn
-                # as two different shapes: the box is the ground the building stands on, and
-                # the circle is its collision radius, which is what other units and other
-                # buildings run into. They are not the same size and never were -- a Cannon's
-                # box is 3 tiles and its radius 0.6 -- and the old inner SQUARE, at half the
-                # outer one, was neither of them. A frame that carries no radius gets no
-                # circle rather than a drawn guess.
-                if u.radius > 0:
-                    pygame.draw.circle(
-                        surface, t.collision_circle, (px, py), self.px_len(u.radius, upt), 1
-                    )
+                # as two different shapes, and WHICH ONE IS FILLED says which is the thing
+                # itself. The circle is the collision radius: what other units and other
+                # buildings actually run into, and so the solid body. The box is the ground it
+                # stands on, which is a fact about the board rather than about the unit, so it
+                # is an outline around that body. They are not the same size and never were: a
+                # Cannon's box is 3 tiles and its radius 0.6.
+                rect = self.unit_rect_px(u, upt, seat)
+                body = self.px_len(u.radius, upt) if u.radius > 0 else 0
+                # The team's colour is the OUTERMOST ring, so the drawn extent is the
+                # footprint exactly; a dark hairline over the top of it would eat a pixel at
+                # each edge and the box would read two pixels narrower than the ground it
+                # stands for.
+                pygame.draw.rect(surface, color, rect, 2)
+                if body > 0:
+                    pygame.draw.circle(surface, color, (px, py), body)
+                    pygame.draw.circle(surface, t.collision_circle, (px, py), body, 1)
+                else:
+                    # No radius, so there is no body to draw and an outline alone would be a
+                    # building you can see through. Every recording is this case: the box is
+                    # filled instead, and the marks below say its size was guessed.
+                    pygame.draw.rect(surface, color, rect.inflate(-4, -4))
+                    pygame.draw.rect(surface, t.building_outline, rect.inflate(-4, -4), 1)
                 if u.footprint is None:
                     self._draw_fallback_marks(rect)
             h, hw = half[u.uid], half_w[u.uid]

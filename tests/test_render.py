@@ -1064,3 +1064,58 @@ def test_the_overlay_and_notes_docstrings_say_what_the_code_does() -> None:
     off.meta["run"] = "ppo-0007"
     lines = r.notes(off, Transport(learning=Learning(run="ppo-0008")))
     assert len(lines) == 3, lines
+
+
+@pytest.mark.parametrize("seat", [0, 1])
+def test_the_filled_shape_is_the_hitbox_and_the_outline_is_the_ground(seat: int) -> None:
+    """Which shape is FILLED says which one is the thing itself. The collision radius is what
+    other units and other buildings run into, so it is the solid body; the footprint is a fact
+    about the board rather than about the unit, so it is an outline around that body."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    cannon = building("cannon", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0)
+    cannon.radius = 600  # 0.6 tiles inside a 3-tile box
+    frame = one_unit_frame(cannon, upt)
+    view = ViewState(seat=seat)
+    r.draw(frame, view, Transport(source_name="t"))
+
+    box = r.unit_rect_px(cannon, upt, seat)
+    cx, cy = r.to_px(cannon.x, cannon.y, upt, seat)
+    team = DEFAULT.team_color(cannon.team)
+    body = r.px_len(cannon.radius, upt)
+
+    # Filled at the centre, and still filled just inside the circle's edge.
+    assert r.surface.get_at((cx, cy))[:3] == team
+    assert r.surface.get_at((cx + body - 3, cy))[:3] == team
+    # Not filled between the circle and the box: that is ground, not building.
+    between = (cx + body + 6, cy)
+    assert between[0] < box.right - 3
+    assert r.surface.get_at(between)[:3] != team
+    # The box is still there as an outline, at its full three tiles.
+    edge = [
+        px
+        for px in range(r.layout.arena[2])
+        if r.surface.get_at((r.layout.arena[0] + px, cy))[:3] == team
+    ]
+    assert max(edge) - min(edge) + 1 == 3 * 24
+
+
+def test_a_building_with_no_hitbox_is_still_something_you_can_see() -> None:
+    """Every recording carries no collision radius, so there is no body to draw. An outline
+    alone would be a building you can see through, so the box is filled instead -- and the
+    marks that say its size was guessed are the same ones as ever."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    bare = building("c", model.KIND_BUILDING, 6.5, 10.5, upt, None)
+    bare.radius = 0
+    frame = one_unit_frame(bare, upt)
+    r.draw(frame, ViewState(), Transport(source_name="t"))
+    cx, cy = r.to_px(bare.x, bare.y, upt, 0)
+    assert r.surface.get_at((cx, cy))[:3] == DEFAULT.team_color(bare.team)
+    ax, ay, aw, ah = r.layout.arena
+    assert [
+        1
+        for py in range(ah)
+        for px in range(aw)
+        if r.surface.get_at((ax + px, ay + py))[:3] == DEFAULT.footprint_guess
+    ], "a guessed size is still marked"
