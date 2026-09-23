@@ -71,10 +71,29 @@ The outline around it is the footprint, the ground it stands on, which is a fact
 board rather than about the unit. Measured on the engine, 2026-09-22: a Cannon's body is 0.6
 of a tile across a box of 3, a princess tower 1.0 across 3, a king tower 1.4 across 4.
 
+The two shapes also carry different colours, for the same reason. The body is the TEAM's
+colour; the box is neutral. Whose building it is is a fact about the building, and the ground
+it stands on is a fact about the board.
+
 A frame that carries no radius has no body to draw, and an outline on its own is a building
-you can see through. Every recording is that case, so the box is filled instead and the marks
-above say its size was guessed. Until 2026-09-22 the window drew a filled box with an inner
-SQUARE at half of it, on towers only, which was neither quantity.
+you can see through. Every recording is that case, so the box is filled in the team's colour
+instead and the marks above say its size was guessed. Until 2026-09-22 the window drew a
+filled box with an inner SQUARE at half of it, on towers only, which was neither quantity.
+
+## The board under the battle
+
+Two things about the ground a watcher used to have to infer.
+
+**Where nothing may be placed is filled grey**: the back rows, the river's corners and the
+blocks under the crown towers, taken from the arena's own NO_DEPLOY cells rather than from a
+list here. It used to be a faint outline around each region, which asks a reader to
+reconstruct a shape from its border and reads as decoration beside the grass. A player cannot
+use that ground, so it does not look like ground they can use.
+
+**Each bridge carries a brown rail down both long sides.** A bridge is the only way across the
+river and its edge is where a unit stops being on it. The rails are drawn on the half-cells
+whose left or right neighbour is not bridge, so they follow whatever the arena says the
+bridges are rather than a hard-coded span.
 
 Two things the window can say about footprints without knowing any of the engine's rules:
 
@@ -259,12 +278,12 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at 5034d30 on 2026-09-22, with `pytest --collect-only -q` collecting 158:
+The suite has two correct results, and both are one command apart. Measured at b0313bd on 2026-09-22, with `pytest --collect-only -q` collecting 159:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **154 passed, 4 skipped** |
-| this machine, with the recordings | **157 passed, 1 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **155 passed, 4 skipped** |
+| this machine, with the recordings | **158 passed, 1 skipped** |
 
 The four skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
