@@ -81,6 +81,32 @@ def recorded(*paths: Path):
     )
 
 
+def engine_or_skip():
+    """The compiled engine, or a loud skip naming WHICH half is missing.
+
+    TWO SEPARATE ABSENCES, and conflating them is what broke this. ``importorskip`` answers
+    "is royalegym installed"; it says nothing about whether the royalesim EXTENSION is built,
+    because ``royalegym.rust_engine`` imports perfectly well without one and raises only when
+    an engine is CONSTRUCTED. A clone with neither skipped for the right reason by luck. The
+    full-stack CI job installs royalegym and builds nothing, which is the first environment
+    able to tell the two apart -- and these tests errored there on its first run.
+    """
+    rust_engine = pytest.importorskip(
+        "royalegym.rust_engine",
+        reason=(
+            f"{NOT_A_PASS}: this test needs royalegym, which is not on PyPI and is not "
+            "installed by the README short way"
+        ),
+    )
+    if not rust_engine.core_available():
+        pytest.skip(
+            f"{NOT_A_PASS}: royalegym is here but the royalesim EXTENSION is not built, so "
+            "there is no engine to ask. Build it in the sibling RoyaleSim checkout with "
+            "`maturin develop --release`; the data tables have to be extracted first."
+        )
+    return rust_engine
+
+
 def sound(frame: Frame) -> Frame:
     assert model.problems(frame) == []
     return frame
@@ -1138,13 +1164,7 @@ def test_the_engine_s_own_footprints_reach_the_frame_and_the_drawn_rectangle() -
     also the one that fails if a rebuild stops exposing boxes. It skips where the extension is
     not built, which is a fresh clone before `maturin develop --release`.
     """
-    rust_engine = pytest.importorskip(
-        "royalegym.rust_engine",
-        reason=(
-            "SKIPPED, NOT PASSED: this test asks the compiled engine for its footprints and "
-            "the royalesim extension is not built here"
-        ),
-    )
+    rust_engine = engine_or_skip()
     from royalegym.protocol import DeployCommand
 
     eng = rust_engine.RustEngine()
@@ -1195,13 +1215,7 @@ def test_the_engine_s_own_footprints_reach_the_frame_and_the_drawn_rectangle() -
 def test_a_recorded_trace_carries_the_engine_s_footprints_too(tmp_path: Path) -> None:
     """The third way a battle reaches the window. A stream and a state both carry the box
     now; a trace is written by a different code path and is the one a reader opens tomorrow."""
-    rust_engine = pytest.importorskip(
-        "royalegym.rust_engine",
-        reason=(
-            "SKIPPED, NOT PASSED: this test asks the compiled engine for its footprints and "
-            "the royalesim extension is not built here"
-        ),
-    )
+    rust_engine = engine_or_skip()
     from royaleviser.render import footprint_note
 
     rec = ReplayRecorder(frame_every_tick=True)
