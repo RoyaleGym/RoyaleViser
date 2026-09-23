@@ -382,14 +382,16 @@ git clone https://github.com/RoyaleGym/RoyaleLearn.git
 ```
 
 Next, generate the card and arena data the engine reads. This writes `RoyaleSim/data/derived/`,
-which no clone carries and the engine cannot start without. Keep `--vintage 2018` on both
-`extract_cards.py` lines, because that is the card table the repo ships:
+which no clone carries and the engine cannot start without. The copy line is the important one:
+`cards-15.535.json` is committed to RoyaleSim and is the table the engine loads. The
+`extract_cards.py --vintage 2018` line still runs, building the older table beside it for the
+cross-engine comparisons that use it:
 
 ```
 cd RoyaleSim
 ..\.venv\Scripts\python tools\extract_arena.py
 ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018
-..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
+Copy-Item data\derived\cards-15.535.json data\derived\cards.json
 ..\.venv\Scripts\python tools\extract_globals.py
 ```
 
