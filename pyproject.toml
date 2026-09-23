@@ -59,6 +59,10 @@ ignore = ["RUF001", "RUF002", "RUF003", "SIM108"]
 # repo's line length would make that diff noisy for no behaviour change, so the line
 # length is waived here and nothing else is.
 "tests/_shell_fences.py" = ["E501"]
+# The second vendored copy, same rule and same reason. It needs SIM102 as well as E501; the
+# waiver is what widens, never the file, because the moment a copy is edited to satisfy a
+# linter the diff against the original stops showing drift and starts showing style.
+"tests/_doc_links.py" = ["E501", "SIM102", "UP037"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["royaleviser", "royalegym"]
