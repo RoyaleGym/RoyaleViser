@@ -14,7 +14,7 @@ which made them the only pictures in the repo that nobody else could reproduce a
 change to the viewer would ever update. A picture of a window is worth keeping only while it
 still shows what the window does.
 
-A tile is a CROP because the window is 1082 x 1029 and a README thumbnail of the whole thing
+A tile is a CROP because the window is 1082 x 832 and a README thumbnail of the whole thing
 shows nothing. The crops are named regions rather than magic numbers: see `TILES`.
 """
 

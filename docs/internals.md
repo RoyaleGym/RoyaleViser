@@ -48,12 +48,14 @@ stay equal to them.
 A Cannon is 3 tiles by 3. Until 2026-09-22 the window drew every building as a square of
 twice its collision radius, which for a Cannon is 1.2 tiles, and the two crown towers from
 constants in the renderer. None of those numbers is the box a building occupies; the owner
-found it by looking at a Cannon sitting against the arena wall at about a ninth of its size.
+found it by looking at a Cannon sitting against the arena wall over about a sixth of the
+ground it stands on: a 1.2-tile square is 0.4 of a 3-tile side, so 0.16 of the area.
 
 So the rule is now one line: **the drawn rectangle is `Unit.footprint`, and where a frame
 carries one nothing else has a say.** `Renderer.unit_rect_px` is the single place that
-decides, and the hp bar, the name label, the hover ring, the click target and the compare
-ghost all read it, so a 3x3 Cannon is clickable over all nine of its tiles.
+decides, and the hp bar, the name label, the hover ring, the click target, the deploy veil
+and the compare ghost all read it, so a 3x3 Cannon is clickable over all nine of its tiles and
+carries a bar and a veil its own width. The collision radius decides only the circle inside.
 
 Where a frame carries none -- every recording, and every trace and stream written before the
 field existed -- the old guess is still drawn, because the window has to draw something, and
@@ -62,13 +64,17 @@ it is **marked**: red ticks on the building's four corners, a red count in the s
 drawn plainly is indistinguishable from a right one, which is exactly how a Cannon one tile
 wide sat on the board for days looking like a fact.
 
-**The box and the circle are two different things, so they are drawn as two shapes.** Inside
-its box, a building shows its COLLISION RADIUS as a circle: the box is the ground it stands on
-and the circle is what other units and other buildings run into, and they are not the same
-size. Measured on the engine, 2026-09-22: a Cannon's box is 3 tiles and its radius 0.6, a
-princess tower 3 tiles and 1.0, a king tower 4 tiles and 1.4. Until today the window drew an
-inner SQUARE at half the outer one, on towers only, which was neither quantity. A frame that
-carries no radius, which is every recording, gets no circle rather than a drawn guess.
+**The box and the circle are two different things, so they are drawn as two shapes, and
+which one is FILLED says which is the thing itself.** The filled circle is the collision
+radius: what other units and other buildings actually run into, and so the building's body.
+The outline around it is the footprint, the ground it stands on, which is a fact about the
+board rather than about the unit. Measured on the engine, 2026-09-22: a Cannon's body is 0.6
+of a tile across a box of 3, a princess tower 1.0 across 3, a king tower 1.4 across 4.
+
+A frame that carries no radius has no body to draw, and an outline on its own is a building
+you can see through. Every recording is that case, so the box is filled instead and the marks
+above say its size was guessed. Until 2026-09-22 the window drew a filled box with an inner
+SQUARE at half of it, on towers only, which was neither quantity.
 
 Two things the window can say about footprints without knowing any of the engine's rules:
 
@@ -176,7 +182,9 @@ Both sides key every row by the RECORDING's entity key, so the comparison pairs 
 key rather than by name and distance. That is not a refinement, it is the difference between a
 true answer and a flattering one: pairing by name pairs two Skeletons that SWAPPED places with
 each other's positions, and the tick then reads as agreeing. `Compare(pair_by_uid=True)` is on
-only for `--parity`, because two recordings of one battle number their entities separately.
+only for `--parity`, because two recordings of one battle number their entities separately. It
+is on at EVERY tolerance there, including 0: a tolerance of 0 is the strictest setting, not the
+absence of one, and it used to be the single setting that fell back to pairing by name.
 
 What a parity file does not carry, and what the viewer does about it: no elixir, hands, decks,
 crowns or result, so those say "not in this source"; no radius and no footprint, so buildings
@@ -251,20 +259,29 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results. In a fresh clone, `pytest -q` gives **94 passed, 3
-skipped** (measured at dc54ea6; the counts below are the ones re-measured on 2026-09-22): the
-capture tests run on the synthetic recordings, and the three tests that pin numbers only a
-recording of a real battle has (2407 ticks both seats hold, 2404 equal, 3
-differ; the Goblin Drill of tick 2974 surfacing 73 ticks later) skip, each with a reason
-beginning `SKIPPED, NOT PASSED`, and `tests/conftest.py` prints them by name at the end of the
-run. With `ROYALELIVE_REPORTS` pointing at a folder that holds
+The suite has two correct results, and both are one command apart. Measured at 5034d30 on 2026-09-22, with `pytest --collect-only -q` collecting 158:
+
+| Run | Result |
+|---|---|
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **154 passed, 4 skipped** |
+| this machine, with the recordings | **157 passed, 1 skipped** |
+
+The four skips in a clone are the three tests that pin numbers only a recording of a real
+battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
+surfacing 73 ticks later), plus the parity test that needs a results file written with the
+harness's `--trace`. The first three say `SKIPPED, NOT PASSED` and `tests/conftest.py` prints
+them by name at the end of the run, so a clone's "N passed, M skipped" is never read as all
+green. Pointing `ROYALELIVE_REPORTS` at a folder holding
 `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
-`frames-auto-20260920-083112-A.jsonl` (or their `.jsonl.gz`; the default folder is
-`tests/captures`, gitignored) the result is **126 passed, 1 skipped** on this machine
-(2026-09-22, `pytest --collect-only -q` collects 127). The one skip is the parity test that
-needs a results file written with the harness's `--trace`. Without the `media` extra
-(`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) two more skip, and
-without RoyaleLearn installed four more.
+`frames-auto-20260920-083112-A.jsonl` (or their `.jsonl.gz`; the default is `tests/captures`,
+gitignored) runs those three.
+
+Two more things move the count, in either run. Without the `media` extra
+(`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) ONE more skips,
+the single `@needs_ffmpeg` test. Without RoyaleLearn importable, the four in
+`tests/test_learner_protocol.py` skip. A count in this file is the output of the command
+beside it and nothing else; the ones that stood here before were measured at a commit fifteen
+behind and were wrong at that commit too.
 
 ## The stream protocol
 

@@ -41,7 +41,10 @@ def collected() -> int:
 
 def counts_in(text: str) -> list[tuple[int, int]]:
     """Every "N passed, M skipped" pair in a document, in the order they appear."""
-    return [(int(p), int(s)) for p, s in re.findall(r"(\d+)[ _]passed(?:%2C)?,?[ _](\d+)[ _]skipped", text)]
+    return [
+        (int(p), int(s))
+        for p, s in re.findall(r"(\d+)[ _]passed(?:%2C)?,?[ _](\d+)[ _]skipped", text)
+    ]
 
 
 def test_every_documented_suite_count_adds_up_to_what_is_collected(collected: int) -> None:
