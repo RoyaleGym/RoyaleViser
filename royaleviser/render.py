@@ -328,11 +328,21 @@ class Board:
         followed the README's short way, which installs this package alone, and silently:
         the board looks finished and is wrong. Found by the first CI run on a bare clone.
 
-        The three families below reproduce all 176 cells of the 2026-09 arena grid's bit 16,
-        which ``test_board_from_the_default_arena_matches_the_builtin`` checks against the real
-        arena whenever royalegym is importable. Written as the rule rather than as 176 pairs so
-        the next reader can see WHAT they are: the two back rows either side of each king's
-        lane, each king's own 3x3 block, and the river's four corners.
+        The three families below reproduce all 176 cells of the 2026-09 arena grid's bit 16.
+        Written as the rule rather than as 176 pairs so the next reader can see WHAT they are:
+        the two back rows either side of each king's lane, each king's own 3x3 block, and the
+        river's four corners.
+
+        THE KING CELLS ARE CARRIED EVEN THOUGH NOTHING DRAWS THEM ANY MORE. This is the arena's
+        data and must say what the grid says, not what the renderer currently uses; a reader
+        asking "which ground is undeployable" has to get the truth from here.
+
+        An earlier version of this docstring said the set is checked against the real arena by
+        ``test_board_from_the_default_arena_matches_the_builtin``. IT IS NOT: that test asserts
+        only that ``no_deploy`` is non-empty, and the pixel comparison beside it never reaches
+        these cells, so dropping all 72 king cells from this data would have passed the whole
+        suite in silence. ``test_builtin_no_deploy_matches_the_arena_cell_for_cell`` now does
+        what that sentence claimed.
         """
         water = {(hx, hy) for hy in range(30, 34) for hx in range(36)}
         bridge = {(hx, hy) for hy in range(30, 34) for hx in (*range(5, 9), *range(27, 31))}
@@ -698,9 +708,25 @@ class Renderer:
         # faint edges, which asks a reader to infer a region from its border and reads as
         # decoration next to the grass; a player cannot use this ground, so it does not look
         # like ground they can use. Drawn after the water, so the river's own corners take it.
+        # THE KING'S OWN BLOCK IS NOT DRAWN (owner, 2026-09-23). A building already says
+        # this ground is unusable by standing on it, so marking it restates what the piece
+        # shows and competes with it for the reader's eye.
+        #
+        # It is NOT hidden, and the first version of this change claimed it was. A building is
+        # drawn as an unfilled footprint box plus a filled collision circle, so the king's
+        # circle (1.4 tiles) leaves the square's corners and edges (1.5-tile half-extent)
+        # showing: the grey was visible around the tower, which is why it was worth removing
+        # rather than merely wasteful. The princess keeps hers -- she is a different case and
+        # was not what was asked about.
+        #
+        # Board.no_deploy still CARRIES the king cells. This is a drawing decision, not a data
+        # one, and the arena's own answer to "which ground is undeployable" must stay intact.
+        kings = b.king_zones
         for hx, hy in b.no_deploy:
+            if any(x0 <= hx < x1 and y0 <= hy < y1 for x0, y0, x1, y1 in kings):
+                continue
             rect(surf, t.no_deploy_fill, cell(hx, hy))
-        for hx0, hy0, hx1, hy1 in (*b.king_zones, *b.princess_zones):
+        for hx0, hy0, hx1, hy1 in b.princess_zones:
             x0 = hx0 * s // b.half
             x1 = hx1 * s // b.half
             y0 = ah - hy1 * s // b.half

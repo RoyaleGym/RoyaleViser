@@ -159,6 +159,62 @@ def test_board_from_the_default_arena_matches_the_builtin() -> None:
     assert b.no_deploy  # the grid's NO_DEPLOY cells: king blocks, back rows, river corners
 
 
+def test_builtin_no_deploy_matches_the_arena_cell_for_cell() -> None:
+    """The check ``Board.builtin``'s docstring claimed for months and did not have.
+
+    The test above asserts only that ``no_deploy`` is NON-EMPTY, and the pixel comparisons
+    beside it never reach the king cells, so all 72 of them could have been dropped from the
+    built-in copy and the whole suite would have passed in silence. That mattered more once the
+    renderer stopped DRAWING those cells on 2026-09-23: a set nothing draws and nothing checks
+    is a set that rots quietly, and it is the arena's own answer to which ground is undeployable.
+
+    Element-wise on purpose. A length check would pass on a set with one cell moved.
+
+    Skipped without royalegym, and that is load-bearing: default_board() FALLS BACK to
+    Board.builtin() when the arena cannot be loaded, so on a bare clone this would compare
+    the built-in copy with itself and pass while testing nothing at all.
+    """
+    pytest.importorskip(
+        "royalegym",
+        reason=(
+            "SKIPPED, NOT PASSED: needs the real arena to compare against, and default_board() "
+            "falls back to the built-in copy without it, which would compare it with itself"
+        ),
+    )
+    assert default_board().no_deploy == Board.builtin().no_deploy
+
+
+def test_the_kings_block_is_not_painted_and_the_rest_of_the_board_still_is(
+    renderer: Renderer,
+) -> None:
+    """Owner, 2026-09-23: do not mark the king's no-deploy square.
+
+    A building already says this ground is unusable by standing on it, so marking it restates
+    the piece. It was NOT hidden -- a building is an unfilled footprint box around a filled
+    collision circle, and the king's circle is 1.4 tiles against the block's 1.5-tile
+    half-extent, so the grey showed around the tower.
+
+    The back-row control is the half that makes this a test rather than a tautology: without it,
+    deleting the entire no-deploy fill would pass.
+    """
+    b = Board.builtin()
+    surf = renderer.board_surface(0, False)
+    s, half, ah = renderer.layout.scale, b.half, b.tiles_y * renderer.layout.scale
+    grey, outline = tuple(renderer.theme.no_deploy_fill), tuple(renderer.theme.tower_zone)
+
+    def colours(hx0: int, hy0: int, hx1: int, hy1: int) -> set[tuple[int, int, int]]:
+        x0, x1 = hx0 * s // half, hx1 * s // half
+        y0, y1 = ah - hy1 * s // half, ah - hy0 * s // half
+        return {tuple(surf.get_at((x, y)))[:3] for x in range(x0, x1) for y in range(y0, y1)}
+
+    for hx0, hy0, hx1, hy1 in b.king_zones:
+        painted = colours(hx0, hy0, hx1, hy1)
+        assert grey not in painted, "the king's block is still filled"
+        assert outline not in painted, "the king's zone is still outlined"
+
+    assert grey in colours(0, 0, 10, 2), "the back row lost its fill with the king's"
+
+
 def test_text_cache_is_bounded(renderer: Renderer) -> None:
     for i in range(5000):
         renderer.text(f"line {i}", "tiny")

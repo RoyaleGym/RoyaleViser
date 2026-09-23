@@ -84,9 +84,12 @@ filled box with an inner SQUARE at half of it, on towers only, which was neither
 
 Two things about the ground a watcher used to have to infer.
 
-**Where nothing may be placed is filled grey**: the back rows, the river's corners and the
-blocks under the crown towers, taken from the arena's own NO_DEPLOY cells rather than from a
-list here. It used to be a faint outline around each region, which asks a reader to
+**Where nothing may be placed is filled grey**: the back rows and the river's corners, taken
+from the arena's own NO_DEPLOY cells rather than from a list here. The KING's block is in that
+data and is deliberately not drawn (owner, 2026-09-23): a building already says this ground is
+unusable by standing on it, and the grey only competed with the piece for the reader's eye. It
+was visible rather than hidden -- a building is an unfilled footprint box around a filled
+collision circle, and the king's circle is 1.4 tiles against the block's 1.5-tile half-extent. It used to be a faint outline around each region, which asks a reader to
 reconstruct a shape from its border and reads as decoration beside the grass. A player cannot
 use that ground, so it does not look like ground they can use.
 
@@ -278,12 +281,12 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at 51825cb on 2026-09-23, with `pytest --collect-only -q` collecting 209:
+The suite has two correct results, and both are one command apart. Measured at 23146b5 on 2026-09-23, with `pytest --collect-only -q` collecting 211:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **205 passed, 4 skipped** |
-| this machine, with the recordings | **208 passed, 1 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **207 passed, 4 skipped** |
+| this machine, with the recordings | **210 passed, 1 skipped** |
 
 The four skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
@@ -544,7 +547,7 @@ the renderer computes no size of its own and everything is an integer.
 | Column | Width at 24 px/tile | Contents |
 |---|---|---|
 | dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px cards with their cost, dimmed when it is more than the player's elixir), its elixir bar (thousandths) and next card; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading naming the port it is listening on while nothing is there ("no learner on 127.0.0.1:9871" for a stream, "no learner attached" for a source that names no learner at all), and the rows that do not fit the column left out); the bottom player's elixir bar and next card, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
-| arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, the crown towers' no-deploy rectangles, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the crowns and clock in a small box top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
+| arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, the princess towers' no-deploy rectangles, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the crowns and clock in a small box top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
 | inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, then whatever else the source carries under "extra"), then the compare lines and the `H` help footer |
 
 The palette is carried over from the project's earlier Python renderer: grass
