@@ -90,6 +90,16 @@ scripted battle in `tests/fixtures`, which is committed. None is drawn from a re
 real match: those recordings are private, so a picture made from one is a picture nobody else
 can make or check, and no caption here names one.
 
+**A picture made from a live engine records WHICH engine.** `royalegym`'s `config()` carries
+`engine_binary_sha256`, the hash of the compiled extension that produced the frames, beside
+`build_digest`, which is the data it was built from. The two move independently: a rebuild
+from a changed Rust tree leaves `build_digest` alone, so a picture stamped only with the data
+cannot tell you that the thing being pictured changed. Write the binary hash into the note
+beside any new picture taken from a running engine or a fresh trace. The pictures already
+here predate the stamp and are not being given one after the fact; the ones drawn from
+`tests/fixtures` need none, because the fixtures are the committed input and the generator is
+in the repo.
+
 | Picture | Its battle |
 |---|---|
 | `engine-trace.*`, `tile-event-log.png`, `tile-inspector.png`, `../viewer-trace.png` | an engine trace |
