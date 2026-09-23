@@ -1012,3 +1012,55 @@ def test_the_comparison_does_not_depend_on_the_order_the_units_were_listed_in() 
         for pb in itertools.permutations(stacked_b)
     }
     assert tied == {(0, 1)}, tied
+
+
+def test_the_hp_bar_and_the_deploy_veil_are_the_size_of_what_was_drawn() -> None:
+    """Both used to come from the fallback collision radius, which is the number the footprint
+    work took out of the sizing. On a 3x3 Cannon that put a 28 px bar and a 30 px veil on a
+    72 px building, and a building wearing a veil smaller than itself reads as already up."""
+    r = Renderer(scale=24, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    ax, ay, aw, ah = r.layout.arena
+
+    def width_of_difference(a: model.Frame, b: model.Frame) -> int:
+        """How wide, in arena pixels, the two frames are drawn differently."""
+        r.draw(a, ViewState(), Transport(source_name="t"))
+        before = r.surface.copy()
+        r.draw(b, ViewState(), Transport(source_name="t"))
+        xs = [
+            px
+            for py in range(ah)
+            for px in range(aw)
+            if r.surface.get_at((ax + px, ay + py)) != before.get_at((ax + px, ay + py))
+        ]
+        return (max(xs) - min(xs) + 1) if xs else 0
+
+    plain = one_unit_frame(building("cannon", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0), upt)
+    box = r.unit_rect_px(plain.units[0], upt, 0)
+    assert box.width == 3 * 24
+
+    hurt = copy.deepcopy(plain)
+    hurt.units[0].hp, hurt.units[0].max_hp = 200, 380
+    assert width_of_difference(plain, hurt) >= box.width - 1, "the hp bar is not its box's width"
+
+    deploying = copy.deepcopy(plain)
+    deploying.units[0].deploy_ticks = 20
+    assert width_of_difference(plain, deploying) >= box.width - 2, "the veil is under its box"
+
+
+def test_the_overlay_and_notes_docstrings_say_what_the_code_does() -> None:
+    """Two docstrings contradicted their own call sites, and one counted its own return
+    values wrong. A comment that has to be re-derived from the code is worse than none."""
+    from royaleviser.render import Renderer as R
+
+    assert "Over the units" in R._draw_footprint_overlay.__doc__
+    assert "Under the units" not in R._draw_footprint_overlay.__doc__
+    assert "Three kinds" in R.notes.__doc__  # it returns three, and said "Both"
+    # And the three really are three, on one frame that triggers all of them.
+    r = R(scale=24, help_lines=KEYS)
+    upt = model.LIVE_UNITS_PER_TILE
+    off = one_unit_frame(building("c", model.KIND_BUILDING, 1.0, 14.5, upt, 3.0), upt)
+    off.units.append(building("d", model.KIND_BUILDING, 9.0, 20.5, upt, None))
+    off.meta["run"] = "ppo-0007"
+    lines = r.notes(off, Transport(learning=Learning(run="ppo-0008")))
+    assert len(lines) == 3, lines

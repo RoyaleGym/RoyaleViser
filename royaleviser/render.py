@@ -713,12 +713,14 @@ class Renderer:
             radii[u.uid] = self.unit_radius_px(u, upt)
         # The hp bar, the labels and the overlays hang off the drawn shape, so a building's
         # half-height comes from the rect it is actually drawn as, not from the fallback radius.
-        half: dict[str | int, int] = {
-            u.uid: radii[u.uid]
-            if u.kind == KIND_TROOP
-            else self.unit_rect_px(u, upt, seat).height // 2
-            for u in frame.units
-        }
+        half: dict[str | int, int] = {}
+        half_w: dict[str | int, int] = {}
+        for u in frame.units:
+            if u.kind == KIND_TROOP:
+                half[u.uid] = half_w[u.uid] = radii[u.uid]
+            else:
+                box = self.unit_rect_px(u, upt, seat)
+                half[u.uid], half_w[u.uid] = box.height // 2, box.width // 2
         # Paths and target lines under everything so units stay readable.
         if view.show_paths:
             for u in frame.units:
@@ -759,7 +761,7 @@ class Renderer:
                 # as two different shapes: the box is the ground the building stands on, and
                 # the circle is its collision radius, which is what other units and other
                 # buildings run into. They are not the same size and never were -- a Cannon's
-                # box is 3 tiles and its radius 1.2 -- and the old inner SQUARE, at half the
+                # box is 3 tiles and its radius 0.6 -- and the old inner SQUARE, at half the
                 # outer one, was neither of them. A frame that carries no radius gets no
                 # circle rather than a drawn guess.
                 if u.radius > 0:
@@ -768,9 +770,13 @@ class Renderer:
                     )
                 if u.footprint is None:
                     self._draw_fallback_marks(rect)
-            h = half[u.uid]
+            h, hw = half[u.uid], half_w[u.uid]
             if u.deploy_ticks > 0:
-                surface.blit(self.disc(r + 1, (*t.deploy_overlay, 140)), (px - r - 2, py - r - 2))
+                # Over the whole of what was drawn. It used to be a disc of the fallback
+                # radius, so a 3x3 Cannon deploying wore a 30 px veil in the middle of a 72 px
+                # building and read as a building that was already up.
+                d = max(h, hw)
+                surface.blit(self.disc(d + 1, (*t.deploy_overlay, 140)), (px - d - 2, py - d - 2))
             if u.deploy_ticks > 1:
                 # A real countdown. A recording carries only the deploying STATE, which
                 # sources.py encodes as 1 tick: the overlay without a number.
@@ -791,7 +797,9 @@ class Renderer:
                         surface, t.hover, self.unit_rect_px(u, upt, seat).inflate(10, 10), 2
                     )
             if u.max_hp > 0 and 0 <= u.hp < u.max_hp:
-                w = max(16, 2 * r)
+                # As wide as the thing it belongs to. It used to be twice the fallback radius,
+                # which put a 28 px bar over a 72 px Cannon.
+                w = max(16, 2 * hw)
                 bar = (px - w // 2, py - h - 3 - t.hp_bar_h, w, t.hp_bar_h)
                 pygame.draw.rect(surface, t.hp_bg, bar)
                 fill = w * u.hp // u.max_hp
@@ -836,7 +844,11 @@ class Renderer:
                 line(self.surface, t.footprint_guess, (cx, cy), (cx, cy + sy * n), 2)
 
     def _draw_footprint_overlay(self, frame: Frame, view: ViewState) -> None:
-        """Under the units: every carried footprint shaded, and the tile taps it refuses.
+        """Over the units: every carried footprint shaded, and the tile taps it refuses.
+
+        Over, not under, because a building is drawn ON its own footprint and an overlay
+        underneath would be covered by the very thing it describes (the call site says the
+        same, and the two used to disagree).
 
         A tile is drawn as refused when its CENTRE lies inside a footprint, which is the rule
         the engine applies to the tap point itself. It is not the whole of deploy legality:
@@ -1053,8 +1065,10 @@ class Renderer:
     def notes(self, frame: Frame, tr: Transport) -> list[str]:
         """The status block's warning lines for this frame: what the board cannot be trusted on.
 
-        Both are about the window lying quietly rather than loudly. A guessed size looks like a
-        measured one, and frames from one run under a status from another look like one run.
+        Three kinds, and all of them are about the window lying quietly rather than loudly: a
+        guessed size looks like a measured one, a box that runs off the board looks like a
+        placement the engine allowed, and frames from one run under a status from another look
+        like one run.
         """
         out = []
         note = footprint_note(frame)
