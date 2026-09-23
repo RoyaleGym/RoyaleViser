@@ -224,9 +224,11 @@ def differing_within(a: list[Row], b: list[Row], tolerance: int) -> tuple[int, i
     the unit; an engine replaying a recorded battle does not, and never will. Every unit is
     then "differing" and the count says nothing about whether the engine is close or lost.
 
-    So a unit of one side is paired with the NEAREST unit of the other side of the same team
-    and name, closest pair first, and a pair counts as agreeing when the two are within
-    ``tolerance`` millitiles of each other. What is left unpaired on either side is a unit one
+    So the units of one team and name on one side are paired with those on the other, and a
+    pair counts as agreeing when the two are within ``tolerance`` millitiles. As many pairs
+    are made as CAN be made at once (``max_matching``) rather than greedily nearest-first,
+    which over-reports: two units that could both be accounted for get called a disagreement
+    because a closer pair was taken first. What is left unpaired on either side is a unit one
     side has and the other does not, which is the failure the position tolerance must never
     hide, so it counts as differing whatever the tolerance is.
 
@@ -237,32 +239,57 @@ def differing_within(a: list[Row], b: list[Row], tolerance: int) -> tuple[int, i
     """
     differ = hp_differ = 0
     keys = {(t, n) for t, n, *_ in a} | {(t, n) for t, n, *_ in b}
-    for key in keys:
-        left = [r for r in a if (r[0], r[1]) == key]
-        right = [r for r in b if (r[0], r[1]) == key]
-        pairs = sorted(
-            (
-                (x0 - x1) ** 2 + (y0 - y1) ** 2,
-                i,
-                j,
-                h0 != h1,
-            )
-            for i, (_, _, x0, y0, h0) in enumerate(left)
-            for j, (_, _, x1, y1, h1) in enumerate(right)
-        )
-        used_l: set[int] = set()
-        used_r: set[int] = set()
-        for d2, i, j, hp_apart in pairs:
-            if i in used_l or j in used_r:
-                continue
-            used_l.add(i)
-            used_r.add(j)
-            if d2 > tolerance * tolerance:
-                differ += 1
-            elif hp_apart:
-                hp_differ += 1
-        differ += max(len(left) - len(used_l), len(right) - len(used_r))
+    for key in sorted(keys):
+        left = sorted(r for r in a if (r[0], r[1]) == key)
+        right = sorted(r for r in b if (r[0], r[1]) == key)
+        near = [
+            [
+                j
+                for j, (_, _, x1, y1, _) in enumerate(right)
+                if (x0 - x1) ** 2 + (y0 - y1) ** 2 <= tolerance * tolerance
+            ]
+            for _, _, x0, y0, _ in left
+        ]
+        pairing = max_matching(near, len(right))
+        differ += max(len(left), len(right)) - len(pairing)
+        hp_differ += sum(1 for i, j in pairing.items() if left[i][4] != right[j][4])
     return differ, hp_differ
+
+
+def max_matching(near: list[list[int]], n_right: int) -> dict[int, int]:
+    """As many left-to-right pairs as can be made at once, {left index: right index}.
+
+    Kuhn's augmenting path, which is short because the lists are short: a few units of one
+    card on one tick. Why not greedy nearest-first, which is what this used to be:
+
+    - Greedy OVER-REPORTS. Two Bats at 0 and 300 against two at 200 and 400, tolerance 250:
+      greedy takes the closest pair first (300-200), which strands 0 and 400 at 400 apart, and
+      calls one unit differing. Both pairs can be made within the tolerance at once, so the
+      honest answer is none. The window would report a disagreement the data does not contain.
+    - Greedy was decided by LIST POSITION on a tie, and the two sides of a comparison order
+      their units independently. Identical worlds could report different numbers depending on
+      which order each source happened to list its units in.
+
+    A maximum matching is a property of the two sets, not of their order, and the rows are
+    sorted before this is called, so the pairing it returns is the same whatever order the
+    frames arrived in. It answers "how many of these units can be accounted for", which is the
+    question the differ count claims to answer.
+    """
+    match_r: dict[int, int] = {}
+
+    def augment(i: int, seen: set[int]) -> bool:
+        for j in near[i]:
+            if j in seen:
+                continue
+            seen.add(j)
+            if j not in match_r or augment(match_r[j], seen):
+                match_r[j] = i
+                return True
+        return False
+
+    for i in range(len(near)):
+        augment(i, set())
+    return {i: j for j, i in match_r.items()}
 
 
 def compare_text(main: Frame, other: Frame, tolerance: int = 0) -> str:
@@ -280,8 +307,16 @@ def compare_text(main: Frame, other: Frame, tolerance: int = 0) -> str:
 
 
 def tiles_text(millitiles: int) -> str:
-    """A tolerance as tiles to two places, for the line a reader has to judge it by."""
-    return f"{millitiles / 1000:.2f} tiles"
+    """A tolerance as tiles, for the line a reader has to judge every number above it by.
+
+    Two places where two places are enough, and the millitiles themselves where they are not.
+    ``--tolerance`` takes any integer, and rounding 4 to "0.00 tiles" would tell a reader, in
+    this viewer's own documented vocabulary for exact agreement, that nothing was allowed to
+    move -- while units four millitiles apart were being counted as agreeing.
+    """
+    if millitiles % 10 == 0:
+        return f"{millitiles / 1000:.2f} tiles"
+    return f"{millitiles} millitiles"
 
 
 class Compare:
@@ -348,7 +383,12 @@ class Compare:
             buf.popitem(last=False)
         if frame.tick in self._sig[1 - which]:
             (sa, na), (sb, nb) = self._sig[0][frame.tick], self._sig[1][frame.tick]
-            if self.pair_by_uid and self.tolerance:
+            # A tolerance of 0 is the STRICTEST setting, not the absence of one, so it must
+            # not be the one setting that falls back to pairing by name and position. It used
+            # to, which brought the swap that pairing cannot see back at exactly the setting a
+            # reader reaches for when they want strictness, and folded the hp disagreements
+            # into the single differ count along the way.
+            if self.pair_by_uid:
                 d, hp = differing_by_uid(
                     self._keyed[0][frame.tick], self._keyed[1][frame.tick], self.tolerance
                 )
@@ -373,17 +413,21 @@ class Compare:
             first = f"tick {tick}: not seen by both"
         # The tolerance is on the totals line, not the tick line: every number above it was
         # judged by it, and a reader who reads only "0 differ" must not have to guess within
-        # what. That clause is also why the line says "N ticks" rather than "N ticks
-        # compared" once a tolerance is set: the long form plus the clause is wider than the
-        # panel, and what the ellipsis ate was the clause itself (measured 2026-09-22: 295 px
-        # into a 287 px column).
-        within = f" (within {tiles_text(self.tolerance)})" if self.tolerance else ""
-        totals = (
-            f"{self.ticks} {'ticks' if self.tolerance else 'ticks compared'}, {self.differ} differ"
-        )
-        if self.tolerance and self.hp_differ:
+        # what. The clause is at the end, which makes it what an ellipsis eats first, so the
+        # line has to stay inside the column it is drawn in (287 px; the long form plus the
+        # clause measured 295). A width test pins both lines.
+        #
+        # Which is also why the subject changes to a colon once there is a clause. Every
+        # number on THIS line counts ticks and every number on the line above counts units,
+        # and the two lines used to share their trailing words: "2 ticks, 0 differ, 1 hp"
+        # under "tick 100: 3 entities, 0 differ, 3 hp", with nothing saying the 1 and the 3
+        # count different things. "2407 ticks: 3 differ, 2 hp" reads as what it is.
+        if not self.tolerance:
+            return f"{first}\n{self.ticks} ticks compared, {self.differ} differ"
+        totals = f"{self.ticks} ticks: {self.differ} differ"
+        if self.hp_differ:
             totals += f", {self.hp_differ} hp"
-        return f"{first}\n{totals}{within}"
+        return f"{first}\n{totals} (within {tiles_text(self.tolerance)})"
 
 
 def empty_frame(units_per_tile: int) -> Frame:

@@ -473,3 +473,34 @@ def test_a_fixture_the_harness_could_not_play_says_so_rather_than_naming_a_flag(
     cut_path.write_text(json.dumps(cut), encoding="utf-8")
     with pytest.raises(ValueError, match="--trace"):
         ParitySource(cut_path)
+
+
+def test_the_strictest_setting_is_not_the_one_that_drops_the_key_pairing(tmp_path: Path) -> None:
+    """--tolerance 0 is the STRICTEST setting, not the absence of one. It used to fall through
+    to pairing by name and position -- so the swap that pairing cannot see came back at exactly
+    the setting a reader reaches for when they want strictness -- and it folded the hp
+    disagreements back into the one differ number."""
+    rows = [
+        row(10, 21, "Skeletons", [3000, 9000, 81, 1, 0, -1], [4000, 9000, 81, 0, 0, -1]),
+        row(10, 22, "Skeletons", [4000, 9000, 81, 1, 0, -1], [3000, 9000, 81, 0, 0, -1]),
+    ]
+    path = tmp_path / "strict.parity.json"
+    path.write_text(
+        json.dumps(report(rows, [(21, 0, "Skeletons"), (22, 0, "Skeletons")])), encoding="utf-8"
+    )
+    rec, eng = open_parity(path)
+    strict = Compare(tolerance=0, pair_by_uid=True)
+    strict.note(0, rec.frame())
+    strict.note(1, eng.frame())
+    assert strict.results[10][2] == 2, "the swap is invisible again at the strictest setting"
+
+    # And the hp split survives there: a pair in the same place with different hp is hp, not
+    # a position disagreement.
+    same_place = [row(20, 7, "Knight", [3500, 8000, 900, 1, 0, -1], [3500, 8000, 870, 0, 0, -1])]
+    hp_path = tmp_path / "hp0.parity.json"
+    hp_path.write_text(json.dumps(report(same_place, [(7, 0, "Knight")])), encoding="utf-8")
+    hrec, heng = open_parity(hp_path)
+    c = Compare(tolerance=0, pair_by_uid=True)
+    c.note(0, hrec.frame())
+    c.note(1, heng.frame())
+    assert c.results[20][2] == 0 and c.results[20][3] == 1

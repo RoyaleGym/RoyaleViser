@@ -856,7 +856,7 @@ def test_the_compare_panel_says_what_tolerance_its_numbers_were_judged_by() -> N
     c.note(0, f)
     c.note(1, g)
     expected = (
-        f"tick {f.tick}: {len(f.units)} entities, 0 differ\n1 ticks, 0 differ (within 0.25 tiles)"
+        f"tick {f.tick}: {len(f.units)} entities, 0 differ\n1 ticks: 0 differ (within 0.25 tiles)"
     )
     assert c.text(f.tick) == expected
     exact = Compare()
@@ -937,3 +937,78 @@ def test_a_building_shows_its_collision_circle_inside_its_footprint(seat: int) -
         for px in range(aw)
         if r.surface.get_at((ax + px, ay + py))[:3] == DEFAULT.collision_circle
     ]
+
+
+def test_the_totals_line_says_it_is_counting_ticks_and_the_line_above_counts_units() -> None:
+    """Every number on the totals line counts TICKS and every number above it counts UNITS.
+    They used to share their trailing words, so "2 ticks, 0 differ, 1 hp" sat under
+    "tick 100: 3 entities, 0 differ, 3 hp" with nothing to say the 1 and the 3 were counting
+    different things."""
+    c = Compare(tolerance=250)
+    c.ticks, c.differ, c.hp_differ = 2407, 3, 2
+    c.results[9] = (12, 12, 1, 3)
+    per_tick, totals = c.text(9).split("\n")
+    assert per_tick == "tick 9: 12 entities, 1 differ, 3 hp"
+    assert totals == "2407 ticks: 3 differ, 2 hp (within 0.25 tiles)"
+    # The exact path keeps its wording: the README quotes it as "395 ticks compared, 0 differ".
+    exact = Compare()
+    exact.ticks, exact.differ = 395, 0
+    assert exact.text(None).endswith("395 ticks compared, 0 differ")
+
+
+def test_a_tolerance_that_does_not_round_is_printed_as_itself() -> None:
+    """--tolerance takes any integer. Rounding 4 to "0.00 tiles" tells a reader, in this
+    viewer's own vocabulary for exact agreement, that nothing was allowed to move."""
+    from royaleviser.app import tiles_text
+
+    assert tiles_text(250) == "0.25 tiles"
+    assert tiles_text(1000) == "1.00 tiles"
+    assert tiles_text(4) == "4 millitiles"
+    assert tiles_text(1) == "1 millitiles"
+    c = Compare(tolerance=4)
+    c.ticks = 1
+    assert "within 4 millitiles" in c.text(None)
+    assert "0.00 tiles" not in c.text(None)
+
+
+def test_as_many_pairs_are_made_as_can_be_made_at_once() -> None:
+    """Greedy nearest-first over-reports: it takes the closest pair and strands the rest.
+    Two Bats at 0 and 300 against two at 200 and 400 with a quarter-tile tolerance can BOTH
+    be accounted for, and greedy takes 300-200 first and calls 0 against 400 a disagreement."""
+    from royaleviser.app import differing_within, max_matching
+
+    left = [(0, "Bats", 0, 0, 10), (0, "Bats", 300, 0, 10)]
+    right = [(0, "Bats", 200, 0, 10), (0, "Bats", 400, 0, 10)]
+    assert differing_within(left, right, 250) == (0, 0)
+    # A unit that genuinely cannot be paired is still counted.
+    assert differing_within(left, [(0, "Bats", 200, 0, 10)], 250) == (1, 0)
+    assert differing_within(left, [(0, "Bats", 9000, 0, 10)], 250) == (2, 0)
+    # The matching itself: every left index that can be paired, is.
+    assert max_matching([[0], [0, 1]], 2) == {0: 0, 1: 1}
+    assert max_matching([[], []], 2) == {}
+
+
+def test_the_comparison_does_not_depend_on_the_order_the_units_were_listed_in() -> None:
+    """Two sources of one battle order their units independently, so a count that changes
+    with list order is a count about the lists rather than about the battle."""
+    import itertools
+
+    from royaleviser.app import differing_within
+
+    left = [(0, "Bats", 100, 100, 10), (0, "Bats", 0, 200, 11)]
+    right = [(0, "Bats", 0, 100, 10), (0, "Bats", 200, 100, 12)]
+    answers = {
+        differing_within(list(pa), list(pb), 150)
+        for pa in itertools.permutations(left)
+        for pb in itertools.permutations(right)
+    }
+    assert len(answers) == 1, answers
+    # ... including when the tie is exact, which is where the old list-index tie-break bit.
+    stacked_a = [(0, "Skeletons", 500, 500, 81), (0, "Skeletons", 500, 500, 40)]
+    stacked_b = [(0, "Skeletons", 500, 500, 81), (0, "Skeletons", 500, 500, 81)]
+    tied = {
+        differing_within(list(pa), list(pb), 250)
+        for pa in itertools.permutations(stacked_a)
+        for pb in itertools.permutations(stacked_b)
+    }
+    assert tied == {(0, 1)}, tied
