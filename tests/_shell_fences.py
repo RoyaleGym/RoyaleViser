@@ -37,10 +37,7 @@ import sys
 FENCE = re.compile(r"^( {0,3})(`{3,}|~{3,})([^\n]*)\n(.*?)^\1?\2`*[ \t]*$", re.M | re.S)
 POSIX_HINT = re.compile(r"macos|linux|bash|posix|wsl", re.I)
 # A line that looks like a shell command rather than prose or output.
-SHELLISH = re.compile(
-    r"^\s*(?:[A-Za-z]:)?[.\w/\\-]*"
-    r"(?:python|pip|git|mkdir|cd|cargo|maturin|ruff|pytest|source|export|set)\b"
-)
+SHELLISH = re.compile(r"^\s*(?:[A-Za-z]:)?[.\w/\\-]*(?:python|pip|git|mkdir|cd|cargo|maturin|ruff|pytest|source|export|set)\b")
 TRAILING_COMMENT = re.compile(r"\S\s+#\s")
 BACKSLASH_PATH = re.compile(r"[\w.]+\\[\w.]+\\")
 PROSE_TAGS = {"python", "text", "json", "toml", "yaml", "rust", "console", "output", "diff"}
@@ -91,8 +88,7 @@ def check_text(text: str, name: str = "<text>") -> list[str]:
                     f"{name}:{line_no}: Windows backslash path in a bash-tagged fence; bash eats "
                     f"the backslashes: {ln.strip()[:70]}"
                 )
-        unnamed = not posix and not posix_tag and not context_names_shell(text, pos)
-        if unnamed and BACKSLASH_PATH.search(body):
+        if not posix and not posix_tag and BACKSLASH_PATH.search(body) and not context_names_shell(text, pos):
             problems.append(
                 f"{name}:{line_no}: shell block under no named shell; say which one it is for"
             )
@@ -108,37 +104,16 @@ def context_names_shell(text: str, upto: int) -> bool:
     and a check that cries wolf is one somebody switches off. The defect this rule is for is a
     page that never says at all.
     """
-    named = ("windows", "powershell", "cmd.exe", "macos", "linux", "bash")
-    return any(w in text[:upto].lower() for w in named)
+    return any(w in text[:upto].lower() for w in ("windows", "powershell", "cmd.exe", "macos", "linux", "bash"))
 
 
 SELFTEST = [
     ("chained with &&", "## Install\n\n```\nmkdir Royale && cd Royale\n```\n", True),
-    (
-        "trailing # comment",
-        "## Install on Windows\n\n```\npython -m venv .venv  # Python 3.12\n```\n",
-        True,
-    ),
-    (
-        "backslashes in a bash fence",
-        "## Install\n\n```bash\n.venv\\Scripts\\python -m pip install x\n```\n",
-        True,
-    ),
-    (
-        "no named shell",
-        "## Install\n\n```\n.venv\\Scripts\\python -m pip install x\n```\n",
-        True,
-    ),
-    (
-        "posix tab may chain",
-        '=== "macOS and Linux"\n\n```\nmkdir Royale && cd Royale\n```\n',
-        False,
-    ),
-    (
-        "windows block, one per line",
-        "## Install on Windows\n\n```\nmkdir Royale\ncd Royale\n```\n",
-        False,
-    ),
+    ("trailing # comment", "## Install on Windows\n\n```\npython -m venv .venv  # Python 3.12\n```\n", True),
+    ("backslashes in a bash fence", "## Install\n\n```bash\n.venv\\Scripts\\python -m pip install x\n```\n", True),
+    ("no named shell", "## Install\n\n```\n.venv\\Scripts\\python -m pip install x\n```\n", True),
+    ("posix tab may chain", '=== "macOS and Linux"\n\n```\nmkdir Royale && cd Royale\n```\n', False),
+    ("windows block, one per line", "## Install on Windows\n\n```\nmkdir Royale\ncd Royale\n```\n", False),
     ("python block untouched", "## Example\n\n```python\nx = 1  # a real comment\n```\n", False),
 ]
 
