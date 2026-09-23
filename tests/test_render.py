@@ -979,7 +979,7 @@ def test_a_tolerance_that_does_not_round_is_printed_as_itself() -> None:
     assert tiles_text(250) == "0.25 tiles"
     assert tiles_text(1000) == "1.00 tiles"
     assert tiles_text(4) == "4 millitiles"
-    assert tiles_text(1) == "1 millitiles"
+    assert tiles_text(1) == "1 millitile"  # not "1 millitiles"
     c = Compare(tolerance=4)
     c.ticks = 1
     assert "within 4 millitiles" in c.text(None)
@@ -999,8 +999,8 @@ def test_as_many_pairs_are_made_as_can_be_made_at_once() -> None:
     assert differing_within(left, [(0, "Bats", 200, 0, 10)], 250) == (1, 0)
     assert differing_within(left, [(0, "Bats", 9000, 0, 10)], 250) == (2, 0)
     # The matching itself: every left index that can be paired, is.
-    assert max_matching([[0], [0, 1]], 2) == {0: 0, 1: 1}
-    assert max_matching([[], []], 2) == {}
+    assert max_matching([[0], [0, 1]]) == {0: 0, 1: 1}
+    assert max_matching([[], []]) == {}
 
 
 def test_the_comparison_does_not_depend_on_the_order_the_units_were_listed_in() -> None:
@@ -1235,3 +1235,40 @@ def test_the_refusal_names_the_likely_cause_when_a_learner_is_talking() -> None:
     b.transport.learning = Learning(run="ppo-0007")
     assert empty_shot_reason(b) == ""
     src.close()
+
+
+def test_a_frame_never_differs_from_itself() -> None:
+    """The one answer the comparison must never give. It gave it: a maximum matching is only
+    maximum in CARDINALITY, so where several units of one card sit within the tolerance of
+    each other, the augmenting step was free to pair each with the wrong twin and the hp
+    comparison ran over that arbitrary choice. Two stacked Skeletons with different hp read as
+    two hp disagreements between a frame and itself, and this deck has Skeletons in it."""
+    import itertools
+
+    from royaleviser.app import differing_within, rows
+
+    stacked = [
+        [(0, "Bats", 0, 0, 10), (0, "Bats", 0, 0, 20)],  # same tile, different hp
+        [(0, "Skeletons", 0, 0, 30), (0, "Skeletons", 50, 0, 40), (0, "Skeletons", 100, 0, 50)],
+        [(0, "Bats", 0, 0, 100), (0, "Bats", 100, 0, 50)],  # apart but inside the tolerance
+        [(1, "Minions", 7, 9, 90)] * 3,  # three identical units
+    ]
+    for units in stacked:
+        assert differing_within(units, list(units), 250) == (0, 0), units
+        # ... whatever order either side happens to list them in.
+        for left in itertools.permutations(units):
+            for right in itertools.permutations(units):
+                assert differing_within(list(left), list(right), 250) == (0, 0), (left, right)
+
+    # And a real hp change among stacked units is still seen.
+    three = stacked[1]
+    hurt = [three[0], (0, "Skeletons", 50, 0, 7), three[2]]
+    assert differing_within(three, hurt, 250) == (0, 1)
+
+    # The same, through the whole frame path rather than the row helper.
+    f = FRAMES[600]
+    assert differing_within(rows(f), rows(copy.deepcopy(f)), 250) == (0, 0)
+    c = Compare(tolerance=250)
+    c.note(0, f)
+    c.note(1, copy.deepcopy(f))
+    assert c.results[f.tick][2] == 0 and c.results[f.tick][3] == 0

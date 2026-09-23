@@ -39,12 +39,13 @@ def collected() -> int:
     return int(match.group(1))
 
 
+#: "N passed, M skipped", in prose or inside a shields.io badge URL (%2C is its comma).
+COUNT = r"(\d+)[ _]passed(?:%2C)?,?[ _](\d+)[ _]skipped"
+
+
 def counts_in(text: str) -> list[tuple[int, int]]:
     """Every "N passed, M skipped" pair in a document, in the order they appear."""
-    return [
-        (int(p), int(s))
-        for p, s in re.findall(r"(\d+)[ _]passed(?:%2C)?,?[ _](\d+)[ _]skipped", text)
-    ]
+    return [(int(p), int(s)) for p, s in re.findall(COUNT, text)]
 
 
 def test_every_documented_suite_count_adds_up_to_what_is_collected(collected: int) -> None:
@@ -73,14 +74,57 @@ def test_the_two_documents_agree_with_each_other(collected: int) -> None:
     )
 
 
+NL = chr(10)
+#: A git object name as the documents write one: seven hex characters or more, on its own.
+SHA = r"\b[0-9a-f]{7,40}\b"
+
+
+def sections(text: str) -> list[tuple[str, str]]:
+    """(heading, body) for each markdown section, so a count and its commit are judged in the
+    block a reader reads them in rather than within some number of lines of each other."""
+    out: list[tuple[str, str]] = []
+    heading, body = "(top)", []
+    for line in text.splitlines():
+        if re.match(r"#{1,6} ", line):
+            out.append((heading, NL.join(body)))
+            heading, body = line.lstrip("# ").strip(), []
+        else:
+            body.append(line)
+    out.append((heading, NL.join(body)))
+    return out
+
+
+def a_commit_here(sha: str) -> bool:
+    """Whether ``sha`` names a commit in THIS repository."""
+    out = subprocess.run(["git", "cat-file", "-t", sha], cwd=REPO, capture_output=True, text=True)
+    return out.returncode == 0 and out.stdout.strip() == "commit"
+
+
 def test_the_documents_quote_the_commit_their_numbers_came_from() -> None:
     """A count without the command and the commit behind it is not evidence, and this repo's
-    own rule says so. The commit is what lets the next reader tell stale from wrong."""
+    own rule says so. The commit is what lets the next reader tell stale from wrong.
+
+    This used to assert only that a seven-character hex token appeared SOMEWHERE in the
+    document, which the bare number 3690000 satisfies with no commit in it at all: a check
+    standing next to the thing it claims to grade, which is the class of defect this file
+    exists to catch. So every SECTION that quotes a count has to name a commit, and that
+    commit has to resolve in this repository.
+    """
+    if not a_commit_here("HEAD"):
+        pytest.skip("SKIPPED, NOT PASSED: not a git work tree, so a commit cannot be resolved")
     for path in (README, INTERNALS):
-        text = path.read_text(encoding="utf-8")
-        assert re.search(r"\b[0-9a-f]{7}\b", text), (
-            f"{path.name} quotes suite counts with no commit beside them"
-        )
+        for heading, section in sections(path.read_text(encoding="utf-8")):
+            if not re.search(COUNT, section):
+                continue
+            shas = {sha for sha in re.findall(SHA, section) if not sha.isdigit()}
+            assert shas, (
+                f"{path.name}, under {heading!r}: suite counts with no commit in the same "
+                "section; a seven-digit number is not a commit"
+            )
+            assert [sha for sha in shas if a_commit_here(sha)], (
+                f"{path.name}, under {heading!r}: names {sorted(shas)} beside its counts and "
+                "none is a commit in this repository"
+            )
 
 
 def test_the_window_is_the_size_the_media_generator_says_it_is() -> None:

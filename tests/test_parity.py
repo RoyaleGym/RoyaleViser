@@ -504,3 +504,49 @@ def test_the_strictest_setting_is_not_the_one_that_drops_the_key_pairing(tmp_pat
     c.note(0, hrec.frame())
     c.note(1, heng.frame())
     assert c.results[20][2] == 0 and c.results[20][3] == 1
+
+
+def test_an_event_dated_between_two_scored_ticks_is_still_shown(tmp_path: Path) -> None:
+    """The report dates its events by the battle's clock; the rows are only the scored ticks.
+    For a strided or gappy trace those are not the same set, and an event on a tick with no row
+    was looked up and silently dropped -- the engine's end, the prefix cut and both divergence
+    lines, every one of which is the reason someone opened the file."""
+    rows = [
+        row(t, 7, "Knight", [3500, 8000 + t, 900, 1, 0, -1], [3500, 8000, 900, 0, 0, -1])
+        for t in (100, 104, 108)
+    ]
+    d = report(
+        rows,
+        [(7, 0, "Knight")],
+        {
+            "tick": 106,  # between two scored ticks
+            "truth_key": 7,
+            "side": 0,
+            "card": "Knight",
+            "families": [],
+            "what": "position error 1100 native (> 1000) on a Knight",
+            "cause": "walking",
+            "onset_tick": 102,  # also between two
+            "detail": "",
+        },
+    )
+    d["engine_end_tick"] = 102
+    d["prefix_until"] = 999  # past the last scored tick
+    path = tmp_path / "gappy.parity.json"
+    path.write_text(json.dumps(d), encoding="utf-8")
+
+    rec, _ = open_parity(path)
+    seen: list[str] = []
+    for i in range(rec.length):
+        rec.seek(i)
+        for line in rec.frame().events:
+            if line not in seen:
+                seen.append(line)
+    assert any("the engine ended the battle" in line for line in seen), seen
+    assert any("only asked to play this far" in line for line in seen), seen
+    assert any("first divergence" in line for line in seen), seen
+    assert any("the gap starts opening" in line for line in seen), seen
+    # Each line still carries its OWN tick, so nothing is misdated by being shown later.
+    assert any(line.startswith("t102 the engine ended") for line in seen), seen
+    assert any(line.startswith("t106 first divergence") for line in seen), seen
+    assert any(line.startswith("t999 the harness was only asked") for line in seen), seen

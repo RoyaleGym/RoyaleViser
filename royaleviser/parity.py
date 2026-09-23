@@ -175,8 +175,9 @@ class ParitySource:
         # The most hp this side was ever seen with. That is a LOWER BOUND on the unit's
         # maximum, not the maximum: a parity report carries no max hp at all, the recording's
         # own frames are up to a dozen ticks apart, and a unit whose rows begin mid-life is
-        # never once seen whole. On the recordings here 18 entities of 3915 are never seen at
-        # full hp and seven of them are crown towers, the worst first and forever at 53 %.
+        # never once seen whole. A crown tower is the case that matters: one whose rows start
+        # after it has taken damage is never recorded at full hp for the whole battle, and a
+        # tower at half health drawn as untouched is a worse lie than a skeleton doing it.
         #
         # So it does not become ``max_hp``. The renderer draws an hp bar only when
         # ``0 <= hp < max_hp``, so a max_hp of the most-seen value would draw a half-dead
@@ -210,7 +211,30 @@ class ParitySource:
         self._ticks = sorted(self._by_tick)
         self.length = len(self._ticks)
         self.index = 0
-        self._events = self._divergence_events(report)  # needs engine_end_tick, set above
+        # Keyed by the report's own ticks, then SNAPPED to the ticks that actually have rows.
+        # The report dates its events by the battle's clock and the rows are only the scored
+        # ticks, which for a strided or gappy trace are not the same set: an event on a tick
+        # with no row was looked up by frame() and silently dropped, so the engine's end, the
+        # prefix cut and both divergence lines could all vanish. Every one of them is the
+        # reason someone opened the file.
+        self._events = self._snap_to_scored_ticks(self._divergence_events(report))
+
+    def _snap_to_scored_ticks(self, events: dict[int, list[str]]) -> dict[int, list[str]]:
+        """Move each event onto the first scored tick at or after its own, so none is lost.
+
+        ``frame()`` can only show an event on a tick it draws, and the ticks it draws are the
+        ones with trace rows. An event the report dates between two of them, or after the last
+        one, belongs to the battle just as much; it appears at the first frame a reader can
+        scrub to from there. Each line already carries its true tick in its own text, so
+        nothing is misdated by the move.
+        """
+        if not self._ticks:
+            return {}
+        out: dict[int, list[str]] = {}
+        for tick, lines in sorted(events.items()):
+            at = self._ticks[self.index_at_tick(tick)]
+            out.setdefault(at, []).extend(lines)
+        return out
 
     def _divergence_events(self, report: dict[str, Any]) -> dict[int, list[str]]:
         """The harness's own reading of where this battle first parted, on the tick it says.
@@ -289,12 +313,12 @@ class ParitySource:
                 # engine entities. Not a uid here, so it is a number to read rather than a line
                 # to draw (see the class docstring).
                 "engine_target_index": None if self.side != ENGINE or target < 0 else target,
-                # What the engine calls this entity, and how the harness attributed it to the
-                # card above. A spawned unit is named for its spawner on both sides, because
-                # that is the card a recording carries for it; this is where its own is.
                 # The most hp this side was ever seen with, which is a lower bound on the
                 # unit's maximum and not the maximum. Named so nobody reads it as one.
                 "most_hp_seen": self._max_hp.get(key, 0),
+                # What the engine calls this entity, and how the harness attributed it to the
+                # card above. A spawned unit is named for its spawner on both sides, because
+                # that is the card a recording carries for it; this is where its own is.
                 "engine_card": own_card,
                 "rooted_how": how,
             },

@@ -242,21 +242,39 @@ def differing_within(a: list[Row], b: list[Row], tolerance: int) -> tuple[int, i
     for key in sorted(keys):
         left = sorted(r for r in a if (r[0], r[1]) == key)
         right = sorted(r for r in b if (r[0], r[1]) == key)
+        # TWO SIDES THAT HOLD THE SAME UNITS DIFFER IN NOTHING, and saying otherwise is the one
+        # answer this must never give. It gave it: a maximum matching is only maximum in
+        # CARDINALITY, so where several units of one card sit within the tolerance of each
+        # other the augmenting step is free to pair each with the wrong twin, and the hp
+        # comparison then runs over that arbitrary choice. Two stacked Skeletons with
+        # different hp read as two hp disagreements between a frame and itself.
+        if left == right:
+            continue
         near = [
-            [
-                j
-                for j, (_, _, x1, y1, _) in enumerate(right)
-                if (x0 - x1) ** 2 + (y0 - y1) ** 2 <= tolerance * tolerance
-            ]
-            for _, _, x0, y0, _ in left
+            sorted(
+                (
+                    j
+                    for j, (_, _, x1, y1, _) in enumerate(right)
+                    if (x0 - x1) ** 2 + (y0 - y1) ** 2 <= tolerance * tolerance
+                ),
+                # Among the partners a unit MAY take, prefer one it also agrees with on hp,
+                # then the nearest. Cardinality is the same whatever order Kuhn tries them in,
+                # so this costs nothing and stops an arbitrary choice inventing a difference.
+                key=lambda j: (
+                    right[j][4] != hp0,
+                    (x0 - right[j][2]) ** 2 + (y0 - right[j][3]) ** 2,
+                    j,
+                ),
+            )
+            for _, _, x0, y0, hp0 in left
         ]
-        pairing = max_matching(near, len(right))
+        pairing = max_matching(near)
         differ += max(len(left), len(right)) - len(pairing)
         hp_differ += sum(1 for i, j in pairing.items() if left[i][4] != right[j][4])
     return differ, hp_differ
 
 
-def max_matching(near: list[list[int]], n_right: int) -> dict[int, int]:
+def max_matching(near: list[list[int]]) -> dict[int, int]:
     """As many left-to-right pairs as can be made at once, {left index: right index}.
 
     Kuhn's augmenting path, which is short because the lists are short: a few units of one
@@ -271,9 +289,15 @@ def max_matching(near: list[list[int]], n_right: int) -> dict[int, int]:
       which order each source happened to list its units in.
 
     A maximum matching is a property of the two sets, not of their order, and the rows are
-    sorted before this is called, so the pairing it returns is the same whatever order the
+    sorted before this is called, so the CARDINALITY it returns is the same whatever order the
     frames arrived in. It answers "how many of these units can be accounted for", which is the
     question the differ count claims to answer.
+
+    WHICH maximum matching it returns is not determined, and that matters to the caller: two
+    matchings of the same size can pair the same units differently, so anything read off the
+    pairs rather than off their number depends on the choice. The caller orders each
+    candidate list to make the choice a good one and short-circuits the case where the two
+    sides are equal (``differing_within``).
     """
     match_r: dict[int, int] = {}
 
@@ -316,7 +340,7 @@ def tiles_text(millitiles: int) -> str:
     """
     if millitiles % 10 == 0:
         return f"{millitiles / 1000:.2f} tiles"
-    return f"{millitiles} millitiles"
+    return f"{millitiles} millitile" + ("" if millitiles == 1 else "s")
 
 
 class Compare:
@@ -335,9 +359,12 @@ class Compare:
 
     ``tolerance`` in millitiles turns the question from "are these the same battle" into "how
     far apart are they", which is the only readable answer when one side is an ENGINE replaying
-    a battle the other side RECORDED. Then a unit is paired with the nearest of its team and
-    name, a pair within the tolerance agrees, and a pair that agrees on position but not on hp
-    is counted separately (``differing_within``). A unit one side has and the other does not is
+    a battle the other side RECORDED. Then the units of one team and name on one side
+    are matched against the other's, as many pairs at once as the tolerance allows rather than
+    greedily nearest-first, and a pair that agrees on position but not on hp is counted
+    separately (``differing_within``). Where the caller says both sides number their units the
+    same way, which is ``--parity`` and nothing else, the pairing is by uid at EVERY tolerance
+    including 0 (``differing_by_uid``). A unit one side has and the other does not is
     never within any tolerance. 0, the default, is exact agreement.
     """
 
