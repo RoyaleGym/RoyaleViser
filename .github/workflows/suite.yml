@@ -1,0 +1,98 @@
+name: suite
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# The README's OWN commands, verbatim, on both platforms it documents. A workflow that installs
+# some other way tests nothing a reader will experience, and this repo's published install block
+# was broken for the whole public life of these repos without anyone noticing.
+#
+# Two runners on purpose. The README is Windows-first and says of macOS and Linux only that "the
+# interpreter is .venv/bin/python with forward slashes, and nothing else about the commands
+# changes". That sentence had never been run on a POSIX machine -- there is no Linux or macOS
+# machine in this project, which is why VISER-capture-posix was deferred rather than tested. The
+# ubuntu leg is the first machine in this repo's life to check it, so a red ubuntu run is this
+# job working rather than a fault to route around.
+#
+# The layout is the README's too: the repo is cloned INTO a folder beside a shared .venv, because
+# that is what the install line assumes and a flat checkout would quietly test a path no reader
+# takes.
+jobs:
+  suite:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RoyaleViser
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: install, the README's short way
+        run: python -m venv .venv
+
+      - name: install, the README's line
+        shell: pwsh
+        if: runner.os == 'Windows'
+        run: .venv\Scripts\python -m pip install -e RoyaleViser
+
+      - name: install, the README's line as it documents it for POSIX
+        if: runner.os != 'Windows'
+        run: .venv/bin/python -m pip install -e RoyaleViser
+
+      # pytest and ruff come from the README's "rest of the stack" line, not the short way, and
+      # it says so. maturin is in that line and is not needed to run this repo's suite.
+      - name: the tools the README's test section names
+        shell: pwsh
+        if: runner.os == 'Windows'
+        run: .venv\Scripts\python -m pip install pytest hypothesis ruff
+
+      - name: the tools the README's test section names
+        if: runner.os != 'Windows'
+        run: .venv/bin/python -m pip install pytest hypothesis ruff
+
+      # ROYALELIVE_REPORTS is deliberately unset: this is the CLONE case, which is the one a
+      # contributor has. Four tests skip and each names its own remedy in the skip line.
+      - name: suite
+        shell: pwsh
+        if: runner.os == 'Windows'
+        working-directory: RoyaleViser
+        run: ..\.venv\Scripts\python -m pytest -q
+
+      - name: suite
+        if: runner.os != 'Windows'
+        working-directory: RoyaleViser
+        run: ../.venv/bin/python -m pytest -q
+
+      - name: ruff
+        shell: pwsh
+        if: runner.os == 'Windows'
+        working-directory: RoyaleViser
+        run: ..\.venv\Scripts\python -m ruff check royaleviser tests
+
+      - name: ruff
+        if: runner.os != 'Windows'
+        working-directory: RoyaleViser
+        run: ../.venv/bin/python -m ruff check royaleviser tests
+
+      # Gym's rule: a count is never recorded without the build digest. This repo's suite runs
+      # with no engine at all, so the honest record is that there was none rather than a blank.
+      - name: record what this run was
+        if: always()
+        working-directory: RoyaleViser
+        shell: bash
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "os=${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+          python -c "
+          try:
+              from royalegym.rust_engine import build_digest, core_available
+              print('engine build_digest=', build_digest() if core_available() else 'no-extension')
+          except Exception as e:
+              print('engine build_digest= unavailable:', type(e).__name__)
+          " >> "$GITHUB_STEP_SUMMARY"
