@@ -481,6 +481,11 @@ window refusing to draw something.
 - A recording holds only the recording player's hand. The opponent's shows as "hand: not in this
   source" until the results screen. A trace's cycle past the revealed cards shows as "next ?".
 
+A clone of THIS REPO ALONE, installed the short way, runs `pytest -q` to 135 passed and 7
+skipped: the tests that need `royalegym` skip and each says so. The counts below are for a machine with the rest of
+the stack. Until 2026-09-23 that case could not collect the suite at all, which nothing had ever
+run.
+
 Tests. Start in the `Royale` folder. On a clone the first line prints 198 passed, 4 skipped
 (2026-09-22, 455d6f9), and the second prints nothing at all when it is happy. Both tools come
 from the `pip install maturin pytest hypothesis ruff` line in [Setup](#setup), so the short way

@@ -40,6 +40,18 @@ def collected() -> int:
 
 
 #: "N passed, M skipped", in prose or inside a shields.io badge URL (%2C is its comma).
+#
+# WHAT THIS PATTERN DOES NOT SEE, and it is deliberate rather than an oversight. It requires the
+# two words adjacent with a comma or an underscore between them, so "135 passed and 7 skipped"
+# and any pair split across a line break are invisible to it. The README carries exactly one such
+# sentence, the BARE-CLONE figure, and it is outside this check ON PURPOSE: this guard's whole
+# model is that every documented pair describes ONE suite and therefore sums to the collected
+# total, and the bare-clone run is a different population -- whole modules skip at import, so it
+# sums to 142 where the others sum to 202. Widening the pattern without teaching it about
+# populations would make it fail on a sentence that is correct.
+#
+# So: the two full-stack figures are guarded and the bare-clone one is not. If that third figure
+# goes stale, nothing here catches it.
 COUNT = r"(\d+)[ _]passed(?:%2C)?,?[ _](\d+)[ _]skipped"
 
 
@@ -51,6 +63,15 @@ def counts_in(text: str) -> list[tuple[int, int]]:
 def test_every_documented_suite_count_adds_up_to_what_is_collected(collected: int) -> None:
     """A "N passed, M skipped" pair describes one run of the whole suite, so N + M is the
     number of tests there are. Any pair that does not add up is from a different tree."""
+    pytest.importorskip(
+        "royalegym",
+        reason=(
+            "SKIPPED, NOT PASSED: the documented counts describe a FULL-STACK install and this "
+            "environment has no royalegym, so whole modules skip at import and the collected "
+            "total is a different population. The figures are not wrong here; this check has "
+            "nothing to compare them against. See the README's Setup for the three cases."
+        ),
+    )
     for path in (README, INTERNALS):
         pairs = counts_in(path.read_text(encoding="utf-8"))
         assert pairs, f"{path.name} quotes no suite count at all; it used to quote three"

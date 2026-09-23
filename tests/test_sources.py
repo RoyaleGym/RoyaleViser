@@ -26,6 +26,18 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import synthetic
+
+pytest.importorskip(
+    "royalegym",
+    reason=(
+        "SKIPPED, NOT PASSED: this module needs royalegym, which is NOT on PyPI and is not "
+        "installed by the README's short way. Install the rest of the stack: "
+        "`python -m pip install -e RoyaleGym` from the folder holding the repos, with the venv "
+        "interpreter the README names for your platform. "
+        "A clean clone of this repo alone could not COLLECT this file at all until 2026-09-23."
+    ),
+)
+
 from royalegym.done_condition import GameOverCondition, StepLimitCondition
 from royalegym.env import ClashParallelEnv
 from royalegym.mock_engine import MockEngine

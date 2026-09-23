@@ -79,6 +79,13 @@ def test_the_publisher_and_the_viewer_agree_over_a_real_socket() -> None:
     Asserts what gym asked me to check: that this end keeps up at one datagram per engine
     tick. Everything sent is received, and nothing is called lost.
     """
+    pytest.importorskip(
+        "royalegym",
+        reason=(
+            "SKIPPED, NOT PASSED: needs royalegym, which is not on PyPI and is not installed "
+            "by the README short way. Install the rest of the stack to run this."
+        ),
+    )
     from royalegym import ClashParallelEnv
     from royalegym.state_mutator import DefaultStateMutator
     from royalegym.viser import ViserPublisher

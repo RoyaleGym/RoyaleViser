@@ -319,18 +319,38 @@ class Board:
 
         18x32 tiles, water half-rows 30..33, bridges at half-cols 5..8 and 27..30, kings
         3x3 at (9, 3) / (9, 29) tiles, princesses 2x2 at x 3.5 | 14.5, y 6.5 | 25.5.
-        No no-deploy outlines (they come from the grid).
+
+        THE NO-DEPLOY CELLS ARE CARRIED HERE, and this is the part that was wrong. They used
+        to be left empty, on the reasoning that they were only OUTLINES and came from the grid.
+        On 2026-09-22 they became a filled grey area -- the ground a player cannot use, drawn
+        rather than left to be inferred -- and an empty set stopped meaning "no outlines" and
+        started meaning the feature is missing. It is missing exactly for the reader who
+        followed the README's short way, which installs this package alone, and silently:
+        the board looks finished and is wrong. Found by the first CI run on a bare clone.
+
+        The three families below reproduce all 176 cells of the 2026-09 arena grid's bit 16,
+        which ``test_board_from_the_default_arena_matches_the_builtin`` checks against the real
+        arena whenever royalegym is importable. Written as the rule rather than as 176 pairs so
+        the next reader can see WHAT they are: the two back rows either side of each king's
+        lane, each king's own 3x3 block, and the river's four corners.
         """
         water = {(hx, hy) for hy in range(30, 34) for hx in range(36)}
         bridge = {(hx, hy) for hy in range(30, 34) for hx in (*range(5, 9), *range(27, 31))}
         water -= bridge
+        back = {
+            (hx, hy)
+            for hy in (0, 1, 62, 63)
+            for hx in (*range(0, 11), *range(25, 36))
+        }
+        kings = {(hx, hy) for hy in (*range(3, 9), *range(55, 61)) for hx in range(15, 21)}
+        corners = {(hx, hy) for hy in (28, 29, 34, 35) for hx in (0, 1, 34, 35)}
         return cls(
             tiles_x=18,
             tiles_y=32,
             half=2,
             water=water,
             bridge=bridge,
-            no_deploy=set(),
+            no_deploy=back | kings | corners,
             king_zones=[(15, 3, 21, 9), (15, 55, 21, 61)],
             princess_zones=[(5, 11, 9, 15), (27, 11, 31, 15), (27, 49, 31, 53), (5, 49, 9, 53)],
         )

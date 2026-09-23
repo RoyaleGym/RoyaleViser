@@ -340,6 +340,13 @@ def test_a_status_off_the_wire_fills_the_panel_through_the_app() -> None:
     """The whole path in one test: a learner publishes a status, the StreamSource takes it
     off the same socket the frames come in on, the app hands it to the transport, and the
     panel draws the numbers the learner sent -- and only those."""
+    pytest.importorskip(
+        "royalegym",
+        reason=(
+            "SKIPPED, NOT PASSED: this drives the app, whose board needs royalegym's arena; "
+            "it is not on PyPI and the README short way does not install it."
+        ),
+    )
     pygame.init()
     frames = sources.Publisher(port=0)
     learner = sources.LearningPublisher(port=0, pump_thread=False)

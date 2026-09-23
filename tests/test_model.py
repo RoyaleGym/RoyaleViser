@@ -7,6 +7,17 @@ import itertools
 import msgspec
 import pytest
 
+pytest.importorskip(
+    "royalegym",
+    reason=(
+        "SKIPPED, NOT PASSED: this module needs royalegym, which is NOT on PyPI and is not "
+        "installed by the README's short way. Install the rest of the stack: "
+        "`python -m pip install -e RoyaleGym` from the folder holding the repos, with the venv "
+        "interpreter the README names for your platform. "
+        "A clean clone of this repo alone could not COLLECT this file at all until 2026-09-23."
+    ),
+)
+
 from royalegym.protocol import CardInfo, EntityKind, Placement, SpellMotion
 from royaleviser import __main__ as cli
 from royaleviser import model, theme
