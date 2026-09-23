@@ -648,6 +648,26 @@ At 2-4 ms per draw the viewer is far below both the 20 Hz replay budget and the 
 cap, which is why it is still Python and pygame rather than a Rust process on a shared
 buffer.
 
+## CI runs on two operating systems, on purpose
+
+`.github/workflows/suite.yml` runs the suite on `windows-latest` AND `ubuntu-latest`, with the
+README's own install commands verbatim on each. That is not thoroughness for its own sake.
+
+`..` normalises LEXICALLY on Windows and is walked COMPONENT BY COMPONENT on POSIX, so a path
+built with `..` and then stat-ed answers a different question per platform. The same goes for
+code that compares paths as strings or assumes a separator. **A single-OS matrix cannot see that
+class at all**, and on 2026-09-23 a sibling repo's test passed on the Windows development machine
+and failed on a clean Ubuntu runner for exactly that reason -- found the first time anyone looked.
+
+This package was audited for the same class on 2026-09-23: every parent-directory path is built
+with `Path(...).resolve().parents[N]`, which resolves before it walks, and nothing compares
+paths as strings or hard-codes a separator. Passing on both runners is evidence about the paths
+the suite EXERCISES; it is not evidence about the ones it does not.
+
+The ubuntu leg is also the only machine in this project that has ever run the POSIX install the
+README documents. There is no Linux or macOS machine here, which is why `VISER-capture-posix`
+was deferred rather than tested.
+
 ## Limitations
 
 - **Both engines have been drawn** (2026-09-21): a 2001-frame `RustEngine` trace passes

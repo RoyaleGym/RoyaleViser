@@ -8,6 +8,15 @@ on:
 # some other way tests nothing a reader will experience, and this repo's published install block
 # was broken for the whole public life of these repos without anyone noticing.
 #
+# TWO RUNNERS IS DELIBERATE AND IS NOT ABOUT THIS REPO BEING FUSSY. `..` normalises
+# LEXICALLY on Windows and is walked COMPONENT BY COMPONENT on POSIX, so a path built with `..`
+# and then stat-ed answers a different question per platform; the same is true of any code that
+# compares paths as strings or assumes a separator. A single-OS matrix cannot see that class at
+# all. It is not hypothetical: on 2026-09-23 a sibling repo's test passed on this Windows machine
+# and failed on a clean Ubuntu runner for exactly that reason, and it was found the first time
+# anybody looked. Deleting a runner here deletes the only instrument in the project that can see
+# it.
+#
 # Two runners on purpose. The README is Windows-first and says of macOS and Linux only that "the
 # interpreter is .venv/bin/python with forward slashes, and nothing else about the commands
 # changes". That sentence had never been run on a POSIX machine -- there is no Linux or macOS
