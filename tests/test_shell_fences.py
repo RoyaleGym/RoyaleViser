@@ -24,21 +24,11 @@ WHAT IT CHECKS, AND WHAT IT DELIBERATELY DOES NOT
     guard whose self-test is never run is a guard nobody has seen work.
 
 THE READER-PAGE CHECK IS NOT WIRED HERE YET, AND THAT IS THE POINT OF THIS PARAGRAPH
-    ``README.md`` has 17 of these blocks, the most of the four repos. The prose repair
-    belongs to the session that owns that file and had not landed when this was written,
-    and a guard pointed at a page somebody else is mid-edit on is a red suite for every
-    session in the tree. The moment the repair lands, add::
-
-        READER_PAGES = ("README.md",)
-
-        @pytest.mark.parametrize("page", READER_PAGES)
-        def test_a_reader_could_paste_this_page_into_their_shell(page: str) -> None:
-            problems = check_text((REPO / page).read_text(encoding="utf-8"), page)
-            assert not problems, "\\n  ".join(problems)
-
-    It returns 17 problems today, so it is a real assertion rather than a formality, and
-    leaving it out is the one gap in this file. Do not let it be forgotten: the guard's
-    whole value is on that page, and everything below only proves the guard still works.
+    ``README.md`` had 17 of these blocks, the most of the four repos. The check below was
+    deliberately left unwired until the prose repair landed, because a guard pointed at a
+    page another session is mid-edit on is a red suite for everyone in the tree, and a
+    guard that cries wolf is one somebody switches off. The repair is ``90eb5a1``. The
+    guard reported 17 before it and 0 after, which is the evidence for both of them.
 
 A GUARD WITH FALSE POSITIVES IS ONE SOMEBODY SWITCHES OFF
     The checker's first version demanded a named shell near EVERY block rather than once
@@ -53,10 +43,17 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from _shell_fences import check_text, selftest
 
 REPO = Path(__file__).resolve().parents[1]
 CHECKER = Path(__file__).resolve().parent / "_shell_fences.py"
+
+#: The pages a reader lands on and pastes from. Not every .md in the repo: the guard is
+#: about what a newcomer runs, and a contributor reference that shows a POSIX command is
+#: not the same promise. This repo publishes one such page.
+READER_PAGES = ("README.md",)
 
 
 def test_the_guards_own_self_test_passes() -> None:
@@ -115,14 +112,21 @@ def test_the_checker_is_the_vendored_copy_and_not_a_local_rewrite() -> None:
     )
 
 
-def test_the_guard_still_has_something_to_say_about_this_repo_s_own_page() -> None:
-    """The stand-in for the missing reader-page check, and it is NOT the same promise.
+@pytest.mark.parametrize("page", READER_PAGES)
+def test_a_reader_could_paste_this_page_into_their_shell(page: str) -> None:
+    """The check the rest of this file exists to support.
 
-    It asserts only that the guard RUNS on README.md and returns a verdict rather than
-    an exception. A guard that crashes on the only document it exists for looks identical
-    to one with nothing to say, and that is the state this file must not sit in quietly
-    while the real check is waiting on another session.
+    The page is named rather than globbed: the guard is about what a NEWCOMER runs, and a
+    contributor reference that shows a POSIX command is not the same promise. Adding a
+    page here is a decision, not a discovery.
     """
-    problems = check_text((REPO / "README.md").read_text(encoding="utf-8"), "README.md")
-    assert isinstance(problems, list)
-    assert all(p.startswith("README.md:") for p in problems), problems
+    path = REPO / page
+    assert path.exists(), f"{page} is named here as a reader-facing page and does not exist"
+    problems = check_text(path.read_text(encoding="utf-8"), page)
+    assert not problems, (
+        f"{page} has {len(problems)} block(s) a reader's shell would not run:\n  "
+        + "\n  ".join(problems)
+        + "\n\nThese are shapes, not opinions: && is a parse error in Windows PowerShell, "
+        "a trailing # is not a comment in cmd, and bash eats backslashes. If the page is "
+        "right and this is wrong, fix the guard rather than silencing it."
+    )
