@@ -254,6 +254,8 @@ The vectorised environment reads that when you build it. It binds one publisher 
 game 0. None of your own code changes:
 
 ```python
+from royalegym import ClashSelfPlayVecEnv
+
 env = ClashSelfPlayVecEnv(8)
 ```
 
@@ -268,10 +270,18 @@ which one. So the vectorised environment is the thing that reads `ROYALEVISER`: 
 sender once and hands it to game 0. Eight games all reaching for the viewer's one UDP port is an
 error, not eight streams.
 
+`9870` is a default, not the address. One run holds that port while it streams, so a second run
+on the same machine needs its own: `ROYALEVISER=127.0.0.1:9872`, and a viewer pointed at the same
+number. Starting a second run on a port that is taken fails when it binds, with the operating
+system's message about the address being in use rather than anything about training.
+
 A single environment reads no environment variable of its own. You hand it a sender directly.
 `ViserPublisher` comes from `royalegym.viser`, and on its own it sends to `127.0.0.1:9870`:
 
 ```python
+from royalegym import ClashParallelEnv, RustEngine
+from royalegym.viser import ViserPublisher
+
 env = ClashParallelEnv(RustEngine(), viser=ViserPublisher())
 ```
 

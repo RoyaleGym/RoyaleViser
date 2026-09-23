@@ -969,6 +969,7 @@ class StreamSource:
             self.heartbeat()
         newest: bytes | None = None
         status: bytes | None = None
+        got = 0  # frame datagrams READ this drain, whether or not they were decoded
         while True:
             try:
                 data, _addr = self._sock.recvfrom(STREAM_MAX_DATAGRAM)
@@ -981,6 +982,7 @@ class StreamSource:
                 status = data
                 continue
             newest = data
+            got += 1
             self.index += 1
             self._times.append(now)
         while self._times and now - self._times[0] > 1.0:
@@ -988,11 +990,25 @@ class StreamSource:
         if status is not None:
             self.take_learning(status)
         if newest is not None:
-            self.take_frame(newest)
+            self.take_frame(newest, got)
         return self._last
 
-    def take_frame(self, data: bytes) -> None:
-        """Decode one frame datagram into ``_last``, counting the sequence gaps before it."""
+    def take_frame(self, data: bytes, read: int = 1) -> None:
+        """Decode one frame datagram into ``_last``, counting the datagrams LOST before it.
+
+        ``read`` is how many frame datagrams this drain took off the socket, of which this is
+        the newest and the only one decoded. Lost is the gap in ``seq`` MINUS the ones that
+        arrived and were skipped, because those two are not the same thing and only the first
+        is a fault.
+
+        This used to count the whole seq gap. It read 0 while the environment published once
+        per decision, and became wrong the moment gym published once per engine tick
+        (RoyaleGym 187d5fa): 10 datagrams per step, 9 of them superseded before the next draw,
+        so a healthy stream reported 9 drops a step -- about 90 % loss -- on a link that had
+        lost nothing. Measured here before and after. A counter that reports normal operation
+        as failure is worse than no counter, because it is the one a person checks when the
+        window looks wrong.
+        """
         try:
             f = decode_frame(data)
         except ValueError:  # msgspec's DecodeError and ValidationError, and a bad UTF-8 name
@@ -1000,7 +1016,7 @@ class StreamSource:
             return
         seq = f.meta.get("seq")
         if isinstance(seq, int) and self._last_seq is not None and seq > self._last_seq + 1:
-            self.drops += seq - self._last_seq - 1
+            self.drops += max(0, seq - self._last_seq - read)
         if isinstance(seq, int):
             self._last_seq = seq
         if not self.units_per_tile:

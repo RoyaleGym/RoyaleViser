@@ -727,7 +727,12 @@ def test_stream_round_trip_with_the_env_publisher() -> None:
     first_tick = f.tick
     env.step({"blue": 0, "red": 0})
     f2 = wait_for(src)
-    assert f2 is not None and f2.tick > first_tick and f2.meta["seq"] == f.meta["seq"] + 1
+    # The sequence ADVANCES; it does not advance by one. This asserted `+ 1` while the
+    # environment published once per decision, and RoyaleGym 187d5fa made it once per engine
+    # tick -- ten datagrams a step at the shipped timings. The property is that no datagram
+    # goes missing between them, which is what `drops` now means; the literal was the old
+    # publish rate written into this repo's test.
+    assert f2 is not None and f2.tick > first_tick and f2.meta["seq"] > f.meta["seq"]
     assert "fps" in src.status() and src.drops == 0
     src.close()
     env.close()
