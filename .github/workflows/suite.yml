@@ -70,6 +70,21 @@ jobs:
         if: runner.os != 'Windows'
         run: .venv/bin/python -m pip install pytest hypothesis ruff
 
+      # The README's media extra, so the mp4/gif encoder path is EXERCISED rather than skipped.
+      # capture() writes PNG with nothing but this package; mp4 and gif go through the ffmpeg
+      # binary imageio-ffmpeg ships. Until 2026-09-23 that path had only ever run on Windows --
+      # VISER-capture-posix was deferred for want of a POSIX machine, and the ubuntu leg is one.
+      # A separate step because it is an OPTIONAL extra: the install under test above stays the
+      # README's short way verbatim, and this adds the feature the README documents separately.
+      - name: the README's media extra
+        shell: pwsh
+        if: runner.os == 'Windows'
+        run: .venv\Scripts\python -m pip install -e "RoyaleViser[media]"
+
+      - name: the README's media extra
+        if: runner.os != 'Windows'
+        run: .venv/bin/python -m pip install -e "RoyaleViser[media]"
+
       # ROYALELIVE_REPORTS is deliberately unset: this is the CLONE case, which is the one a
       # contributor has. Four tests skip and each names its own remedy in the skip line.
       - name: suite
