@@ -47,6 +47,9 @@ class Theme:
     # of its own because the ring is RECOMPUTED, not recorded, and must not read as engine data.
     contact_self: Color = (255, 214, 92)
     contact_ring: Color = (120, 214, 255)
+    # The divergence arrow: this side's position to the other side's. Distinct from the
+    # contact ring because one is measured from two sources and the other is recomputed.
+    divergence_arrow: Color = (255, 92, 148)
     # UI
     ui_bg: Color = (30, 30, 40)
     ui_panel: Color = (40, 40, 54)

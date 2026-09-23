@@ -103,6 +103,10 @@ class ViewState:
     # step is a function of. RECOMPUTED from positions and radii, never recorded -- see
     # ``Renderer._draw_contact_neighbours``.
     show_contact: bool = False
+    # An arrow from this side's position to the other side's, for units further apart than
+    # divergence_tolerance raw units. Direction is the signal; see _draw_divergence.
+    show_divergence: bool = False
+    divergence_tolerance: int = 0
     hover_uid: str | int | None = None  # the unit under the mouse, for the inspector
     compare_frame: Frame | None = None  # a second source's frame at the same tick (ghosted)
     selected_uid: str | int | None = None  # a clicked unit: the inspector sticks to it
@@ -702,6 +706,7 @@ class Renderer:
             self._draw_compare(view.compare_frame, view.seat)
         self.surface.set_clip(None)
         self._draw_contact_neighbours(frame, view)
+        self._draw_divergence(frame, view)
         self._draw_stale_board(transport)
         self._draw_arena_hud(frame, view)
         self._draw_dashboard(frame, view, transport)
@@ -762,6 +767,54 @@ class Renderer:
                 self.surface, t.contact_ring, (ox, oy), self.px_len(other.radius, upt), 2
             )
             pygame.draw.line(self.surface, t.contact_ring, (px, py), (ox, oy), 1)
+
+    def divergence_arrows(
+        self, frame: Frame, other: Frame, tolerance: int
+    ) -> list[tuple[Unit, Unit]]:
+        """Pairs (this side's unit, the other side's unit) that are further apart than
+        ``tolerance``, keyed by uid.
+
+        BY UID, never by name and distance. Two units of one card that swapped places pair
+        with each other's positions and the tick reads as agreeing, which is the defect the
+        pairing is supposed to show; the two sides of a parity trace both key by the
+        recording's entity key, so the uid is available and is the only honest join.
+
+        A uid on one side only is NOT returned here. That is a presence difference, it has no
+        direction to draw, and drawing it as an arrow to nowhere would put the shape death
+        timing makes into the shape contact makes. ``ParitySource.first_divergence`` reports
+        it, with a distance of None.
+        """
+        out = []
+        for u in frame.units:
+            twin = other.unit(u.uid)
+            if twin is None:
+                continue
+            dx, dy = twin.x - u.x, twin.y - u.y
+            if dx * dx + dy * dy > tolerance * tolerance:
+                out.append((u, twin))
+        return out
+
+    def _draw_divergence(self, frame: Frame, view: ViewState) -> None:
+        """An arrow from where this side has each unit to where the other side has it.
+
+        Direction is the signal, which is why this exists at all: a push the wrong way and a
+        push too far are the same number in a distance column and nothing alike as arrows.
+        Restricted to the pinned unit when one is pinned, because on a diverged tick every
+        unit has an arrow and the board becomes unreadable.
+        """
+        other = view.compare_frame
+        if not view.show_divergence or other is None:
+            return
+        upt = frame.units_per_tile
+        t = self.theme
+        pinned = view.selected_uid if view.selected_uid is not None else view.hover_uid
+        for u, twin in self.divergence_arrows(frame, other, view.divergence_tolerance):
+            if pinned is not None and u.uid != pinned:
+                continue
+            x0, y0 = self.to_px(u.x, u.y, upt, view.seat)
+            x1, y1 = self.to_px(twin.x, twin.y, other.units_per_tile, view.seat)
+            pygame.draw.line(self.surface, t.divergence_arrow, (x0, y0), (x1, y1), 2)
+            pygame.draw.circle(self.surface, t.divergence_arrow, (x1, y1), 4)
 
     def _draw_stale_board(self, transport: Transport) -> None:
         """Say ON the board that it has stopped, when a live source has gone quiet.

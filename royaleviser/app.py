@@ -71,6 +71,7 @@ KEYS: list[tuple[str, str]] = [
     ("d", "debug numbers"),
     ("b", "building footprints"),
     ("n", "contact neighbours of the pinned unit"),
+    ("v", "divergence arrows against the compare source"),
     ("c", "compare ghost"),
     ("h", "this help"),
     ("s / F12", "save a PNG"),
@@ -792,6 +793,8 @@ class App:
             view.show_footprints = not view.show_footprints
         elif key == pygame.K_n:
             view.show_contact = not view.show_contact
+        elif key == pygame.K_v:
+            view.show_divergence = not view.show_divergence
         elif key == pygame.K_c:
             view.show_compare = not view.show_compare
         elif key == pygame.K_h:
