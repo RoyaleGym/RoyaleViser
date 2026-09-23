@@ -117,13 +117,24 @@ jobs:
       # (test_model.py, test_sources.py, test_learner_protocol.py), and the clone-shaped job
       # is exactly the environment where all three fire. The fix is not better arithmetic; it
       # is the run saying the number.
+      # The venv interpreter, not a bare `pytest`: this job installs into .venv the README's
+      # way, so pytest is not on PATH. The first version used bare pytest and exited 127 here
+      # while passing in the full-stack job, which installs into the system python.
       - name: collected
+        shell: pwsh
+        if: ${{ always() && runner.os == 'Windows' }}
         working-directory: RoyaleViser
+        run: |
+          "collected on ${{ matrix.os }}:" >> $env:GITHUB_STEP_SUMMARY
+          ..\.venv\Scripts\python -m pytest -q --collect-only | Select-Object -Last 1 | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+
+      - name: collected
         shell: bash
-        if: always()
+        if: ${{ always() && runner.os != 'Windows' }}
+        working-directory: RoyaleViser
         run: |
           echo "collected on ${{ matrix.os }}:" >> "$GITHUB_STEP_SUMMARY"
-          pytest -q --collect-only 2>&1 | tail -1 | tee -a "$GITHUB_STEP_SUMMARY"
+          ../.venv/bin/python -m pytest -q --collect-only 2>&1 | tail -1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Gym's rule: a count is never recorded without the build digest. This repo's suite runs
       # with no engine at all, so the honest record is that there was none rather than a blank.
