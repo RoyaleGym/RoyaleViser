@@ -27,10 +27,43 @@ def source(tmp_path: Path, rows: list[dict], side: str = ENGINE) -> ParitySource
     return ParitySource(p, side)
 
 
-def with_push(r: dict, push: list[int] | None) -> dict:
+def with_push(r: dict, push: list[int] | None, radius: int | None = None) -> dict:
     if push is not None:
         r["push"] = push
+    if radius is not None:
+        r["radius"] = radius
     return r
+
+
+def test_the_radius_comes_from_the_row_and_reaches_both_sides(tmp_path: Path) -> None:
+    """Sim added it per UNIT (RoyaleSim d4a6f5e) because a summoned unit has its own and the
+    row's card is the ROOT that produced it: a card table would draw a Witch's Skeletons as
+    Witches, wrong in exactly the crowded cases contact is about.
+
+    Both sides get it on purpose. It is a static property of the unit rather than an
+    observation of either run, and a recording carries no radius at all, so without this the
+    ring is empty on every tick of a parity trace.
+    """
+    cells = ([1, 1, 5, 1, 0, -1], [1, 1, 5, 0, 0, -1])
+    rows = [with_push(row(10, 7, "Knight", *cells), [0, 0, 0], radius=600)]
+    for side in (ENGINE, RECORDING):
+        src = source(tmp_path, rows, side)
+        try:
+            assert src.frame().unit(7).radius == 600, side
+        finally:
+            src.close()
+
+
+def test_a_row_without_a_radius_reads_zero_rather_than_a_guess(tmp_path: Path) -> None:
+    """0 is this viewer's word for "not in this source", and it is what makes the contact ring
+    REFUSE rather than draw an empty ring that reads as "nothing overlapped". Older traces have
+    no radius field at all and must not silently become units of some default size."""
+    cells = ([1, 1, 5, 1, 0, -1], [1, 1, 5, 0, 0, -1])
+    src = source(tmp_path, [with_push(row(10, 7, "Knight", *cells), [0, 0, 0])])
+    try:
+        assert src.frame().unit(7).radius == 0
+    finally:
+        src.close()
 
 
 def test_a_zero_push_is_carried_and_a_missing_one_is_not(tmp_path: Path) -> None:
@@ -79,21 +112,31 @@ def test_the_ring_is_checked_against_the_engines_own_count(tmp_path: Path) -> No
     from royaleviser.render import Renderer
 
     r = Renderer(scale=16)
+    near = ([1, 1, 5, 1, 0, -1], [1, 1, 5, 0, 0, -1])
+    far = ([90000, 1, 5, 1, 0, -1], [90000, 1, 5, 0, 0, -1])
     rows = [
-        with_push(row(10, 7, "Knight", [1, 1, 5, 1, 0, -1], [1, 1, 5, 0, 0, -1]), [0, 0, 1]),
-        with_push(row(10, 8, "Giant", [90000, 1, 5, 1, 0, -1], [90000, 1, 5, 0, 0, -1]), [0, 0, 0]),
+        with_push(row(10, 7, "Knight", *near), [0, 0, 1]),
+        with_push(row(10, 8, "Giant", *far), [0, 0, 0]),
     ]
     src = source(tmp_path, rows)
     try:
         f = src.frame()
-        # A PARITY TRACE CARRIES NO RADIUS, so the ring is empty on every tick of it and
-        # comparing it would report a disagreement whenever the engine saw anything. The check
-        # refuses instead of inventing findings; this is the state sim's own traces are in.
+        # Without radii in the rows the ring is empty on EVERY tick, so comparing it would
+        # report a disagreement wherever the engine saw anything. It refuses instead. This is
+        # the state every parity trace written before RoyaleSim d4a6f5e is in.
         assert r.ring_disagrees_with_the_file(f, 7).startswith("no radii")
+    finally:
+        src.close()
 
-        # Given radii, it compares: a ring of 0 against a file saying 1 is the real case.
-        for u in f.units:
-            u.radius = 400
+    # With radii carried, the check is live and does its job: the two units are 89 tiles apart,
+    # so the ring holds nothing while the file says the engine saw one neighbour.
+    live = [
+        with_push(row(10, 7, "Knight", *near), [0, 0, 1], radius=400),
+        with_push(row(10, 8, "Giant", *far), [0, 0, 0], radius=400),
+    ]
+    src = source(tmp_path, live)
+    try:
+        f = src.frame()
         assert r.ring_disagrees_with_the_file(f, 7) == "ring 0 / engine 1"
         assert r.ring_disagrees_with_the_file(f, 8) == "", "agreement must be silent"
     finally:

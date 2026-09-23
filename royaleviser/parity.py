@@ -333,7 +333,16 @@ class ParitySource:
             y=y,
             hp=hp,
             max_hp=0,  # a parity file has no maximum; see _max_hp above
-            radius=0,
+            # The engine's own collision radius for THIS entity, which a recording does not
+            # carry at all. Applied to BOTH sides deliberately: it is a static property of the
+            # unit rather than an observation of either run, and the two sides are the same
+            # unit. Per-unit rather than per-card because a summoned unit has its own radius
+            # and the row's card is the ROOT that produced it -- a card table would have drawn
+            # a Witch's Skeletons as Witches, wrong in exactly the crowded cases contact is
+            # about (sim's reasoning, RoyaleSim d4a6f5e). 0 when the row does not carry it,
+            # which is this viewer's word for "not in this source" and makes the contact ring
+            # refuse rather than draw an empty one.
+            radius=int(row["radius"]) if row.get("radius") is not None else 0,
             flying=False,  # not in the file; the viewer draws no shadow rather than a wrong one
             deploy_ticks=1 if deploying else 0,
             stun_ticks=0,
