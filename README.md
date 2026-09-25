@@ -483,8 +483,8 @@ window refusing to draw something.
 - A recording holds only the recording player's hand. The opponent's shows as "hand: not in this
   source" until the results screen. A trace's cycle past the revealed cards shows as "next ?".
 
-A clone of THIS REPO ALONE, installed the short way, runs `pytest -q` to 212 passed and 11
-skipped (CI at 0ae8702, 2026-09-24, the same on Windows and Linux): the tests that need a
+A clone of THIS REPO ALONE, installed the short way, runs `pytest -q` to 226 passed and 11
+skipped (CI at 31aa10c, 2026-09-24, the same on Windows and Linux): the tests that need a
 sibling package skip and each says so. That figure is CI's, from a runner that has nothing but
 this repo, because this project's development machine has all five repos installed and cannot
 produce it -- measured there it gives a different pair, which is a different machine wearing the
