@@ -433,13 +433,13 @@ Here is what each piece of the viewer needs.
 ## Status
 
 <p align="center">
-  <img alt="pytest on a clone at fb84343, 2026-09-24: 284 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--24-284_passed%2C_4_skipped-2ea043?style=flat-square">
+  <img alt="pytest on a clone at c3ec34b, 2026-09-24: 298 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--24-298_passed%2C_4_skipped-2ea043?style=flat-square">
   <img alt="Draw cost" src="https://img.shields.io/badge/draw-2--5_ms_per_frame-2ea043?style=flat-square">
   <img alt="Cost when unwatched" src="https://img.shields.io/badge/unwatched-193_ns_per_step-2ea043?style=flat-square">
 </p>
 
-The test badge is a clone's run at `fb84343`, measured with `ROYALELIVE_REPORTS` pointed at
-an empty folder. On a machine that has the recordings the same pytest run is 287 passed, 1 skipped.
+The test badge is a clone's run at `c3ec34b`, measured with `ROYALELIVE_REPORTS` pointed at
+an empty folder. On a machine that has the recordings the same pytest run is 301 passed, 1 skipped.
 
 As of 2026-09-22, this works end to end:
 
@@ -492,8 +492,8 @@ same name. The counts below are for a machine with the rest of
 the stack. Until 2026-09-23 that case could not collect the suite at all, which nothing had ever
 run.
 
-Tests. Start in the `Royale` folder. On a clone the first line prints 284 passed, 4 skipped
-(2026-09-24, fb84343), and the second prints nothing at all when it is happy. Both tools come
+Tests. Start in the `Royale` folder. On a clone the first line prints 298 passed, 4 skipped
+(2026-09-24, c3ec34b), and the second prints nothing at all when it is happy. Both tools come
 from the `pip install maturin pytest hypothesis ruff` line in [Setup](#setup), so the short way
 on its own does not have them:
 
@@ -507,7 +507,7 @@ Three of those skips are tests that pin numbers only a recording of a real battl
 recordings are private, so your clone does not have them, and the run prints "SKIPPED, NOT
 PASSED" for each one so nobody mistakes a skip for a pass. The fourth needs a parity results
 file from RoyaleSim's replay harness. On the machine that has the recordings, the first three
-run and the count is 287 passed, 1 skipped.
+run and the count is 301 passed, 1 skipped.
 
 Without the `media` extra (`imageio-ffmpeg`), the mp4 and gif test skips as well, and it says so.
 Install it with `.venv\Scripts\python -m pip install -e "RoyaleViser[media]"` from the `Royale`
