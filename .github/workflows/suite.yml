@@ -232,13 +232,18 @@ jobs:
       # The README's Stage 3. RoyaleSim's tables are GENERATED rather than stored, so a fresh
       # clone has none and `default_board()` would have no arena to load. Learn lost two CI runs
       # to skipping this; taking its recipe rather than rediscovering it.
+      #
+      # The card table the engine loads is `cards-15.535.json`, committed to RoyaleSim and COPIED
+      # into place, exactly as the README tells a user to. This job used to write the 2018 table
+      # there instead, so every engine result it reported was about a table no user loads
+      # (integrator, 2026-09-25). The 2018 table is still built beside it, as the README builds it.
       - name: generate RoyaleSim's data tables
         working-directory: RoyaleSim
         shell: bash
         run: |
           python tools/extract_arena.py
           python tools/extract_cards.py --vintage 2018
-          python tools/extract_cards.py --vintage 2018 --out data/derived/cards.json
+          cp data/derived/cards-15.535.json data/derived/cards.json
           python tools/extract_globals.py
 
       - name: install the stack
