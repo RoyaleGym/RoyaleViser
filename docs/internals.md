@@ -344,6 +344,9 @@ crowns), so the converters are tested against a known answer rather than against
   pacing, `run` with `--shot` and `--geometry`. The footprint tests grade the drawn PIXELS
   rather than the helper that positions them: a helper returning the right rectangle and a
   draw call using a different one is the bug they exist for.
+- `tests/test_status_effects.py`: status effects, spell cards and shots, read back from the
+  drawn pixels on unit rows shaped the way the engine sends them, and `engine_tables.py`
+  re-derived from RoyaleSim's card data of the same vintage (a loud skip without it).
 - `tests/test_parity.py`: both sides of a parity trace, on a file written by hand in the
   harness's row shape. One test opens a file the harness itself wrote and SKIPS where no
   results file with rows is on this machine; it is the only one that can say the shape is
@@ -359,12 +362,12 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at 23146b5 on 2026-09-23, with `pytest --collect-only -q` collecting 211:
+The suite has two correct results, and both are one command apart. Measured at fb84343 on 2026-09-24, with `pytest --collect-only -q` collecting 288:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **207 passed, 4 skipped** |
-| this machine, with the recordings | **210 passed, 1 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **284 passed, 4 skipped** |
+| this machine, with the recordings | **287 passed, 1 skipped** |
 
 The four skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
