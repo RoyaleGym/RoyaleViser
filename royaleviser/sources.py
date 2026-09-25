@@ -714,7 +714,9 @@ class TraceSource:
     ``load_trace`` decodes .msgpack or .json. Per frame: entities -> units through
     royalegym.viser.unit_dict (the rows a running engine publishes, so a trace and a stream
     of the same battle draw identically: uid the engine's, towers named by kind, path [] --
-    the engine does not record paths -- target None), spells -> Spell the same way,
+    the engine does not record paths -- and target, facing, attack phase, effects and shield
+    as the engine exported them, None or empty in a trace recorded before it did), spells ->
+    Spell the same way, shots -> Projectile,
     elixir_milli / crowns / hands from the frame, deck from the header's setup, next_card and
     the cycle from the hand history (the cycle rule: the front of the 8-card queue enters
     the hand and the played card goes to the back; with ShuffleMode.NONE the queue is
@@ -938,7 +940,7 @@ class StreamSource:
 
     ``learning_peer`` is a second address the same socket says hello to: a learner's
     ``LearningPublisher``, which sends a status datagram once per iteration instead of a
-    frame per step. The last one received is ``learning``, which the app hands the panel;
+    frame per engine tick. The last one received is ``learning``, which the app hands the panel;
     it stays None while nothing sends one, and a status keeps standing until the next one
     replaces it -- including while the environment is between rollouts and no frame moves.
     ``open_source`` and the command line pair it with ``learning_endpoint(host, port)``;

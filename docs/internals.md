@@ -406,7 +406,9 @@ already holds a `Frame`.
 
 1. The viewer binds a UDP socket and sends the heartbeat datagram `royaleviser 1` to the
    publisher's `host:port` (default `127.0.0.1:9870`) once a second while it is open.
-2. An environment calls `publish` once per `reset()` / `step()`, and only when it has been
+2. An environment calls `publish` on `reset()` and, while a viewer is attached, once per
+   ENGINE TICK of each `step()` (RoyaleGym 187d5fa, 2026-09-22; before it, once per step,
+   which at the defaults was 2 frames a second). It publishes only when it has been
    handed a publisher: `ClashParallelEnv(..., viser=ViserPublisher())`, which reads no
    environment variable of its own, the default `None` costing one `if`. The vectorised env
    is what reads `ROYALEVISER=host:port`. `ClashSelfPlayVecEnv(..., viser="env")`, the
@@ -416,11 +418,15 @@ already holds a `Frame`.
    While no heartbeat has arrived in `ATTACH_TIMEOUT_S` (3 s), `publish` returns after one
    clock read, 193 ns per call, measured 2026-09-21 over 200k calls, best of three. It polls
    its socket for heartbeats at most once a second.
-3. While attached it sends one msgpack datagram per call to the last heartbeat's address:
-   measured 2.6 KB for 18 units (12 troops and the 6 towers, which are units of their own
-   kind, not a list beside them), 11 KB for 60. A datagram over 65507
-   bytes is resent with the unit paths emptied, then dropped and counted
-   (`publisher.dropped`).
+3. While attached it sends one msgpack datagram per call to the last heartbeat's address.
+   On 2026-09-21 that measured 2.6 KB for 18 units (12 troops and the 6 towers, which are
+   units of their own kind, not a list beside them) and 11 KB for 60; which source those
+   frames came from was not recorded. Frames have grown since: each unit now also carries its
+   target, facing, attack phase, effects and shield, and a frame its shots. The test suite's
+   synthetic dense frame, whose units carry more raw fields than an engine's, measured
+   14.4 KB for 63 units with an effect on every troop (2026-09-24). The limit that matters is
+   the datagram's 65507 bytes: one over it is resent with the unit paths emptied, then
+   dropped and counted (`publisher.dropped`).
 
    **What that costs a training run was measured on 2026-09-22, and the answer is nothing
    this measurement could detect.** Eighteen iterations alternating three attached and three
@@ -439,9 +445,11 @@ already holds a `Frame`.
    `RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's
    decoder, so a drift between the two ends fails there rather than in someone's window.
 
-The stream carries **one frame per env step** (`decision_ms` worth of ticks, 10 at the
-defaults), not one per engine tick. For a per-tick view, record with
-`ReplayRecorder(frame_every_tick=True)` and open the trace.
+While a viewer is attached the stream carries **one frame per engine tick**, 20 a second
+(RoyaleGym 187d5fa, 2026-09-22). Before that it carried one per env step, `decision_ms` worth
+of ticks, which at the defaults was 2 frames a second. A trace is different: it has one frame
+per tick only when recorded with `ReplayRecorder(frame_every_tick=True)`, and one per step
+otherwise, whoever was watching.
 
 ## The learning status
 
@@ -639,7 +647,7 @@ the renderer computes no size of its own and everything is an integer.
 |---|---|---|
 | dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px cards with their cost, dimmed when it is more than the player's elixir), its elixir bar (thousandths) and next card; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading naming the port it is listening on while nothing is there ("no learner on 127.0.0.1:9871" for a stream, "no learner attached" for a source that names no learner at all), and the rows that do not fit the column left out); the bottom player's elixir bar and next card, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
 | arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, each crown tower's zone outline, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the crowns and clock in a small box top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
-| inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, then whatever else the source carries under "extra"), then the compare lines and the `H` help footer |
+| inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, then whatever else the source carries under "extra"), except each status effect's time left, which is shown in tenths of a second; then the compare lines and the `H` help footer |
 
 The palette is carried over from the project's earlier Python renderer: grass
 (188,195,55)/(217,215,47), river (106,230,237), bridge (255,175,120), team 0 blue
@@ -766,17 +774,21 @@ was deferred rather than tested.
 
 - **Both engines have been drawn** (2026-09-21): a 2001-frame `RustEngine` trace passes
   `model.problems` on every frame, and a `RustEngine` env streaming live sent 329 datagrams
-  over 360 env steps with 0 dropped. Trace and stream go through the same
-  `frame_from_state`, so the two draw identically.
-- **Per-tick engine frames** are not available over the stream (one frame per env step); use
-  a `frame_every_tick` trace instead.
+  over 360 env steps with 0 dropped, when a stream still sent one frame per step. Trace and
+  stream go through the same `frame_from_state`, so the two draw identically.
+- **A trace has per-tick frames only if it was recorded with `frame_every_tick`.** One
+  recorded per step never shows a shot shorter than a step, and a tower in it can look as if
+  it never fires. The stream sends every tick while a viewer is attached.
 - **Units in a capture carry no radius and no flying flag**, so every one of them is drawn at
   the renderer's default radius and air units look like ground units. Deploying is a state
   there (visible for one tick), not a countdown.
-- **Engine units carry no path and no target** in a `BattleState`, so `p` and `t` draw
-  nothing for traces and streams.
+- **Engine units carry no path** in a `BattleState`, so `p` draws nothing for traces and
+  streams. They carry their target since RoyaleSim 39d5b98 (2026-09-24), so `t` draws a line
+  to it in a battle recorded or streamed since then, and nothing in an older one.
 - **Spells in a capture** are limited to projectiles and the few spells that leave an effect
   carrying their card id (Fireball, Arrows, Rocket, Log, Barbarian Barrel); most leave none.
-  They are drawn as a default-radius ring. There are no rage, poison or freeze zones.
+  A spell card among them is drawn by its family at its card's radius; a shot arrives as a
+  spell named "... shot" and is never drawn as an area. A capture carries no rage, poison or
+  freeze zones.
 - **An opponent's hand and deck** are not in a capture, and a trace's cycle beyond the
   revealed cards shows as "next ?".
