@@ -37,7 +37,7 @@ so regenerating is a clean diff. See `docs/internals.md` for the function.
 | `tile-event-log.png`, `tile-inspector.png` | screenshot of an engine trace | The event list, and every raw field of a pinned unit. |
 | `tile-live-stream.png` | screenshot of a running environment | The viewer attached over UDP while a training run plays. |
 | `tile-synthetic-battle.png` | screenshot of the scripted battle | The whole window, rendered with no display. |
-| `family.svg` | hand-drawn | the five repos and how they depend on each other; final |
+| `family.svg` | hand-drawn | the Royale repos and how they depend on each other; final |
 
 ## Two things the captions have to keep saying
 
