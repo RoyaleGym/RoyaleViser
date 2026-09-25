@@ -177,7 +177,7 @@ For a sense of size: a whole scripted battle cropped to `left` at scale 16, ever
 
 ## With the rest of the stack
 
-<p align="center"><img src="docs/media/family.svg" width="100%" alt="The five Royale repos and how they depend on each other; RoyaleViser highlighted"></p>
+<p align="center"><img src="docs/media/family.svg" width="100%" alt="How the Royale repos depend on each other, with RoyaleViser highlighted"></p>
 
 <p align="center">
   <a href="https://github.com/RoyaleGym/RoyaleSim"><img alt="RoyaleSim" src="https://img.shields.io/badge/RoyaleSim-battle_engine-DEA584?style=flat-square&logo=rust&logoColor=white"></a>
@@ -192,6 +192,7 @@ For a sense of size: a whole scripted battle cropped to `left` at scale 16, ever
 | [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) | the layer your bot plugs into: what it sees, what it can do, what it gets rewarded for. Gymnasium, PettingZoo and self-play flavours | the only sibling this package imports. It gives the viewer the trace format (`royalegym.replay`), the engine-side sender (`royalegym.viser.ViserPublisher`, a *publisher* in the code) and the shape of the arena |
 | [RoyaleLearn](https://github.com/RoyaleGym/RoyaleLearn) | the training side: bots playing themselves, PPO (a common training algorithm), a ladder of frozen past opponents, saved checkpoints | a training run streams to the viewer like any other environment |
 | **RoyaleViser** (this repo) | the viewer: recordings, engine traces and running environments, in its own window | the window |
+| [RoyaleImitate](https://github.com/RoyaleGym/RoyaleImitate) | an optional add-on to RoyaleLearn: config sections that start a bot from saved weights and keep it near a reference policy while it learns | nothing |
 | RoyaleLive | private. It records real battles | it writes the recordings the viewer replays and compares |
 
 If you already know RLGym, RocketSim and rlviser, this is the same split. An environment API on
@@ -498,7 +499,7 @@ window refusing to draw something.
 A clone of THIS REPO ALONE, installed the short way, runs `pytest -q` to 226 passed and 11
 skipped (CI at 31aa10c, 2026-09-24, the same on Windows and Linux): the tests that need a
 sibling package skip and each says so. That figure is CI's, from a runner that has nothing but
-this repo, because this project's development machine has all five repos installed and cannot
+this repo, because this project's development machine has every sibling repo installed and cannot
 produce it -- measured there it gives a different pair, which is a different machine wearing the
 same name. The counts below are for a machine with the rest of
 the stack. Until 2026-09-23 that case could not collect the suite at all, which nothing had ever
