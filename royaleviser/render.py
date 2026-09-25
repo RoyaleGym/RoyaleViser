@@ -188,16 +188,19 @@ def status_kinds(unit: Unit) -> list[str]:
     return [k for k in STATUS_ORDER if k in kinds]
 
 
-def effect_line(name: str, ms: int) -> str:
-    """One status effect as the inspector lists it: what this viewer draws it as, its time left,
-    then its ENGINE name, joined names intact ("Freeze|ZapFreeze" is one buff).
+def effect_lines(name: str, ms: int) -> tuple[str, str]:
+    """One status effect as the inspector lists it, on TWO lines: what this viewer draws it as,
+    then, indented under it, its time left and its ENGINE name, joined names intact.
 
-    In that order because the line is cut to the column's width and the engine's names are
-    long: name-first, "Freeze|ZapFreeze (fr..." lost the kind and the time, the two things the
-    line is there to show. ms -1: the source has the effect but not its duration.
+    Two lines because each is cut to the column's width, and one line lost what it existed to
+    show twice. Name first, "Freeze|ZapFreeze (fr..." lost the kind and the time. Kind first on
+    one line, Linux's wider monospace font cut "poison+slow 7.5s" to "7.5..." (CI, 2026-09-24),
+    where Windows' narrower one had passed it. Now the kind and the time each lead a short
+    line, and only the engine name, last, is ever cut. ms -1: the source has the effect but not
+    its duration.
     """
     secs = f"{ms / 1000:.1f}s" if ms >= 0 else "?s"
-    return f"effect   {'+'.join(buff_kinds(name))} {secs} {name}"
+    return f"effect   {'+'.join(buff_kinds(name))}", f"         {secs} {name}"
 
 
 def damage_colour_attr(unit: Unit) -> str:
@@ -1969,7 +1972,7 @@ class Renderer:
             f"flying   {unit.flying}",
             f"deploy   {unit.deploy_ticks} ticks",
             f"stun     {unit.stun_ticks} ticks",
-            *(effect_line(name, ms) for name, ms in unit.status),
+            *(line for name, ms in unit.status for line in effect_lines(name, ms)),
             f"target   {unit.target}",
             f"path     {len(unit.path)} points" + (f", to {unit.path[-1]}" if unit.path else ""),
             f"dir      {unit.direction}",

@@ -48,7 +48,7 @@ from royaleviser.render import (
     buff_kinds,
     classify_status,
     damage_colour_attr,
-    effect_line,
+    effect_lines,
     fit_text,
     spell_style,
     status_kinds,
@@ -365,14 +365,20 @@ def test_damage_over_time_takes_its_own_spells_colour() -> None:
 
 
 def test_the_inspector_keeps_the_kind_and_the_time_when_the_line_is_cut() -> None:
-    """The inspector cuts each line to its column. With the engine's merged name first, the
-    line read "effect   Freeze|ZapFreeze (fr..." and lost the two things it exists to show."""
+    """The inspector cuts each line to its column, in whatever monospace font the machine has.
+    Name first, the line read "effect   Freeze|ZapFreeze (fr..."; kind first on one line, Linux's
+    wider font cut "poison+slow 7.5s" to "7.5..." in CI while Windows passed it. Each check here
+    is on the line as DRAWN, in this machine's font, so a platform whose font is wider fails."""
     r = Renderer(scale=SCALE)
     width = r.layout.hover[2] - 12  # what _draw_inspector gives each line
-    shown = fit_text(effect_line("Freeze|ZapFreeze", 3900), r.fonts["mono"], width)
-    assert "stun" in shown and "3.9s" in shown, shown
-    shown = fit_text(effect_line("Poison", 7500), r.fonts["mono"], width)
-    assert "poison+slow 7.5s" in shown, shown
+    for name, ms, kinds, secs in (
+        ("Freeze|ZapFreeze", 3900, "stun", "3.9s"),
+        ("Poison", 7500, "poison+slow", "7.5s"),
+        ("Vines_Trap_Snare_XXLarge", 12500, "stun+poison", "12.5s"),
+    ):
+        first, second = (fit_text(s, r.fonts["mono"], width) for s in effect_lines(name, ms))
+        assert first.endswith(kinds), first
+        assert second.split()[0] == secs, second
 
 
 # ------------------------------------------------------------------ what is DRAWN
