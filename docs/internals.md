@@ -419,14 +419,14 @@ already holds a `Frame`.
    clock read, 193 ns per call, measured 2026-09-21 over 200k calls, best of three. It polls
    its socket for heartbeats at most once a second.
 3. While attached it sends one msgpack datagram per call to the last heartbeat's address.
-   On 2026-09-21 that measured 2.6 KB for 18 units (12 troops and the 6 towers, which are
-   units of their own kind, not a list beside them) and 11 KB for 60; which source those
-   frames came from was not recorded. Frames have grown since: each unit now also carries its
-   target, facing, attack phase, effects and shield, and a frame its shots. The test suite's
-   synthetic dense frame, whose units carry more raw fields than an engine's, measured
-   14.4 KB for 63 units with an effect on every troop (2026-09-24). The limit that matters is
-   the datagram's 65507 bytes: one over it is resent with the unit paths emptied, then
-   dropped and counted (`publisher.dropped`).
+   The test suite's synthetic dense frame, whose units carry more raw fields than an
+   engine's, measures 14.4 KB for 63 units with an effect on every troop (2026-09-24): an
+   upper bound for today's frames, where each unit also carries its target, facing, attack
+   phase, effects and shield, and a frame its shots. Before those fields existed, MockEngine
+   frames measured 2.6 KB for 18 units (12 troops and the 6 towers, which are units of their
+   own kind, not a list beside them) and 11 KB for 60 (2026-09-20, RoyaleGym
+   `royalegym/viser.py`). The limit that matters is the datagram's 65507 bytes: one over it
+   is resent with the unit paths emptied, then dropped and counted (`publisher.dropped`).
 
    **What that costs a training run was measured on 2026-09-22, and the answer is nothing
    this measurement could detect.** Eighteen iterations alternating three attached and three
