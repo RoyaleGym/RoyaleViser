@@ -59,6 +59,7 @@ from .model import (
     Learning,
     Names,
     Player,
+    Projectile,
     Spell,
     Unit,
     decode_frame,
@@ -116,6 +117,7 @@ LIVE_ARENA = (18 * LIVE_UNITS_PER_TILE, 32 * LIVE_UNITS_PER_TILE)  # native x, y
 LIVE_KING_X = 9000  # both kings stand on x 9000 (calibration: (9000,3000) and (9000,29000))
 LIVE_BUILDING_MIN = 27_000_000  # card ids: 26xxxxxx troop, 27xxxxxx building, 28xxxxxx spell
 LIVE_SPELL_MIN = 28_000_000
+LIVE_SPELL_MAX = 29_000_000  # exclusive: a form id (hero Musketeer 203000014) is not a spell
 LIVE_PATH_COLS = 36  # path_nodes index a 36x64 half-tile grid, goal first
 LIVE_PATH_CELL = LIVE_UNITS_PER_TILE // 2
 LIVE_REGULAR_TICKS = 3690  # a friendly's regular time; the tick runs on in overtime
@@ -325,9 +327,13 @@ def capture_spell(ef: dict[str, Any], names: Names) -> Spell:
     the aim (the tracked target's position for a shot, the placement for a Fireball);
     ``card_id`` is the SHOOTER's card (-1 a tower) or the spell card (28xxxxxx)."""
     cid = ef.get("card_id", -1)
+    # A spell card is 28xxxxxx and nothing above it. A form id such as the hero Musketeer's
+    # 203000014 is also >= 28000000, and a lower bound alone named its shots "Musketeer", a
+    # spell card that does not exist.
+    spell = LIVE_SPELL_MIN <= cid < LIVE_SPELL_MAX
     if cid < 0:
         name = "Tower shot"
-    elif cid >= LIVE_SPELL_MIN:
+    elif spell:
         name = names.name_of(cid)
     else:
         name = f"{names.name_of(cid)} shot"
@@ -336,10 +342,14 @@ def capture_spell(ef: dict[str, Any], names: Names) -> Spell:
     aimed = 0 <= ax <= LIVE_ARENA[0] and 0 <= ay <= LIVE_ARENA[1]
     if not aimed:
         ax, ay = x, y
+    # A SHOT is never an area. An unaimed or arrived bullet used to take AREA motion, which the
+    # renderer now fills as ground an area spell covers, so a single-target shot would have
+    # painted a spell's disc under the units.
+    area = spell and not (aimed and (ax, ay) != (x, y))
     return Spell(
         team=ef.get("side", 0),
         name=name,
-        motion=0 if aimed and (ax, ay) != (x, y) else 3,  # SpellMotion FLIGHT / AREA
+        motion=3 if area else 0,  # SpellMotion AREA / FLIGHT
         x=x,
         y=y,
         aim_x=ax,
@@ -798,6 +808,23 @@ class TraceSource:
             return TOWER_NAMES[e.kind]
         return self.names.name_of(e.card_id)
 
+    @staticmethod
+    def _projectiles(fr: Any, name_of: Any) -> list[Projectile]:
+        """The shots in flight in one trace frame, through royalegym's own projectile_dict.
+
+        Empty, not an error, in two cases that are both ordinary: a royalegym from before
+        2026-09-24, which has no projectile_dict, and a trace recorded before projectiles were
+        (its frames decode with an empty list). Either way the replay still plays.
+        """
+        try:
+            from royalegym.viser import projectile_dict
+        except ImportError:
+            return []
+        return [
+            msgspec.convert(projectile_dict(p, name_of), Projectile)
+            for p in getattr(fr, "projectiles", ())
+        ]
+
     def frame(self) -> Frame | None:
         from royalegym.viser import spell_dict, unit_dict
 
@@ -809,6 +836,7 @@ class TraceSource:
         name_of = self.names.name_of
         units = [msgspec.convert(unit_dict(e, name_of), Unit) for e in fr.entities]
         spells = [msgspec.convert(spell_dict(s, name_of), Spell) for s in fr.spells]
+        projectiles = self._projectiles(fr, name_of)
         players = [self._player(team, fr, units, self._queues[i][team]) for team in (0, 1)]
         result = self.trace.result
         # A result with no winner is a truncated episode (StepLimitCondition), not a battle end.
@@ -820,6 +848,7 @@ class TraceSource:
             players=players,
             units=units,
             spells=spells,
+            projectiles=projectiles,
             overtime=fr.tick >= self._regular,
             game_over=game_over,
             winner=result.winner if game_over and result is not None else NO_WINNER,
@@ -1045,9 +1074,15 @@ class StreamSource:
             return (
                 f"{self.name} waiting for a publisher (hello every {STREAM_HEARTBEAT_S:g} s){bad}"
             )
+        # How the frames were SAMPLED, said only when the publisher says it. A trace recorded
+        # per decision skips the ticks between two decisions, so a shot shorter than one step
+        # is never in a frame, and a tower can look as if it never fires. Nothing is said when
+        # the publisher is silent: "every tick" would be a claim nobody made.
+        every = self._last.meta.get("frame_every_tick")
+        sampled = " per decision" if every is False else " every tick" if every is True else ""
         return (
             f"{self.name} frames {self.index} {len(self._times):.1f} fps drops {self.drops}"
-            f" tick {self._last.tick}{self.quiet_for()}{bad}"
+            f" tick {self._last.tick}{sampled}{self.quiet_for()}{bad}"
         )
 
     def quiet_seconds(self) -> float | None:
@@ -1306,8 +1341,10 @@ def frame_from_state(
 ) -> Frame:
     """A Frame from a royalegym.protocol.BattleState, the rows royalegym.viser publishes.
 
-    Entities -> units (kind, tower_slot, timers as they are; path [], target None, radius
-    the engine's), spells -> Spell, players -> Player with every flag True (the engine knows
+    Entities -> units (kind, tower_slot, timers as they are; path [], radius the engine's;
+    target, facing, attack phase, status effects and shield as the engine exports them, None or
+    empty from an engine that exports none), spells -> Spell, projectiles -> Projectile,
+    players -> Player with every flag True (the engine knows
     everything), hand/next_card names through ``names``, the cycle beyond next_card empty
     and the deck unknown (a BattleState does not expose them), ``winner``/``overtime``/
     ``game_over`` as reported.

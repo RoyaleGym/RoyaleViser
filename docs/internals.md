@@ -86,12 +86,18 @@ Two things about the ground a watcher used to have to infer.
 
 **Where nothing may be placed is filled grey**: the back rows and the river's corners, taken
 from the arena's own NO_DEPLOY cells rather than from a list here. The KING's block is in that
-data and is deliberately not drawn (owner, 2026-09-23): a building already says this ground is
+data and is deliberately not filled (owner, 2026-09-23): a building already says this ground is
 unusable by standing on it, and the grey only competed with the piece for the reader's eye. It
-was visible rather than hidden -- a building is an unfilled footprint box around a filled
-collision circle, and the king's circle is 1.4 tiles against the block's 1.5-tile half-extent. It used to be a faint outline around each region, which asks a reader to
-reconstruct a shape from its border and reads as decoration beside the grass. A player cannot
-use that ground, so it does not look like ground they can use.
+was visible rather than hidden. A building is an unfilled footprint box around a filled
+collision circle, and the king's circle is 1.4 tiles against the block's 1.5-tile half-extent.
+The grey used to be a faint outline around each region, which asks a reader to reconstruct a
+shape from its border and reads as decoration beside the grass. A player cannot use that
+ground, so it does not look like ground they can use.
+
+**Every crown tower has a thin outline round its zone**, the king's included (owner,
+2026-09-24). This is not the grey fill. It is one line, and it sits inside the tower's white
+footprint box. The first change that stopped filling the king's block took this outline away
+too, and the king was left as the one tower with nothing under it.
 
 **Each bridge carries a brown rail down both long sides.** A bridge is the only way across the
 river and its edge is where a unit stops being on it. The rails are drawn on the half-cells
@@ -110,6 +116,78 @@ Two things the window can say about footprints without knowing any of the engine
 
 Boxes may legitimately touch each other and the side walls; only a positive-area overlap is
 illegal, so a building drawn flush against a tower is not by itself a defect.
+
+## Effects, spells and shots
+
+Until 2026-09-24 a stun was the only effect drawn, every spell was one magenta dot, and
+nothing a unit or tower fired reached the window. The owner watches battles to tell what is
+going on, so each of these now has a shape of its own as well as a colour. A colour alone is
+lost on a colour-blind reader and at the compact layout's small scale.
+
+**Status effects** come from `Unit.status`, the engine's buffs as `(name, ms left)`, plus
+`stun_ticks` and `extra["shield"]`. A unit shows them in three layers:
+
+| layer | what it shows |
+|---|---|
+| the body | the strongest ring effect: freeze (icy veil and a white rim), stun (a jagged ring), poison (a ring of dots), slow (a dashed ring), rage (a purple glow) |
+| the corners | a heal's plus at the top right, a shield at the top left, beside any ring |
+| the pips | one dot per effect above the hp bar, so a unit frozen AND poisoned says both |
+
+Every mark sits on a black copy of itself, one pixel wider, so a yellow stun still reads on
+yellow grass. An effect the viewer cannot name still gets a grey pip, and the inspector lists
+every effect as its kind, its time left and the engine's name for it.
+
+**What a buff does comes from its numbers, not its name.** `royaleviser/engine_tables.py`
+maps each of the engine's buff names to the kinds it gives. It was generated from one vintage
+of RoyaleSim's card data (named in the file) by the rule the engine itself composes speeds
+with:
+
+| the buff's numbers | kind |
+|---|---|
+| speed -100 | a HOLD: the engine stops the unit. A Freeze by name is "freeze"; every other hold (Zap, the Electro Wizard, snares, Stun) is "stun" |
+| damage per second | poison, drawn in the spell's own colour when a spell has one, so an Earthquake is brown and not Poison green |
+| heal per second | heal |
+| a negative speed or hit speed | slow |
+| a speed or hit speed above 100 | rage. 100 is the identity and 0 is a blank column, so neither is a speed change |
+| an attract | pull (a Tornado) |
+
+A buff can give several: Poison is poison AND slow, because it slows by 15 %. Poison comes
+before slow on the body, so a poisoned unit shows what is killing it. The first version read
+words in the name and drew IceWizardCold, BolaSnare, Earthquake and Stun as unknown.
+
+Two things about holds come from how the engine keeps them. It holds a unit through its stun
+timer whatever holds it, so a hold arrives as a buff AND stun ticks. The buff says which hold
+it is, and the ticks add a stun only when no buff explains them. And the engine merges buffs
+whose numbers are identical under one joined name, "Freeze|ZapFreeze". When the parts of a
+joined name disagree, the viewer cannot tell a Zap from a Freeze, so it draws the hold as a
+stun: a stun claims only that the unit cannot act, and an ice veil would claim a Freeze was
+cast.
+
+`tests/test_status_effects.py` re-derives the table from RoyaleSim's data of the same vintage
+when it is on disk, restating the rules independently, and names any entry that has drifted.
+
+**Spell cards** are drawn by family: a ball for Fireball and the Snowball, a volley of strokes
+for Arrows, a streak for the Rocket, a bar across the roll for the Log and the Barbarian
+Barrel ("BarbLog" in the card data), a translucent disc for Poison, Freeze, Rage and the other
+areas, and a disc with a jagged edge for Zap and Lightning. A spell the viewer does not know
+is drawn by its motion in the generic colour. The label stays: the shape says the family and
+the name says the card.
+
+**A spell is drawn at its card's size.** The frame's `extra["radius"]` first, when a source
+sends one, then the card's radius from `engine_tables.SPELL_RADIUS_MILLI`, and 1.5 tiles only
+for a spell neither knows. Until 2026-09-24 every area was 1.5 tiles, so a Poison of 3.5
+covered a fifth of the ground it poisons and units marked as poisoned stood outside it.
+
+**Shots** come from `Frame.projectiles`: a dot with a short tail pointing back along its
+flight. A crown tower's bolt has a white core. A shot whose firer the source does not know
+(`name` None) is drawn plain, because "unknown" must never read as "a tower fired this". A
+splash shot tints the ground it will hit. A recording's shots still arrive as spells named
+"... shot", as before, and a shot is never drawn as an area.
+
+**Ground effects go under the units.** An area spell's fill and a shot's splash are drawn
+before the units, and their edges, labels and shots after. Drawn over the units, a Poison
+cloud dyed every unit in it and a splash dyed its target, so a reader saw the effect's colour
+where the team's colour should have been.
 
 ## The recording format
 
@@ -547,7 +625,7 @@ the renderer computes no size of its own and everything is an integer.
 | Column | Width at 24 px/tile | Contents |
 |---|---|---|
 | dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px cards with their cost, dimmed when it is more than the player's elixir), its elixir bar (thousandths) and next card; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading naming the port it is listening on while nothing is there ("no learner on 127.0.0.1:9871" for a stream, "no learner attached" for a source that names no learner at all), and the rows that do not fit the column left out); the bottom player's elixir bar and next card, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
-| arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, the princess towers' no-deploy rectangles, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the crowns and clock in a small box top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
+| arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, each crown tower's zone outline, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the crowns and clock in a small box top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
 | inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, then whatever else the source carries under "extra"), then the compare lines and the `H` help footer |
 
 The palette is carried over from the project's earlier Python renderer: grass

@@ -162,7 +162,7 @@ def test_wire_round_trip() -> None:
 
 def test_a_status_datagram_is_told_from_a_frame_by_its_first_bytes() -> None:
     """The two kinds share one socket, so the viewer sorts them before decoding anything: a
-    status is the one-key map {"learning": ...}, a frame the twelve of a Frame."""
+    status is the one-key map {"learning": ...}, a frame a map of every Frame field."""
     assert msgspec.msgpack.encode({model.LEARNING_TAG: None})[:-1] == model.LEARNING_PREFIX
     status = model.encode_learning(model.Learning(run="ppo-0007"))
     assert model.is_learning(status) and status.startswith(model.LEARNING_PREFIX)

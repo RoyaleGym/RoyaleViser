@@ -95,13 +95,49 @@ class Unit:
     stun_ticks: int
     target: str | int | None  # another unit's uid
     path: list[tuple[int, int]]  # raw units, start-first
-    direction: tuple[int, int] | None  # live movement_direction_x/y (unit vector * 256)
-    state: int | None  # live behavior_state
+    # A DIRECTION, any length: the renderer normalises it. A recording gives a unit vector * 256;
+    # the engine gives its facing in raw units. None when the source has none (never [0, 0]).
+    direction: tuple[int, int] | None
+    # What the unit is doing, in the SOURCE's own numbering, shown as a number in the inspector.
+    # The engine's is its attack phase (0 idle, 1 windup, 2 cooldown); a recording's is its
+    # behaviour state. The two are not the same scale, so nothing draws from this by value.
+    state: int | None
     extra: dict[str, Any] = field(default_factory=dict)  # raw fields for the inspector
     # The box a building or tower occupies, [x0, y0, x1, y1] closed, raw units, native frame,
     # as the engine reports it. None: a troop, or a source that does not carry it (the renderer
     # then draws a marked stand-in rather than guessing silently).
     footprint: tuple[int, int, int, int] | None = None
+    # Every status effect on the unit OTHER than stun, as the engine names it: (name, ms left).
+    # Rage, Freeze, the Ice Wizard's slow, Poison, a heal... The engine keeps these as buff
+    # slots; stun is a separate timer and stays in ``stun_ticks``. The renderer classifies the
+    # names for drawing and draws an unknown one generically rather than dropping it, so a buff
+    # this viewer has never heard of still shows. ms is -1 when the source has the effect but
+    # not its duration. royalegym's unit_dict fills it from the engine's buff slots; it is empty
+    # from an engine that does not export them and from a recording, which has none.
+    status: list[tuple[str, int]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class Projectile:
+    """A shot in flight that is NOT a spell card: a crown tower's bolt, a Musketeer's bullet,
+    an Archer's arrow, a Wizard's fireball. Spell CARDS -- Fireball, Arrows, Rocket, the Log --
+    are ``Spell``s, because the engine models them as spells; this is everything a unit or a
+    tower fires. The engine keeps them in their own list, and until 2026-09-24 none of it
+    reached the viewer.
+    """
+
+    team: int
+    x: int  # current position, raw units, native frame
+    y: int
+    aim_x: int  # where it is going: the target, or where the target was when it died
+    aim_y: int
+    target: str | int | None = None  # the uid it is flying at, when the source says
+    splash: int = 0  # splash radius, raw units; 0 = a single-target shot
+    # The FIRER: its card name, "tower" for a crown tower, None when the source does not know.
+    # None is a real value on the wire (royalegym sends it for a shot the engine did not record
+    # the firer of), so it must decode: a str-only field would refuse the WHOLE frame over one
+    # unlabelled shot. It is drawn unlabelled, never as a tower's bolt.
+    name: str | None = None
 
 
 @dataclass(slots=True)
@@ -130,6 +166,9 @@ class Frame:
     crowns: list[int]  # [team]
     events: list[str] = field(default_factory=list)  # newest last, source-accumulated
     meta: dict[str, Any] = field(default_factory=dict)  # source, seq, timing, wall time...
+    # Shots in flight that are not spell cards (tower bolts, troop bullets). Trailing and
+    # defaulted, so a frame from any source that predates them decodes with none.
+    projectiles: list[Projectile] = field(default_factory=list)
 
     @property
     def clock_ms(self) -> int:
@@ -323,8 +362,8 @@ def decode_frame(data: bytes) -> Frame:
 # A learning status travels on the same socket as the frames, so the two have to be told
 # apart before anything is decoded. A status datagram is the one-key map {"learning": {...}},
 # which msgpack always writes as a fixmap of one (\x81) followed by the 8-byte string key
-# (\xa8 "learning"); a frame is a map of Frame's twelve fields, so it can never start that
-# way. ``is_learning`` is the whole demultiplexer: one comparison, no decode.
+# (\xa8 "learning"); a frame is a map of every one of Frame's fields, never of one, so it can
+# never start that way. ``is_learning`` is the whole demultiplexer: one comparison, no decode.
 LEARNING_TAG = "learning"
 LEARNING_PREFIX = b"\x81\xa8learning"
 

@@ -46,6 +46,7 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")  # the viewer's stdout 
 
 import pygame
 
+from .engine_tables import BUFF_KINDS, SPELL_RADIUS_MILLI
 from .model import (
     KIND_BUILDING,
     KIND_KING_TOWER,
@@ -55,6 +56,7 @@ from .model import (
     Frame,
     Learning,
     Player,
+    Spell,
     Unit,
 )
 from .theme import DEFAULT, Color, Layout, Rect, Theme, layout
@@ -85,8 +87,181 @@ KIND_NAMES = {
 KING_TILES = 3
 PRINCESS_TILES = 2
 BUILDING_DEFAULT_TILES_X10 = 14  # a building with radius 0 draws 1.4 tiles wide
-AREA_SPELL_TILES_X10 = 15  # ring radius for an AREA spell without a radius in extra
+AREA_SPELL_TILES_X10 = 15  # an AREA spell nothing gives a radius for (not in the card tables)
 TEXT_CACHE_MAX = 4096
+
+# STATUS EFFECTS -- what the engine calls them, and what this viewer draws for each.
+#
+# The engine keeps every effect but stun as a BUFF SLOT with a name from the card data, and
+# since 2026-09-24 exports them as (name, ms_left) pairs on ``Unit.status``. Stun is its own
+# timer and stays ``Unit.stun_ticks``; a shield is ``extra["shield"]``.
+#
+# ORDER IS PRECEDENCE. When a unit carries several, the FIRST ring kind here (freeze to rage) is
+# the one drawn on its body; heal and shield are glyphs beside the body and always drawn; and
+# every kind gets a pip above it, so the body says what matters most and the pips say the rest.
+# Poison comes before slow because nearly every poison ALSO slows (Poison by 15 %, Earthquake by
+# 50 %), and a poisoned unit drawn with a slow ring would hide the part that is killing it.
+STATUS_ORDER = (
+    "freeze",
+    "stun",
+    "poison",
+    "slow",
+    "rage",
+    "pull",
+    "heal",
+    "shield",
+    "other",
+)
+RING_KINDS = ("freeze", "stun", "poison", "slow", "rage")
+
+# A known engine buff is classified by what its NUMBERS do (royaleviser/engine_tables.py,
+# generated from the engine's card data and checked against it by a test). One buff can do
+# several things: Poison is poison AND slow.
+#
+# The engine DEDUPLICATES buffs whose numbers are identical into one index and joins their
+# names with "|": "Freeze|ZapFreeze" is one buff. Its parts are classified one by one and the
+# kinds joined, and when the parts disagree about a hold -- one a Freeze, the other a Zap -- the
+# viewer cannot know which one this unit got, so it draws the hold GENERICALLY, as a stun. A
+# stun claims only that the unit cannot act; an ice veil would claim a Freeze was cast.
+#
+# Fallback for a name the table does not know -- a buff added to the engine since, or another
+# source's naming: a word in the name, checked in this order ("zap" before "freeze", so an
+# unknown ZapFreeze-like name is a stun). A name nothing matches is "other" and is still DRAWN
+# -- a pip and the name in the inspector -- never dropped.
+STATUS_SUBSTRINGS = (
+    ("zap", "stun"),
+    ("stun", "stun"),
+    ("freeze", "freeze"),
+    ("slow", "slow"),
+    ("snare", "slow"),
+    ("cold", "slow"),
+    ("rage", "rage"),
+    ("poison", "poison"),
+    ("heal", "heal"),
+)
+
+
+def norm_name(name: str) -> str:
+    """A card or buff name as the tables key it: lower case, letters and digits only."""
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def buff_kinds(name: str) -> list[str]:
+    """Every status kind one engine buff name gives, in STATUS_ORDER; ["other"] for none."""
+    kinds: set[str] = set()
+    for part in (p.strip().lower() for p in name.split("|")):
+        if not part:
+            continue
+        if part in BUFF_KINDS:
+            kinds.update(BUFF_KINDS[part])
+            continue
+        for key, kind in STATUS_SUBSTRINGS:
+            if key in part:
+                kinds.add(kind)
+                break
+    if {"freeze", "stun"} <= kinds:
+        kinds.discard("freeze")  # parts disagree about the hold: draw it generically
+    return [k for k in STATUS_ORDER if k in kinds] or ["other"]
+
+
+def classify_status(name: str) -> str:
+    """The strongest status kind an engine buff name gives, "other" when nothing matches."""
+    return buff_kinds(name)[0]
+
+
+def status_kinds(unit: Unit) -> list[str]:
+    """Every status kind on a unit, strongest first (STATUS_ORDER)."""
+    kinds: set[str] = set()
+    for name, _ms in unit.status:
+        kinds.update(buff_kinds(name))
+    # The engine HOLDS a unit through its stun timer whatever holds it, so a buff that holds a
+    # unit always arrives WITH stun ticks for the same hold (measured, 2026-09-24: Freeze|ZapFreeze
+    # at 3600 ms beside stun_ticks 72). The buff already says which hold it is; the ticks add a
+    # stun only when no buff explains them.
+    if unit.stun_ticks > 0 and not kinds & {"freeze", "stun"}:
+        kinds.add("stun")
+    try:
+        if int(unit.extra.get("shield") or 0) > 0:
+            kinds.add("shield")
+    except (TypeError, ValueError):
+        pass
+    return [k for k in STATUS_ORDER if k in kinds]
+
+
+def effect_line(name: str, ms: int) -> str:
+    """One status effect as the inspector lists it: what this viewer draws it as, its time left,
+    then its ENGINE name, joined names intact ("Freeze|ZapFreeze" is one buff).
+
+    In that order because the line is cut to the column's width and the engine's names are
+    long: name-first, "Freeze|ZapFreeze (fr..." lost the kind and the time, the two things the
+    line is there to show. ms -1: the source has the effect but not its duration.
+    """
+    secs = f"{ms / 1000:.1f}s" if ms >= 0 else "?s"
+    return f"effect   {'+'.join(buff_kinds(name))} {secs} {name}"
+
+
+def damage_colour_attr(unit: Unit) -> str:
+    """The theme colour for a unit's damage over time: its spell's own, not always Poison's.
+
+    Earthquake and Tornado damage over time too, and drawn in Poison's green they told a reader
+    a Poison had been cast. A part of the buff's name that is a spell card with a style of its
+    own gives that card's colour; anything else is Poison's.
+    """
+    for name, _ms in unit.status:
+        if "poison" not in buff_kinds(name):
+            continue
+        for part in name.split("|"):
+            style = SPELL_STYLES.get(norm_name(part))
+            if style is not None and style[0] != "spell_poison":
+                return style[0]
+    return "status_poison"
+
+
+# SPELL CARDS -- one family per card so they no longer look alike. (theme colour, shape). The
+# shape is what reads at a glance and at small scales; the colour follows the game's own.
+#   ball    a filled ball flying at its landing point (Fireball, the Snowball)
+#   volley  a spread of short strokes (Arrows)
+#   streak  a long thin body along its path (Rocket)
+#   log     a bar across the direction it rolls (the Log, Barbarian Barrel)
+#   area    a filled translucent disc (Poison, Freeze, Rage, Heal...)
+#   bolt    an area whose edge is jagged (Zap, Lightning)
+# A name not here is drawn by its MOTION in the generic colour, so an unknown spell still reads.
+# Keys are ``norm_name`` of the name a SOURCE sends, which is the card data's: the Barbarian
+# Barrel is "BarbLog" there, and a key spelled the way a person says it would match nothing.
+SPELL_STYLES = {
+    "fireball": ("spell_fire", "ball"),
+    "giantsnowball": ("spell_snow", "ball"),
+    "snowball": ("spell_snow", "ball"),
+    "arrows": ("spell_arrows", "volley"),
+    "rocket": ("spell_rocket", "streak"),
+    "thelog": ("spell_log", "log"),
+    "log": ("spell_log", "log"),
+    "barblog": ("spell_log", "log"),
+    "poison": ("spell_poison", "area"),
+    "freeze": ("spell_freeze", "area"),
+    "rage": ("spell_rage", "area"),
+    "heal": ("spell_heal", "area"),
+    "healspirit": ("spell_heal", "area"),
+    "earthquake": ("spell_quake", "area"),
+    "tornado": ("spell_wind", "area"),
+    "graveyard": ("spell_dark", "area"),
+    # An area with a JAGGED edge: Zap's pale blue is close to Freeze's ice, so the shape is what
+    # tells them apart, not the hue.
+    "zap": ("spell_zap", "bolt"),
+    "lightning": ("spell_lightning", "bolt"),
+}
+
+
+def spell_style(name: str, motion: int) -> tuple[str, str]:
+    """(theme colour attribute, shape) for a spell; the generic colour by motion if unknown."""
+    key = norm_name(name)
+    if key in SPELL_STYLES:
+        return SPELL_STYLES[key]
+    if motion == MOTION_AREA:
+        return ("spell", "area")
+    if motion == MOTION_ROLLING:
+        return ("spell", "log")
+    return ("spell", "ball")
 
 
 @dataclass(slots=True)
@@ -347,11 +522,7 @@ class Board:
         water = {(hx, hy) for hy in range(30, 34) for hx in range(36)}
         bridge = {(hx, hy) for hy in range(30, 34) for hx in (*range(5, 9), *range(27, 31))}
         water -= bridge
-        back = {
-            (hx, hy)
-            for hy in (0, 1, 62, 63)
-            for hx in (*range(0, 11), *range(25, 36))
-        }
+        back = {(hx, hy) for hy in (0, 1, 62, 63) for hx in (*range(0, 11), *range(25, 36))}
         kings = {(hx, hy) for hy in (*range(3, 9), *range(55, 61)) for hx in range(15, 21)}
         corners = {(hx, hy) for hy in (28, 29, 34, 35) for hx in (0, 1, 34, 35)}
         return cls(
@@ -726,7 +897,11 @@ class Renderer:
             if any(x0 <= hx < x1 and y0 <= hy < y1 for x0, y0, x1, y1 in kings):
                 continue
             rect(surf, t.no_deploy_fill, cell(hx, hy))
-        for hx0, hy0, hx1, hy1 in b.princess_zones:
+        # Every crown tower's zone gets the same thin outline, the king's included (owner,
+        # 2026-09-24). Until then only the princesses had one, so the king was the one tower
+        # drawn without the mark under it. The outline is not the fill removed above: that
+        # was the king's no-deploy ground painted grey, and this is one line round the zone.
+        for hx0, hy0, hx1, hy1 in (*b.king_zones, *b.princess_zones):
             x0 = hx0 * s // b.half
             x1 = hx1 * s // b.half
             y0 = ah - hy1 * s // b.half
@@ -742,12 +917,18 @@ class Renderer:
         self.surface.fill(self.theme.ui_bg)
         self.surface.blit(self.board_surface(view.seat, view.show_grid), self.layout.arena[:2])
         self.surface.set_clip(pygame.Rect(self.layout.arena))
+        # UNDER the units: the translucent ground an area spell covers and a shot will splash,
+        # at the card's own radius (1.5 tiles only for a spell no table knows).
+        # Drawn over them, a Poison cloud tinted every unit in it and a Wizard's splash dyed its
+        # target, so a reader saw the effect's colour where the unit's team colour should be.
+        self._draw_ground_effects(frame, view)
         self._draw_units(frame, view)
         # Over the units, not under them: a building is drawn ON its own footprint, so an
         # overlay underneath would be covered by the very thing it is there to describe.
         if view.show_footprints:
             self._draw_footprint_overlay(frame, view)
         self._draw_spells(frame, view)
+        self._draw_projectiles(frame, view)
         if view.compare_frame is not None and view.show_compare:
             self._draw_compare(view.compare_frame, view.seat)
         self.surface.set_clip(None)
@@ -874,7 +1055,7 @@ class Renderer:
                 pygame.draw.circle(self.surface, t.push_arrow, (px, py), 3)
 
     def ring_disagrees_with_the_file(self, frame: Frame, uid: str | int) -> str:
-        """"" unless the recomputed ring and the engine's own neighbour count differ.
+        """ "" unless the recomputed ring and the engine's own neighbour count differ.
 
         THIS IS WHAT TURNS THE RING FROM A PICTURE INTO A CHECK, and it is the reason the count
         was asked for alongside the push vector. The ring is recomputed from positions and
@@ -992,7 +1173,12 @@ class Renderer:
                         dy = -dy
                     else:
                         dx = -dx
-                    end = (px + dx * (r + 4) // 256, py + dy * (r + 4) // 256)
+                    # NORMALISED, whatever length arrives. The live client sends a unit vector
+                    # times 256 and the engine sends its facing in subtiles (sim, 2026-09-24);
+                    # dividing by 256 drew the engine's tick at the wrong length. The tick is a
+                    # direction and its length is the viewer's choice, so both draw alike.
+                    norm = math.hypot(dx, dy)
+                    end = (px + round(dx * (r + 4) / norm), py + round(dy * (r + 4) / norm))
                     pygame.draw.line(surface, t.direction_line, (px, py), end, 2)
             else:
                 # The box and the circle are two different real quantities, so they are drawn
@@ -1038,8 +1224,7 @@ class Renderer:
                     (0, 0, 0),
                     "center",
                 )
-            if u.stun_ticks > 0:
-                pygame.draw.circle(surface, t.stun_overlay, (px, py), h + 3, 2)
+            self._draw_status(u, px, py, h, hw)
             if u.uid == view.selected_uid or u.uid == view.hover_uid:
                 if u.kind == KIND_TROOP:
                     pygame.draw.circle(surface, t.hover, (px, py), r + 6, 2)
@@ -1139,24 +1324,226 @@ class Renderer:
                         (cx - side // 2, cy - side // 2, side, side),
                     )
 
+    def _draw_status(self, u: Unit, px: int, py: int, h: int, hw: int) -> None:
+        """Every status effect on one unit: the strongest on its BODY, all of them as PIPS.
+
+        Layers because they answer different questions. The body answers "what is happening to
+        this unit" at a glance -- a frozen unit looks encased, a raging one glows -- and shows
+        only the strongest RING effect, since stacking four rings on a 12 px troop reads as
+        noise. Heal and shield are glyphs at the body's top corners instead, so they sit beside
+        a ring rather than competing with it. The pips answer "what else", one per effect in a
+        fixed order above the hp bar, so a unit that is frozen AND poisoned says both.
+        """
+        kinds = status_kinds(u)
+        if not kinds:
+            return
+        t = self.theme
+        surface = self.surface
+        body = max(h, hw, 3)
+        ink = (0, 0, 0)
+        at, r = (px, py), body + 4
+        # GLYPHS, drawn beside the body and so ADDITIVE: a heal's plus at the top right, a
+        # shield at the top left. They do not compete with a ring for the body, so a shielded
+        # Guard that is also frozen shows both. The shield was a thick white band at first and
+        # read as Freeze's white rim on the first look; a symbol cannot be mistaken for a rim.
+        if "heal" in kinds:
+            corner = (px + body + 3, py - body - 3)
+            plus_sign(surface, ink, corner, 5, 5)
+            plus_sign(surface, t.status_heal, corner, 4, 3)
+        if "shield" in kinds:
+            shield_glyph(surface, t.status_shield, (px - body - 3, py - body - 3), 5)
+        # Damage over time takes its own spell's colour: an Earthquake is brown, not Poison green.
+        colour = {k: getattr(t, f"status_{k}") for k in kinds}
+        if "poison" in colour:
+            colour["poison"] = getattr(t, damage_colour_attr(u))
+        for kind in kinds:
+            if kind not in RING_KINDS:
+                continue  # a glyph above, or a pip and the inspector's name for it
+            c = colour[kind]
+            # Every mark is drawn over a wider black copy of itself, so it reads on grass of the
+            # same colour and on the river alike.
+            if kind == "freeze":
+                # Encased: an icy veil over the body and a white rim. The veil is translucent
+                # enough that the team colour still shows through: a frozen enemy and a frozen
+                # friend must not look the same.
+                surface.blit(self.disc(body + 1, (*c, 110)), (px - body - 2, py - body - 2))
+                pygame.draw.circle(surface, ink, at, body + 3, 4)
+                pygame.draw.circle(surface, (255, 255, 255), at, body + 2, 2)
+            elif kind == "stun":
+                zigzag_ring(surface, ink, at, r, 4)
+                zigzag_ring(surface, c, at, r, 2)
+            elif kind == "slow":
+                dashed_ring(surface, ink, at, r + 1, 4)
+                dashed_ring(surface, c, at, r, 2)
+            elif kind == "rage":
+                surface.blit(self.disc(body + 6, (*c, 70)), (px - body - 7, py - body - 7))
+                pygame.draw.circle(surface, ink, at, r + 1, 4)
+                pygame.draw.circle(surface, c, at, r, 2)
+            elif kind == "poison":
+                dotted_ring(surface, ink, at, r, 3)
+                dotted_ring(surface, c, at, r, 2)
+            break
+        # One pip per kind, left to right in STATUS_ORDER, just above where the hp bar sits.
+        pip, gap = 3, 8
+        y = py - h - 3 - t.hp_bar_h - pip - 3
+        x0 = px - (len(kinds) - 1) * gap // 2
+        for i, kind in enumerate(kinds):
+            cx = x0 + i * gap
+            pygame.draw.circle(surface, colour[kind], (cx, y), pip)
+            pygame.draw.circle(surface, (0, 0, 0), (cx, y), pip, 1)
+
     def _draw_spells(self, frame: Frame, view: ViewState) -> None:
+        """Spell CARDS, each family with its own colour and shape.
+
+        Until 2026-09-24 every spell was one magenta dot on one dashed line and Fireball, Arrows,
+        Rocket and the Log differed only by a label. Now the shape is the card's: a ball for a
+        Fireball, a volley for Arrows, a streak for a Rocket, a bar across the roll for the Log,
+        a filled disc for an area. The label stays, because the shape says the family and the
+        name says which card.
+        """
         t = self.theme
         surface = self.surface
         upt = frame.units_per_tile
-        s = self.layout.scale
+        ink = (0, 0, 0)
+        line = pygame.draw.line
         for sp in frame.spells:
             px, py = self.to_px(sp.x, sp.y, upt, view.seat)
-            if sp.motion == MOTION_AREA:
-                radius = sp.extra.get("radius")
-                r = self.px_len(int(radius), upt) if radius else AREA_SPELL_TILES_X10 * s // 10
-                pygame.draw.circle(surface, t.spell, (px, py), max(r, 4), 2)
-                pygame.draw.circle(surface, t.spell, (px, py), 3)
+            ax, ay = self.to_px(sp.aim_x, sp.aim_y, upt, view.seat)
+            colour_attr, shape = spell_style(sp.name, sp.motion)
+            c = getattr(t, colour_attr)
+            r = self.spell_radius_px(sp, upt)  # None: nothing says how big it is
+            if shape in ("area", "bolt"):
+                rr = self.area_radius_px(sp, upt)  # its fill is _draw_ground_effects', under units
+                if shape == "bolt":
+                    zigzag_ring(surface, ink, (px, py), rr - 2, 4)
+                    zigzag_ring(surface, c, (px, py), rr - 2, 2)
+                else:
+                    pygame.draw.circle(surface, ink, (px, py), rr + 1, 4)
+                    pygame.draw.circle(surface, c, (px, py), rr, 2)
+            elif shape == "log":
+                # A bar ACROSS the direction it rolls, over the path it has left to roll.
+                dx, dy = ax - px, ay - py
+                norm = math.hypot(dx, dy) or 1.0
+                nx, ny = -dy / norm, dx / norm  # perpendicular
+                half = max(r if r is not None else self.area_radius_px(sp, upt), 6)
+                a = (px + nx * half, py + ny * half)
+                b = (px - nx * half, py - ny * half)
+                dashed_line(surface, ink, (px, py), (ax, ay), width=3)
+                dashed_line(surface, c, (px, py), (ax, ay))
+                line(surface, ink, a, b, 8)
+                line(surface, c, a, b, 6)
+                line(surface, ink, a, b, 1)
             else:
-                ax, ay = self.to_px(sp.aim_x, sp.aim_y, upt, view.seat)
-                dashed_line(surface, t.spell, (px, py), (ax, ay))
-                pygame.draw.circle(surface, t.spell, (ax, ay), 5, 1)
-                pygame.draw.circle(surface, t.projectile, (px, py), 4)
-            self.blit_text(sp.name, (px, py + 6), "tiny", t.spell, "midtop", shadow=True)
+                dashed_line(surface, ink, (px, py), (ax, ay), width=3)
+                dashed_line(surface, c, (px, py), (ax, ay))
+                # Where it will land, sized to what it hits when the source says how far.
+                land = max(r if r is not None else 6, 4)
+                pygame.draw.circle(surface, ink, (ax, ay), land + 1, 3)
+                pygame.draw.circle(surface, c, (ax, ay), land, 1)
+                dx, dy = ax - px, ay - py
+                norm = math.hypot(dx, dy) or 1.0
+                ux, uy = dx / norm, dy / norm
+                if shape == "volley":
+                    for off in (-4, 0, 4):
+                        ox, oy = -uy * off, ux * off
+                        a = (px + ox - ux * 5, py + oy - uy * 5)
+                        b = (px + ox + ux * 5, py + oy + uy * 5)
+                        line(surface, ink, a, b, 4)
+                        line(surface, c, a, b, 2)
+                elif shape == "streak":
+                    a = (px - ux * 9, py - uy * 9)
+                    b = (px + ux * 4, py + uy * 4)
+                    line(surface, ink, a, b, 6)
+                    line(surface, c, a, b, 4)
+                else:  # ball
+                    pygame.draw.circle(surface, c, (px, py), 5)
+                    pygame.draw.circle(surface, ink, (px, py), 5, 1)
+            self.blit_text(sp.name, (px, py + 7), "tiny", c, "midtop", shadow=True)
+
+    def spell_radius_px(self, sp: Spell, units_per_tile: int) -> int | None:
+        """A spell's radius in pixels, or None when nothing says how big it is.
+
+        The source's own ``extra["radius"]`` first (raw units), then the card's radius from the
+        engine's card data (``engine_tables.SPELL_RADIUS_MILLI``). The fill under the units and
+        the edge over them both read it here, so they cannot come apart.
+
+        No source sent a radius until 2026-09-24, and every area was drawn 1.5 tiles across:
+        a Poison of 3.5 covered a fifth of the ground it poisons, and units frozen or poisoned by
+        it stood outside the drawn cloud with the effect's marks on them.
+        """
+        try:
+            radius = int(sp.extra.get("radius") or 0)
+        except (TypeError, ValueError):
+            radius = 0
+        if radius > 0:
+            return self.px_len(radius, units_per_tile)
+        milli = SPELL_RADIUS_MILLI.get(norm_name(sp.name))
+        if milli:
+            return milli * self.layout.scale // 1000
+        return None
+
+    def area_radius_px(self, sp: Spell, units_per_tile: int) -> int:
+        """An area's radius for drawing: the real one, or the generic size when none is known."""
+        r = self.spell_radius_px(sp, units_per_tile)
+        return max(r if r is not None else AREA_SPELL_TILES_X10 * self.layout.scale // 10, 4)
+
+    def _draw_ground_effects(self, frame: Frame, view: ViewState) -> None:
+        """The translucent ground under the units: each area spell's fill, each splash patch.
+
+        Split from _draw_spells and _draw_projectiles so it can go BEFORE the units while their
+        edges, labels and shots go after. Both take the radius from ``spell_radius_px``, so a
+        fill and its edge cannot disagree about how big the spell is.
+        """
+        t = self.theme
+        surface = self.surface
+        upt = frame.units_per_tile
+        for sp in frame.spells:
+            colour_attr, shape = spell_style(sp.name, sp.motion)
+            if shape not in ("area", "bolt"):
+                continue
+            px, py = self.to_px(sp.x, sp.y, upt, view.seat)
+            rr = self.area_radius_px(sp, upt)
+            surface.blit(self.disc(rr, (*getattr(t, colour_attr), 70)), (px - rr - 1, py - rr - 1))
+        for p in frame.projectiles:
+            if p.splash <= 0:
+                continue
+            ax, ay = self.to_px(p.aim_x, p.aim_y, upt, view.seat)
+            sr = max(self.px_len(p.splash, upt), 4)
+            surface.blit(self.disc(sr, (*t.team_color(p.team), 55)), (ax - sr - 1, ay - sr - 1))
+
+    def _draw_projectiles(self, frame: Frame, view: ViewState) -> None:
+        """Shots a unit or tower fires: a dot where it is and a short tail behind it. A splash
+        shot's landing ground is a translucent patch drawn under the units, by
+        ``_draw_ground_effects``.
+
+        None of these reached the viewer before 2026-09-24. A tower's bolt has a white core so it
+        reads differently from a troop's shot of the same team; ``name`` is "tower" for a crown
+        tower's shot. A shot whose firer the source does not know (``name`` None) is drawn as a
+        plain shot: "unknown" must never read as "a tower fired this".
+
+        The splash is a translucent PATCH, not a ring. A thin ring round the target read as a
+        mark on the unit standing there, which is the one thing it is not.
+        """
+        t = self.theme
+        surface = self.surface
+        upt = frame.units_per_tile
+        for p in frame.projectiles:
+            px, py = self.to_px(p.x, p.y, upt, view.seat)
+            ax, ay = self.to_px(p.aim_x, p.aim_y, upt, view.seat)
+            team = t.team_color(p.team)
+            dx, dy = ax - px, ay - py
+            norm = math.hypot(dx, dy)
+            if norm >= 1:
+                # The tail points BACK along the flight, so the dot reads as moving toward aim.
+                tail = (px - dx / norm * 8, py - dy / norm * 8)
+                pygame.draw.line(surface, (0, 0, 0), (px, py), tail, 4)
+                pygame.draw.line(surface, team, (px, py), tail, 2)
+            if p.name == "tower":
+                pygame.draw.circle(surface, team, (px, py), 4)
+                pygame.draw.circle(surface, t.tower_shot_core, (px, py), 2)
+            else:
+                pygame.draw.circle(surface, team, (px, py), 3)
+                pygame.draw.circle(surface, (0, 0, 0), (px, py), 3, 1)
 
     def _draw_compare(self, other: Frame, seat: int) -> None:
         upt = other.units_per_tile
@@ -1582,6 +1969,7 @@ class Renderer:
             f"flying   {unit.flying}",
             f"deploy   {unit.deploy_ticks} ticks",
             f"stun     {unit.stun_ticks} ticks",
+            *(effect_line(name, ms) for name, ms in unit.status),
             f"target   {unit.target}",
             f"path     {len(unit.path)} points" + (f", to {unit.path[-1]}" if unit.path else ""),
             f"dir      {unit.direction}",
@@ -1655,6 +2043,7 @@ def dashed_line(
     a: tuple[int, int],
     b: tuple[int, int],
     max_dashes: int = 16,
+    width: int = 1,
 ) -> None:
     """At most ``max_dashes`` dashes (12 px each when the line is short), 60 % ink."""
     dx, dy = b[0] - a[0], b[1] - a[1]
@@ -1667,9 +2056,74 @@ def dashed_line(
     line = pygame.draw.line
     x, y = a
     for _ in range(n):
-        line(surface, color, (x, y), (x + ink_x, y + ink_y), 1)
+        line(surface, color, (x, y), (x + ink_x, y + ink_y), width)
         x += step_x
         y += step_y
+
+
+# RINGS FOR STATUS EFFECTS. Four effects share "a ring around the unit", so they differ by the
+# RING'S SHAPE as well as its colour: a colour alone is lost on a colour-blind reader and at the
+# compact layout's small scale. Stun is jagged (the lightning), slow is dashed (interrupted
+# motion), poison is dotted (bubbles), and rage is a solid glow.
+#
+# Each takes a width so it can be drawn TWICE: once wide in black, then narrow in its colour.
+# The underlay is what keeps a yellow stun readable on yellow grass and a blue slow on the
+# river; without it the first look at 2026-09-24's frame lost both.
+
+
+def zigzag_ring(
+    surface: pygame.Surface, color: Color, c: tuple[int, int], r: int, width: int = 2
+) -> None:
+    """A jagged ring: points alternating between r and r+3, the stun's lightning."""
+    n = max(10, r // 2) * 2
+    pts = []
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        rr = r + (3 if i % 2 else 0)
+        pts.append((c[0] + rr * math.cos(a), c[1] + rr * math.sin(a)))
+    pygame.draw.lines(surface, color, True, pts, width)
+
+
+def dashed_ring(
+    surface: pygame.Surface, color: Color, c: tuple[int, int], r: int, width: int = 2
+) -> None:
+    """A ring broken into dashes: the slow's interrupted motion. An arc's width grows INWARD
+    from ``r``, so a wider underlay is drawn at ``r + 1`` by the caller to border both sides."""
+    n = max(8, r // 2)
+    rect = pygame.Rect(c[0] - r, c[1] - r, 2 * r, 2 * r)
+    for i in range(n):
+        a0 = 2 * math.pi * i / n
+        a1 = a0 + math.pi / n
+        pygame.draw.arc(surface, color, rect, a0, a1, width)
+
+
+def dotted_ring(
+    surface: pygame.Surface, color: Color, c: tuple[int, int], r: int, dot: int = 2
+) -> None:
+    """A ring of small dots: the poison's bubbles."""
+    n = max(8, r // 2)
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        pygame.draw.circle(
+            surface, color, (round(c[0] + r * math.cos(a)), round(c[1] + r * math.sin(a))), dot
+        )
+
+
+def plus_sign(
+    surface: pygame.Surface, color: Color, c: tuple[int, int], r: int, width: int = 3
+) -> None:
+    """A plus, for a heal: the one effect that is a symbol rather than a ring."""
+    x, y = c
+    pygame.draw.line(surface, color, (x - r, y), (x + r, y), width)
+    pygame.draw.line(surface, color, (x, y - r), (x, y + r), width)
+
+
+def shield_glyph(surface: pygame.Surface, color: Color, c: tuple[int, int], r: int) -> None:
+    """A small heater shield, point down, outlined in black: the unit carries a shield."""
+    x, y = c
+    pts = [(x - r, y - r), (x + r, y - r), (x + r, y), (x, y + r + 2), (x - r, y)]
+    pygame.draw.polygon(surface, color, pts)
+    pygame.draw.polygon(surface, (0, 0, 0), pts, 1)
 
 
 #: C0 and C1 control characters, dropped from every string the panel draws. A learner names

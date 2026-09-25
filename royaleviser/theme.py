@@ -78,7 +78,40 @@ class Theme:
     footprint_edge: Color = (255, 255, 255)
     footprint_refused: Color = (255, 80, 80)
     projectile: Color = (180, 50, 220)
-    spell: Color = (255, 100, 255)
+    spell: Color = (255, 100, 255)  # a spell this viewer does not recognise by name
+    # STATUS EFFECTS. Each has a colour AND a shape on the body (render._draw_status), because
+    # a colour alone fails for a colour-blind reader and at small scales. The colours follow the
+    # game's own: Rage is purple, Freeze is ice, Poison green, a heal gold.
+    status_freeze: Color = (160, 225, 255)
+    status_stun: Color = (255, 235, 70)
+    status_slow: Color = (70, 140, 255)
+    status_rage: Color = (200, 70, 255)
+    status_poison: Color = (100, 220, 60)
+    status_heal: Color = (255, 205, 60)
+    # A Tornado dragging the unit. NOT Tornado's grey: a Tornado's damage over time already
+    # takes that colour, and two pips of one colour on one unit read as one effect twice.
+    status_pull: Color = (60, 190, 170)
+    status_shield: Color = (235, 235, 245)
+    status_other: Color = (175, 175, 190)  # an effect the engine has and this viewer cannot name
+    # SPELL CARDS, one colour per family so Fireball, Arrows, Rocket and the Log no longer look
+    # alike. Until 2026-09-24 every spell was the same magenta and differed only by a label.
+    spell_fire: Color = (255, 115, 30)
+    spell_arrows: Color = (225, 195, 125)
+    spell_rocket: Color = (235, 55, 45)
+    spell_log: Color = (160, 100, 45)
+    spell_snow: Color = (235, 245, 255)
+    spell_poison: Color = (100, 220, 60)
+    spell_freeze: Color = (160, 225, 255)
+    spell_rage: Color = (200, 70, 255)
+    spell_heal: Color = (255, 205, 60)
+    spell_quake: Color = (170, 120, 70)
+    spell_wind: Color = (185, 195, 210)  # Tornado
+    spell_dark: Color = (95, 90, 115)  # Graveyard
+    spell_zap: Color = (170, 220, 255)
+    spell_lightning: Color = (255, 240, 120)
+    # Shots a unit or tower fires (model.Projectile). A crown tower's bolt has a white core so it
+    # reads differently from a troop's shot of the same team.
+    tower_shot_core: Color = (255, 255, 255)
     path_line: Color = (255, 255, 255)
     target_line: Color = (255, 220, 60)
     direction_line: Color = (30, 30, 30)

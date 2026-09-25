@@ -184,18 +184,23 @@ def test_builtin_no_deploy_matches_the_arena_cell_for_cell() -> None:
     assert default_board().no_deploy == Board.builtin().no_deploy
 
 
-def test_the_kings_block_is_not_painted_and_the_rest_of_the_board_still_is(
+def test_the_kings_block_is_outlined_like_a_princess_but_not_filled(
     renderer: Renderer,
 ) -> None:
-    """Owner, 2026-09-23: do not mark the king's no-deploy square.
+    """Two owner rulings on one square, and they pull in different directions.
 
-    A building already says this ground is unusable by standing on it, so marking it restates
-    the piece. It was NOT hidden -- a building is an unfilled footprint box around a filled
-    collision circle, and the king's circle is 1.4 tiles against the block's 1.5-tile
-    half-extent, so the grey showed around the tower.
+    2026-09-23: do not fill the king's no-deploy square grey. A building already says this
+    ground is unusable by standing on it, so painting it restates the piece. It was NOT hidden
+    -- a building is an unfilled footprint box around a filled collision circle, and the king's
+    circle is 1.4 tiles against the block's 1.5-tile half-extent, so the grey showed round it.
 
-    The back-row control is the half that makes this a test rather than a tautology: without it,
-    deleting the entire no-deploy fill would pass.
+    2026-09-24: the king DOES get the thin outline every princess has. The first change took
+    the outline away together with the fill, which the ruling never asked for, and left the king
+    the one tower with nothing under it. So the fill is absent and the outline is present, and
+    a test that checked only one of them would pass the change that broke the other.
+
+    The back-row control is what makes the fill half a test rather than a tautology: without
+    it, deleting the entire no-deploy fill would pass.
     """
     b = Board.builtin()
     surf = renderer.board_surface(0, False)
@@ -207,10 +212,21 @@ def test_the_kings_block_is_not_painted_and_the_rest_of_the_board_still_is(
         y0, y1 = ah - hy1 * s // half, ah - hy0 * s // half
         return {tuple(surf.get_at((x, y)))[:3] for x in range(x0, x1) for y in range(y0, y1)}
 
-    for hx0, hy0, hx1, hy1 in b.king_zones:
-        painted = colours(hx0, hy0, hx1, hy1)
-        assert grey not in painted, "the king's block is still filled"
-        assert outline not in painted, "the king's zone is still outlined"
+    def is_an_outline(hx0: int, hy0: int, hx1: int, hy1: int) -> bool:
+        """The outline colour on all four EDGES and not at the centre. "Somewhere inside the
+        zone" was the first version's check, and a zone FILLED in the outline colour passed it."""
+        x0, x1 = hx0 * s // half, hx1 * s // half
+        y0, y1 = ah - hy1 * s // half, ah - hy0 * s // half
+        xm, ym = (x0 + x1) // 2, (y0 + y1) // 2
+        edges = [(x0, ym), (x1 - 1, ym), (xm, y0), (xm, y1 - 1)]
+        on = all(tuple(surf.get_at(p))[:3] == outline for p in edges)
+        return on and tuple(surf.get_at((xm, ym)))[:3] != outline
+
+    for zone in b.king_zones:
+        assert grey not in colours(*zone), "the king's block is still filled"
+        assert is_an_outline(*zone), "the king's zone has lost the outline a princess has"
+    for zone in b.princess_zones:
+        assert is_an_outline(*zone), "a princess lost her outline"
 
     assert grey in colours(0, 0, 10, 2), "the back row lost its fill with the king's"
 

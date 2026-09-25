@@ -104,7 +104,75 @@ def engine_or_skip():
             "there is no engine to ask. Build it in the sibling RoyaleSim checkout with "
             "`maturin develop --release`; the data tables have to be extracted first."
         )
+    # THE THIRD STATE: BUILT BUT STALE. core_available() is True, and construction still
+    # raises, because the data the extension was compiled against has since moved on disk.
+    # That is another repo's calibration drift, not a defect here, and without this arm the
+    # test ERRORS and a reader sees a footprint failure.
+    #
+    # Asked through royalegym's own structured check rather than by catching whatever
+    # construction raises. A blanket except would skip a REAL construction bug too, and the one
+    # CI job that builds the engine would then report it as a skip. So any other construction
+    # failure still errors here, which is what it should do.
+    from royalegym.protocol import default_calibration
+
+    stale = rust_engine.stale_build_differences(default_calibration())
+    if stale:
+        pytest.skip(
+            f"{NOT_A_PASS}: the engine is built but STALE: the data it was compiled against "
+            "differs from the data on disk, so it will not construct. Rebuild it in the sibling "
+            "RoyaleSim checkout with `maturin develop --release`. What differs:\n  "
+            + "\n  ".join(stale)
+        )
     return rust_engine
+
+
+def test_the_guard_skips_a_stale_engine_with_what_differs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The third of three engine states: built, but against data that has since moved.
+
+    SYNTHESISED RATHER THAN WAITED FOR. A first note said this could only be checked during a
+    real stale window. That confused the CONDITION with the BRANCH: the branch is "royalegym's
+    stale check returns differences", and a list of strings is cheap to make.
+    """
+    rust_engine = pytest.importorskip("royalegym.rust_engine")
+    monkeypatch.setattr(rust_engine, "core_available", lambda: True)
+    monkeypatch.setattr(
+        rust_engine,
+        "stale_build_differences",
+        lambda *a, **k: ["calibration movement.X: built 1, now 2"],
+    )
+    with pytest.raises(pytest.skip.Exception) as caught:
+        engine_or_skip()
+    assert "STALE" in str(caught.value)
+    assert "movement.X: built 1, now 2" in str(caught.value), "the differences were dropped"
+
+
+def test_the_guard_does_not_swallow_a_construction_failure_that_is_not_staleness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half, and the reason the guard asks a structured question instead of catching
+    whatever construction raises: a fresh build that fails to construct is a DEFECT, and must
+    reach the test as an error, not leave through the guard as a skip."""
+    rust_engine = pytest.importorskip("royalegym.rust_engine")
+    monkeypatch.setattr(rust_engine, "core_available", lambda: True)
+    monkeypatch.setattr(rust_engine, "stale_build_differences", lambda *a, **k: [])
+
+    def broken(*a: object, **k: object) -> None:
+        raise RuntimeError("a real bug in construction")
+
+    monkeypatch.setattr(rust_engine, "RustEngine", broken)
+    # A skip leaving the guard must FAIL this test, not skip it. Called bare, a swallowing
+    # guard's skip would skip THIS test too, and the one check written to catch a guard that
+    # hides failures would report its own failure as a skip. Seen: the catch-all plant left
+    # the bare version skipped rather than red.
+    try:
+        got = engine_or_skip()
+    except pytest.skip.Exception as exc:
+        pytest.fail(f"the guard skipped a build that is not stale: {exc}")
+    assert got is rust_engine
+    with pytest.raises(RuntimeError, match="a real bug"):
+        rust_engine.RustEngine()
 
 
 def sound(frame: Frame) -> Frame:
@@ -1176,6 +1244,13 @@ def test_the_engine_s_own_footprints_reach_the_frame_and_the_drawn_rectangle() -
         7,
         DefaultStateMutator(decks=[list(deck), list(deck)]).build(np.random.default_rng(1), cards),
     )
+    # 100 ticks for TWO reasons now, and both must hold: enough elixir to have a Cannon in
+    # hand, and past the engine's DEPLOY LOCKOUT, during which every deploy is refused as
+    # TOO_EARLY (calibration match.DEPLOY_LOCKOUT_TICKS, 90 as of 2026-09-24). The lockout came
+    # after this test was written, and the 100 clears it by luck rather than by design, so a
+    # reader trimming it for speed would get TOO_EARLY and read it as a footprint failure. If it
+    # ever has to be exact, take eng.rules().deploy_lockout_ticks rather than writing a number:
+    # 0 is a real calibration arm, and a literal has to be chased every time the value moves.
     eng.step([], 100)
     hand = [cards[c].name for c in eng.state().players[0].hand]
     assert "Cannon" in hand, hand
