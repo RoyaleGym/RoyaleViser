@@ -286,7 +286,7 @@ env = ClashParallelEnv(RustEngine(), viser=ViserPublisher())
 ```
 
 While a viewer is attached, one msgpack datagram goes out per engine tick. Measured on
-2026-09-20: 2.6 KB for 18 units (12 troops and the 6 towers, which are units of their own kind,
+2026-09-20 on `MockEngine`, the pure-Python stand-in, not the Rust engine above: 2.6 KB for 18 units (12 troops and the 6 towers, which are units of their own kind,
 not a list beside them), and 11 KB for 60. Since 2026-09-24 each unit also carries its target
 and the effects on it, and each frame carries the shots in flight, so a datagram is bigger now.
 It has not been measured again.
