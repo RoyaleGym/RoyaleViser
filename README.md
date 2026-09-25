@@ -122,7 +122,7 @@ The seat, the window size, `--seconds`, `--shot` and the rest of the command lin
   <tr>
     <td width="33%" align="center"><img src="docs/media/tile-compare.png" width="100%" alt="The compare panel at GAME OVER: 395 ticks compared, 0 differ"><br><b>Compare two recordings of one battle</b><br><sub>Two recordings of one battle should agree, and the viewer says so tick by tick. Here both players recorded the scripted battle that ships with the tests: 395 ticks compared, 0 differ.</sub></td>
     <td width="33%" align="center"><img src="docs/media/compare-ghost.gif" width="100%" alt="Two recordings of one battle, the second drawn on the first as hollow ghosts"><br><b>See where they disagree</b><br><sub>The second source is drawn as hollow ghosts on the first. On a tick where they differ, the ghost steps off the unit. The two recordings in this clip are identical, so nothing steps off here.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/tile-inspector.png" width="100%" alt="The inspector listing every raw field of the pinned Valkyrie"><br><b>Inspect any unit</b><br><sub>Click a unit to list every field the source carries, raw and unrounded.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/tile-inspector.png" width="100%" alt="The inspector listing every raw field of the pinned Valkyrie"><br><b>Inspect any unit</b><br><sub>Click a unit to list every field the source carries, raw and unrounded, except an effect's time left, which shows in tenths of a second.</sub></td>
   </tr>
   <tr>
     <td width="33%" align="center"><img src="docs/media/tile-event-log.png" width="100%" alt="The event log: plays, spawns and deaths with tick and tile"><br><b>Follow the event log</b><br><sub>Plays, spawns, deaths and tunnel trips (Miner, Goblin Drill), each with its tick and tile, newest last.</sub></td>
@@ -285,9 +285,11 @@ from royalegym.viser import ViserPublisher
 env = ClashParallelEnv(RustEngine(), viser=ViserPublisher())
 ```
 
-While a viewer is attached, one msgpack datagram goes out per step. Measured: 2.6 KB for 18 units
-(12 troops and the 6 towers, which are units of their own kind, not a list beside them), and
-11 KB for 60.
+While a viewer is attached, one msgpack datagram goes out per engine tick. Measured on
+2026-09-20: 2.6 KB for 18 units (12 troops and the 6 towers, which are units of their own kind,
+not a list beside them), and 11 KB for 60. Since 2026-09-24 each unit also carries its target
+and the effects on it, and each frame carries the shots in flight, so a datagram is bigger now.
+It has not been measured again.
 
 <p align="center"><img src="docs/media/live-training-env.png" width="100%" alt="The viewer attached over UDP to a batch of four self-play battles running in another process: the LIVE pill, the stream address, and an empty learner panel"></p>
 
@@ -458,11 +460,21 @@ As of 2026-09-22, this works end to end:
   than a guessed one.
 - Traces from the engine. A 2001-frame self-play trace draws, and every frame of it passes the
   viewer's own consistency check.
-- Streaming from a running environment. 360 environment steps, 329 frames sent, 0 dropped.
+- Streaming from a running environment. On 2026-09-21, 360 environment steps sent 329 frames with
+  0 dropped. A stream sent one frame per step then; with a RoyaleGym of 2026-09-22 or later it
+  sends one per engine tick, and that has not been re-measured.
 - The learning panel. A real training run's status reached the viewer on 2026-09-22. The status
   goes on its own port, whole in one message, and is re-sent to a viewer that attaches in the
   middle of a run.
 - Saving a picture or a clip to a file with no window, no display and no clock.
+- Effects, spells and shots (2026-09-24). A frozen, stunned, poisoned, slowed or raging unit
+  wears a mark of its own. A heal or a shield gets a small sign in its corner. A spell the
+  viewer knows is drawn in its family's shape at its card's size. A shot looks like what fired
+  it: an arrow, a bullet or a ball. A crown tower's shot is a dot with a white core. The effect
+  marks and the shots need a trace or a stream from an engine and a RoyaleGym of 2026-09-24 or
+  later. With an older RoyaleGym a trace still opens, but without its shots, its targets and
+  every effect except a stun, and nothing says so. What every mark means is in
+  [`docs/internals.md`](docs/internals.md#effects-spells-and-shots).
 - Every draw redraws the whole window and takes 2-5 ms at 24 pixels per tile. A replay needs 20
   a second, so that is far inside budget. That is why the viewer is Python and pygame and not a
   Rust program.
@@ -470,13 +482,11 @@ As of 2026-09-22, this works end to end:
 **Known gaps.** Every one of these is a source not carrying the information. None of them is the
 window refusing to draw something.
 
-- A stream carries one frame per environment step, which is 10 ticks at the default settings, not
-  one frame per tick. If you want every tick, record a trace with `frame_every_tick=True` and
-  open that instead.
 - A recording gives no unit a radius and no flying flag. So every unit is drawn at one default
   size, and air units look like ground units.
-- A trace or a stream gives no unit a path and no target. So the path and target overlays draw
-  nothing for them.
+- A trace or a stream gives no unit a path, so the path overlay draws nothing for them. Since
+  2026-09-24 they do carry what each unit is attacking, so the target overlay draws. A trace
+  saved before then, or an engine or RoyaleGym older than that, gives no targets.
 - Spells in a recording come through as projectiles, plus the few whose effect is tagged with its
   card (Fireball, Arrows, Rocket, Log, Barbarian Barrel). There are no rage, poison or freeze
   zones.
