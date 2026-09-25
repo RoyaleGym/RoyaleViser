@@ -27,6 +27,18 @@ SPELL_RADIUS_MILLI: each spell card's radius in millitiles (1000 = one tile), ke
 lower-cased with only letters and digits kept. The area effect's radius where it has one, else
 the spell's, else, for a roll, its half-width across the direction, else its projectile's
 splash. The viewer converts with the frame's units per tile.
+
+SHOT_KIND: how a troop's or building's shots look, keyed by the FIRING card's name the same way
+(a shot carries its firer's card, not its own name). From the projectile the card's unit fires:
+
+    "arrow"   its name says arrow, spear or dart (Archer, Magic Archer, the Goblins' spears and
+              darts), or it is the Princess's, whose projectile's name does not say so
+    "ball"    a splash of a tile or more (Wizard, Baby Dragon, Bomber, Bowler, Mortar)
+    "bullet"  anything else (Musketeer, Hunter, a Minion's spit, a Cannon's shot)
+
+Checked in that order, because a Magic Archer's arrow has a splash radius too: 0.25 of a tile,
+the width it pierces, which is not a ball. A card whose second summon is the one that shoots
+(the Rascals: the girls, not the boy) takes the shooter's projectile.
 """
 
 from __future__ import annotations
@@ -137,4 +149,58 @@ SPELL_RADIUS_MILLI: dict[str, int] = {
     "vines": 2500,
     "warmspell": 4000,
     "zap": 2500,
+}
+
+SHOT_KIND: dict[str, str] = {
+    "archer": "arrow",
+    "archerqueen": "arrow",
+    "axeman": "ball",
+    "babydragon": "ball",
+    "barbarianlauncher": "ball",
+    "blowdartgoblin": "arrow",
+    "bomber": "ball",
+    "bombtower": "ball",
+    "bowler": "ball",
+    "cannon": "bullet",
+    "dartbarrell": "arrow",
+    "electrodragon": "bullet",
+    "electrospirit": "bullet",
+    "elitearcher": "arrow",
+    "firecracker": "bullet",
+    "firespirithut": "bullet",
+    "firespirits": "ball",
+    "goblindemolisher": "ball",
+    "goblingang": "arrow",
+    "goblinpartyhut": "arrow",
+    "goblinstein": "bullet",
+    "hunter": "bullet",
+    "icespirits": "ball",
+    "icewizard": "ball",
+    "lavahound": "bullet",
+    "littleprince": "bullet",
+    "megaminion": "bullet",
+    "mergemaidenmounted": "bullet",
+    "minionhorde": "bullet",
+    "minions": "bullet",
+    "mortar": "ball",
+    "movingcannon": "bullet",
+    "musketeer": "bullet",
+    "princess": "arrow",
+    "rascals": "bullet",
+    "royalgiant": "bullet",
+    "skeletondragons": "ball",
+    "speargoblins": "arrow",
+    "superarcher": "arrow",
+    "superelitearcher": "arrow",
+    "superlavahound": "bullet",
+    "superminipekka": "bullet",
+    "superwitch": "bullet",
+    "threemusketeers": "bullet",
+    "triwizards": "ball",
+    "wallbreakers": "ball",
+    "witch": "ball",
+    "witchmother": "bullet",
+    "wizard": "ball",
+    "xbow": "bullet",
+    "zapmachine": "ball",
 }

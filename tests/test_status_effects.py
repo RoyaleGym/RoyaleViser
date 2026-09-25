@@ -33,7 +33,7 @@ import pygame
 import pytest
 
 from royaleviser import model
-from royaleviser.engine_tables import BUFF_KINDS, SPELL_RADIUS_MILLI, VINTAGE
+from royaleviser.engine_tables import BUFF_KINDS, SHOT_KIND, SPELL_RADIUS_MILLI, VINTAGE
 from royaleviser.model import KIND_TROOP, Frame, Names, Player, Projectile, Spell, Unit
 from royaleviser.render import (
     MOTION_AIRBORNE,
@@ -50,6 +50,7 @@ from royaleviser.render import (
     damage_colour_attr,
     effect_lines,
     fit_text,
+    shot_kind,
     spell_style,
     status_kinds,
 )
@@ -258,19 +259,46 @@ def radius_from_card(card: dict) -> int | None:
     return None
 
 
+def shot_from_card(data: dict, card: dict) -> str | None:
+    """How a card's shots look, from the projectile the first of its units that shoots fires:
+    a name saying arrow, spear or dart (or the Princess's, which does not say so) is an arrow,
+    a splash of a tile or more a ball, anything else a bullet."""
+    for n in (card.get("summon_character"), (card.get("second_summon") or {}).get("character")):
+        p = ((data["units"].get(n) or {}) if n else {}).get("projectile") or {}
+        name = p.get("name") or ""
+        if not name:
+            continue
+        if any(w in name.lower() for w in ("arrow", "spear", "dart")):
+            return "arrow"
+        if name == "PrincessProjectileDeco":
+            return "arrow"
+        return "ball" if (p.get("radius_milli") or 0) >= 1000 else "bullet"
+    return None
+
+
 def test_the_tables_are_what_the_engine_data_says() -> None:
     """engine_tables.py is a SNAPSHOT of one vintage of RoyaleSim's card data. This keeps it one:
-    a buff or spell the data adds, renames or re-tunes shows up here as a difference."""
+    a buff, spell or shooter the data adds, renames or re-tunes shows up here as a difference."""
     data = engine_card_data()
+
+    def key(name: str) -> str:
+        return "".join(ch for ch in name.lower() if ch.isalnum())
+
     kinds = {n.lower(): k for n, b in data["buffs"].items() if (k := kinds_from_numbers(n, b))}
     radii = {
-        "".join(ch for ch in c["name"].lower() if ch.isalnum()): r
+        key(c["name"]): r
         for c in data["cards"]
         if c.get("spell") is not None and (r := radius_from_card(c)) is not None
+    }
+    shots = {
+        key(c["name"]): k
+        for c in data["cards"]
+        if c.get("spell") is None and (k := shot_from_card(data, c)) is not None
     }
     for label, want, have in (
         ("BUFF_KINDS", kinds, BUFF_KINDS),
         ("SPELL_RADIUS", radii, SPELL_RADIUS_MILLI),
+        ("SHOT_KIND", shots, SHOT_KIND),
     ):
         diff = {
             n: (have.get(n), want.get(n))
@@ -526,6 +554,55 @@ def test_a_towers_bolt_has_a_white_core_and_an_unknown_firer_does_not() -> None:
         r = drawn(frame_of(projectiles=[p]))
         centre = at(r, r.to_px(p.x, p.y, UPT, 0))
         assert (centre == DEFAULT.tower_shot_core) is core, f"{name!r} drew {centre}"
+
+
+@pytest.mark.parametrize(
+    ("name", "splash", "kind", "why"),
+    [
+        ("tower", 0, "tower", "a crown tower's bolt"),
+        ("Archer", 0, "arrow", "ArcherArrow"),
+        ("Princess", 0, "arrow", "her projectile's name does not say arrow; the table does"),
+        ("EliteArcher", 250, "arrow", "a Magic Archer's 0.25-tile pierce is not a ball"),
+        ("SpearGoblins", 0, "arrow", "a spear"),
+        ("Musketeer", 0, "bullet", "MusketeerProjectile, no splash"),
+        ("Minions", 0, "bullet", "a spit"),
+        ("Rascals", 0, "bullet", "the girls shoot, not the boy: the second summon's projectile"),
+        ("Wizard", 1500, "ball", "a 1.5-tile splash"),
+        ("Wizard", 0, "ball", "the table says ball even when a frame carries no splash"),
+        (None, 0, "bullet", "an unknown firer is a plain shot, never a tower"),
+        (None, 1500, "ball", "an unknown firer that splashes"),
+        ("NoSuchCard", 0, "bullet", "a firer the table does not know"),
+    ],
+)
+def test_each_shot_takes_the_shape_of_what_fired_it(
+    name: str | None, splash: int, kind: str, why: str
+) -> None:
+    assert shot_kind(shot(name, splash)) == kind, why
+
+
+def test_an_arrow_a_bullet_and_a_ball_are_different_shapes() -> None:
+    """Owner, 2026-09-24: tell troops' shots apart. Every troop's shot was the same dot. Each
+    shape here is checked at a pixel only it covers, for a shot flying straight to the right:
+    an arrow's long shaft behind it, a bullet's round body below its centre (where an arrow's
+    head has its outline), a ball's wider body."""
+
+    def drawn_shot(name: str, splash: int = 0) -> tuple[Renderer, int, int]:
+        p = shot(name, splash)
+        r = drawn(frame_of(projectiles=[p]))
+        return (r, *r.to_px(p.x, p.y, UPT, 0))
+
+    arrow, px, py = drawn_shot("Archer")
+    bullet, _, _ = drawn_shot("Musketeer")
+    ball, _, _ = drawn_shot("Wizard", 1500)
+    team = DEFAULT.team[0]
+    assert at(arrow, (px - 10, py)) == team, "the arrow has no shaft reaching back"
+    assert at(bullet, (px - 10, py)) != team, "a bullet's tail is as long as a shaft"
+    # Radii 3 and 5 with a 1 px black outline: a bullet's body reaches 1 px below its centre,
+    # a ball's 3 px. Read off the drawn surface, not assumed from the radius.
+    assert at(bullet, (px, py + 1)) == team, "the bullet has no round body"
+    assert at(arrow, (px, py + 1)) != team, "the arrow is drawn as a dot"
+    assert at(ball, (px, py + 3)) == team, "the ball is no bigger than a bullet"
+    assert at(bullet, (px, py + 3)) != team, "a bullet is as big as a ball"
 
 
 def test_the_tail_points_back_along_the_flight() -> None:

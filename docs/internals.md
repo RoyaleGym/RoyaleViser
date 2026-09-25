@@ -178,10 +178,20 @@ sends one, then the card's radius from `engine_tables.SPELL_RADIUS_MILLI`, and 1
 for a spell neither knows. Until 2026-09-24 every area was 1.5 tiles, so a Poison of 3.5
 covered a fifth of the ground it poisons and units marked as poisoned stood outside it.
 
-**Shots** come from `Frame.projectiles`: a dot with a short tail pointing back along its
-flight. A crown tower's bolt has a white core. A shot whose firer the source does not know
-(`name` None) is drawn plain, because "unknown" must never read as "a tower fired this". A
-splash shot tints the ground it will hit. A recording's shots still arrive as spells named
+**Shots** come from `Frame.projectiles`, and each takes the shape of what fired it:
+
+| shape | fired by |
+|---|---|
+| an arrow: a shaft with a head, pointing where it flies | Archer, Princess, Magic Archer, the Goblins' spears and darts |
+| a bullet: a small dot with a short tail behind it | Musketeer, Hunter, Minions, a Cannon |
+| a ball: a bigger dot with a tail, and a tint on the ground it will hit | Wizard, Baby Dragon, Bomber, Bowler, any shot that splashes |
+| a dot with a white core | a crown tower |
+
+The shape comes from the firing card's projectile in the engine's card data
+(`engine_tables.SHOT_KIND`): a projectile named as an arrow, spear or dart is an arrow, a splash
+of a tile or more is a ball, and anything else is a bullet. A shot whose firer the source does
+not know (`name` None) is a plain bullet, because "unknown" must never read as "a tower fired
+this". A recording's shots still arrive as spells named
 "... shot", as before, and a shot is never drawn as an area.
 
 **Ground effects go under the units.** An area spell's fill and a shot's splash are drawn

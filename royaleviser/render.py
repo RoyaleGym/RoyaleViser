@@ -46,7 +46,7 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")  # the viewer's stdout 
 
 import pygame
 
-from .engine_tables import BUFF_KINDS, SPELL_RADIUS_MILLI
+from .engine_tables import BUFF_KINDS, SHOT_KIND, SPELL_RADIUS_MILLI
 from .model import (
     KIND_BUILDING,
     KIND_KING_TOWER,
@@ -56,6 +56,7 @@ from .model import (
     Frame,
     Learning,
     Player,
+    Projectile,
     Spell,
     Unit,
 )
@@ -186,6 +187,24 @@ def status_kinds(unit: Unit) -> list[str]:
     except (TypeError, ValueError):
         pass
     return [k for k in STATUS_ORDER if k in kinds]
+
+
+def shot_kind(p: Projectile) -> str:
+    """ "tower", "arrow", "ball" or "bullet" for a shot in flight.
+
+    The firer's card decides it, through ``engine_tables.SHOT_KIND`` (generated from the card
+    data). An arrow stays an arrow whatever its splash: a Magic Archer's arrow carries a 0.25
+    tile splash, the width it pierces. Otherwise a shot the frame says splashes is a ball, which
+    also covers a firer the table does not know; anything else is a bullet.
+    """
+    if p.name == "tower":
+        return "tower"
+    kind = SHOT_KIND.get(norm_name(p.name)) if p.name else None
+    if kind == "arrow":
+        return "arrow"
+    if p.splash > 0:
+        return "ball"
+    return kind or "bullet"
 
 
 def effect_lines(name: str, ms: int) -> tuple[str, str]:
@@ -1515,38 +1534,62 @@ class Renderer:
             surface.blit(self.disc(sr, (*t.team_color(p.team), 55)), (ax - sr - 1, ay - sr - 1))
 
     def _draw_projectiles(self, frame: Frame, view: ViewState) -> None:
-        """Shots a unit or tower fires: a dot where it is and a short tail behind it. A splash
-        shot's landing ground is a translucent patch drawn under the units, by
-        ``_draw_ground_effects``.
+        """Shots a unit or tower fires, each in the shape of what it is (``shot_kind``):
 
-        None of these reached the viewer before 2026-09-24. A tower's bolt has a white core so it
-        reads differently from a troop's shot of the same team; ``name`` is "tower" for a crown
-        tower's shot. A shot whose firer the source does not know (``name`` None) is drawn as a
-        plain shot: "unknown" must never read as "a tower fired this".
+            arrow   a shaft with a head, pointing where it flies (Archer, Princess, spears)
+            bullet  a small dot with a short tail behind it (Musketeer, Hunter, Minions)
+            ball    a bigger dot with a tail (Wizard, Baby Dragon, Bomber: a splash)
+            tower   a dot with a WHITE CORE, so a crown tower's bolt never reads as a troop's
 
-        The splash is a translucent PATCH, not a ring. A thin ring round the target read as a
-        mark on the unit standing there, which is the one thing it is not.
+        A splash shot's landing ground is a translucent patch drawn under the units, by
+        ``_draw_ground_effects``. The splash is a PATCH, not a ring: a thin ring round the target
+        read as a mark on the unit standing there, which is the one thing it is not.
+
+        None of these reached the viewer before 2026-09-24, and until the owner asked for it on
+        the same day every troop's shot was the same dot. A shot whose firer the source does not
+        know (``name`` None) is a plain bullet: "unknown" must never read as "a tower fired this".
         """
         t = self.theme
         surface = self.surface
         upt = frame.units_per_tile
+        ink = (0, 0, 0)
+        line = pygame.draw.line
         for p in frame.projectiles:
             px, py = self.to_px(p.x, p.y, upt, view.seat)
             ax, ay = self.to_px(p.aim_x, p.aim_y, upt, view.seat)
             team = t.team_color(p.team)
+            kind = shot_kind(p)
             dx, dy = ax - px, ay - py
             norm = math.hypot(dx, dy)
+            if norm < 1 and kind == "arrow":
+                kind = "bullet"  # an arrow with no direction has nothing to point along
+            if norm >= 1:
+                ux, uy = dx / norm, dy / norm
+            if kind == "arrow":
+                # The shaft reaches BACK from the head, so the head is where the arrow is.
+                tip = (px + ux * 4, py + uy * 4)
+                tail = (px - ux * 11, py - uy * 11)
+                line(surface, ink, tip, tail, 4)
+                line(surface, team, tip, tail, 2)
+                head = [
+                    (px + ux * 5, py + uy * 5),
+                    (px - uy * 3, py + ux * 3),
+                    (px + uy * 3, py - ux * 3),
+                ]
+                pygame.draw.polygon(surface, team, head)
+                pygame.draw.polygon(surface, ink, head, 1)
+                continue
+            r, trail = {"ball": (5, 11), "tower": (4, 8)}.get(kind, (3, 8))
             if norm >= 1:
                 # The tail points BACK along the flight, so the dot reads as moving toward aim.
-                tail = (px - dx / norm * 8, py - dy / norm * 8)
-                pygame.draw.line(surface, (0, 0, 0), (px, py), tail, 4)
-                pygame.draw.line(surface, team, (px, py), tail, 2)
-            if p.name == "tower":
-                pygame.draw.circle(surface, team, (px, py), 4)
+                tail = (px - ux * trail, py - uy * trail)
+                line(surface, ink, (px, py), tail, 4)
+                line(surface, team, (px, py), tail, 2)
+            pygame.draw.circle(surface, team, (px, py), r)
+            if kind == "tower":
                 pygame.draw.circle(surface, t.tower_shot_core, (px, py), 2)
             else:
-                pygame.draw.circle(surface, team, (px, py), 3)
-                pygame.draw.circle(surface, (0, 0, 0), (px, py), 3, 1)
+                pygame.draw.circle(surface, ink, (px, py), r, 1)
 
     def _draw_compare(self, other: Frame, seat: int) -> None:
         upt = other.units_per_tile
