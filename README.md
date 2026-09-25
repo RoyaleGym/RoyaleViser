@@ -460,9 +460,10 @@ As of 2026-09-22, this works end to end:
   than a guessed one.
 - Traces from the engine. A 2001-frame self-play trace draws, and every frame of it passes the
   viewer's own consistency check.
-- Streaming from a running environment. On 2026-09-21, 360 environment steps sent 329 frames with
-  0 dropped. A stream sent one frame per step then; with a RoyaleGym of 2026-09-22 or later it
-  sends one per engine tick, and that has not been re-measured.
+- Streaming from a running environment. A stream carries one frame per engine tick. On 2026-09-24
+  a 3,728-tick battle, slowed to about 20 seconds so a person could watch it, sent 3,528 frames
+  with 0 dropped. The viewer was open before the battle started. The missing first second is the
+  time the run took to hear the viewer's hello, since nothing is sent before that.
 - The learning panel. A real training run's status reached the viewer on 2026-09-22. The status
   goes on its own port, whole in one message, and is re-sent to a viewer that attaches in the
   middle of a run.
