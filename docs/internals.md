@@ -372,7 +372,7 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at c3ec34b on 2026-09-24, with `pytest --collect-only -q` collecting 302:
+The suite has two correct results, and both are one command apart. Measured at f5ea915 on 2026-09-24, with `pytest --collect-only -q` collecting 302:
 
 | Run | Result |
 |---|---|
@@ -407,7 +407,7 @@ already holds a `Frame`.
 1. The viewer binds a UDP socket and sends the heartbeat datagram `royaleviser 1` to the
    publisher's `host:port` (default `127.0.0.1:9870`) once a second while it is open.
 2. An environment calls `publish` on `reset()` and, while a viewer is attached, once per
-   ENGINE TICK of each `step()` (RoyaleGym 187d5fa, 2026-09-22; before it, once per step,
+   ENGINE TICK of each `step()` (RoyaleGym f8a3c0d, 2026-09-22; before it, once per step,
    which at the defaults was 2 frames a second). It publishes only when it has been
    handed a publisher: `ClashParallelEnv(..., viser=ViserPublisher())`, which reads no
    environment variable of its own, the default `None` costing one `if`. The vectorised env
@@ -446,7 +446,7 @@ already holds a `Frame`.
    decoder, so a drift between the two ends fails there rather than in someone's window.
 
 While a viewer is attached the stream carries **one frame per engine tick**, 20 a second
-(RoyaleGym 187d5fa, 2026-09-22). Before that it carried one per env step, `decision_ms` worth
+(RoyaleGym f8a3c0d, 2026-09-22). Before that it carried one per env step, `decision_ms` worth
 of ticks, which at the defaults was 2 frames a second. A trace is different: it has one frame
 per tick only when recorded with `ReplayRecorder(frame_every_tick=True)`, and one per step
 otherwise, whoever was watching.
@@ -526,7 +526,7 @@ python processes with 212 MB free. A cadence number is only a fact with the mach
 attached.
 
 The minibatch is part of that state, and it has moved since. The shipped default is 256
-(RoyaleLearn commit 582ce96), because a minibatch of 512 does not fit a 4 GB card and spills
+(RoyaleLearn commit 588dc04), because a minibatch of 512 does not fit a 4 GB card and spills
 into system memory. Nobody has timed the current default. So the timings here and the cadence
 below stand as they were measured, on 2026-09-22 at a minibatch of 512, and a reader on the
 default will not reproduce them.
@@ -783,7 +783,7 @@ was deferred rather than tested.
   the renderer's default radius and air units look like ground units. Deploying is a state
   there (visible for one tick), not a countdown.
 - **Engine units carry no path** in a `BattleState`, so `p` draws nothing for traces and
-  streams. They carry their target since RoyaleSim 39d5b98 (2026-09-24), so `t` draws a line
+  streams. They carry their target since RoyaleSim 32b3743 (2026-09-24), so `t` draws a line
   to it in a battle recorded or streamed since then, and nothing in an older one.
 - **Spells in a capture** are limited to projectiles and the few spells that leave an effect
   carrying their card id (Fireball, Arrows, Rocket, Log, Barbarian Barrel); most leave none.

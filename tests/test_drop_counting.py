@@ -4,7 +4,7 @@
 right for a live monitor: a monitor that buffers is a monitor that lies about now. The drop
 counter used to charge the whole gap in ``seq`` against the link, which read 0 for as long as
 the environment published once per DECISION and became wrong the moment gym published once per
-engine tick (RoyaleGym 187d5fa, 2026-09-22): ten datagrams a step, nine superseded before the
+engine tick (RoyaleGym f8a3c0d, 2026-09-22): ten datagrams a step, nine superseded before the
 next draw, so a healthy stream reported about 90 % loss.
 
 Both directions are tested here, and the second is the one that matters: a fix that makes a

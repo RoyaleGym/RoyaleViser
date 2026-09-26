@@ -776,7 +776,7 @@ def test_a_trace_frames_shots_come_through_royalegyms_own_projectile_dict() -> N
     )
     protocol = pytest.importorskip("royalegym.protocol")
     if not hasattr(viser, "projectile_dict") or not hasattr(protocol, "ProjectileState"):
-        pytest.skip(f"{NOT_A_PASS}: this royalegym predates projectiles (gym 1c68e6b)")
+        pytest.skip(f"{NOT_A_PASS}: this royalegym predates projectiles (gym 1a261ff)")
     ps = [
         protocol.ProjectileState(
             team=t, x=1, y=2, aim_x=3, aim_y=4, target_uid=u, splash=s, firer_card_id=f

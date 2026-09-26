@@ -27,7 +27,7 @@ THE READER-PAGE CHECK IS NOT WIRED HERE YET, AND THAT IS THE POINT OF THIS PARAG
     ``README.md`` had 17 of these blocks, the most of the four repos. The check below was
     deliberately left unwired until the prose repair landed, because a guard pointed at a
     page another session is mid-edit on is a red suite for everyone in the tree, and a
-    guard that cries wolf is one somebody switches off. The repair is ``90eb5a1``. The
+    guard that cries wolf is one somebody switches off. The repair is ``2230fb4``. The
     guard reported 17 before it and 0 after, which is the evidence for both of them.
 
 A GUARD WITH FALSE POSITIVES IS ONE SOMEBODY SWITCHES OFF

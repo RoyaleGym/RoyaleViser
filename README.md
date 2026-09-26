@@ -436,12 +436,12 @@ Here is what each piece of the viewer needs.
 ## Status
 
 <p align="center">
-  <img alt="pytest on a clone at c3ec34b, 2026-09-24: 298 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--24-298_passed%2C_4_skipped-2ea043?style=flat-square">
+  <img alt="pytest on a clone at f5ea915, 2026-09-24: 298 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--24-298_passed%2C_4_skipped-2ea043?style=flat-square">
   <img alt="Draw cost" src="https://img.shields.io/badge/draw-2--5_ms_per_frame-2ea043?style=flat-square">
   <img alt="Cost when unwatched" src="https://img.shields.io/badge/unwatched-193_ns_per_step-2ea043?style=flat-square">
 </p>
 
-The test badge is a clone's run at `c3ec34b`, measured with `ROYALELIVE_REPORTS` pointed at
+The test badge is a clone's run at `f5ea915`, measured with `ROYALELIVE_REPORTS` pointed at
 an empty folder. On a machine that has the recordings the same pytest run is 301 passed, 1 skipped.
 
 As of 2026-09-22, this works end to end:
@@ -497,7 +497,7 @@ window refusing to draw something.
   source" until the results screen. A trace's cycle past the revealed cards shows as "next ?".
 
 A clone of THIS REPO ALONE, installed the short way, runs `pytest -q` to 226 passed and 11
-skipped (CI at 31aa10c, 2026-09-24, the same on Windows and Linux): the tests that need a
+skipped (CI at b32cb54, 2026-09-24, the same on Windows and Linux): the tests that need a
 sibling package skip and each says so. That figure is CI's, from a runner that has nothing but
 this repo, because this project's development machine has every sibling repo installed and cannot
 produce it -- measured there it gives a different pair, which is a different machine wearing the
@@ -506,7 +506,7 @@ the stack. Until 2026-09-23 that case could not collect the suite at all, which 
 run.
 
 Tests. Start in the `Royale` folder. On a clone the first line prints 298 passed, 4 skipped
-(2026-09-24, c3ec34b), and the second prints nothing at all when it is happy. Both tools come
+(2026-09-24, f5ea915), and the second prints nothing at all when it is happy. Both tools come
 from the `pip install maturin pytest hypothesis ruff` line in [Setup](#setup), so the short way
 on its own does not have them:
 

@@ -1,7 +1,7 @@
 """The push the engine applied, and the check it makes possible.
 
 A's second arrow. Sim added `push: [dx, dy, neighbour_count]` to its trace rows (RoyaleSim
-786c738) as its OWN optional field rather than slots on the sim cell, precisely so ABSENT and
+5b6bbba) as its OWN optional field rather than slots on the sim cell, precisely so ABSENT and
 ZERO stay different: on the 38,107-row trace it measured, 37,269 rows carry a push, 3,545 of
 those are non-zero, and 838 rows carry no push at all because there is no engine entry on that
 tick. So a zero is a fact about the tick and a missing field is a fact about the file.

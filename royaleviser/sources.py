@@ -1034,7 +1034,7 @@ class StreamSource:
 
         This used to count the whole seq gap. It read 0 while the environment published once
         per decision, and became wrong the moment gym published once per engine tick
-        (RoyaleGym 187d5fa): 10 datagrams per step, 9 of them superseded before the next draw,
+        (RoyaleGym f8a3c0d): 10 datagrams per step, 9 of them superseded before the next draw,
         so a healthy stream reported 9 drops a step -- about 90 % loss -- on a link that had
         lost nothing. Measured here before and after. A counter that reports normal operation
         as failure is worse than no counter, because it is the one a person checks when the
