@@ -27,8 +27,9 @@ command. You do not need any game files either. [Jump to Try it](#try-it).
 
 Every command on this page is for **Windows PowerShell**, one per line. Paste them one at a time
 rather than as a block. PowerShell cannot chain commands with `&&`, and a pasted `#` comment is
-not a comment in `cmd`. On macOS and Linux the interpreter is `.venv/bin/python` with forward
-slashes, and nothing else about the commands changes.
+not a comment in `cmd`. On macOS and Linux the interpreter is `.venv/bin/python`, paths use
+forward slashes, `cp` replaces `Copy-Item`, and `export X=Y` sets a variable. Where a line differs
+in any other way, its macOS and Linux form is given beside it.
 
 <p align="center"><img src="docs/viewer-trace.png" width="100%" alt="The viewer on a self-play battle from the engine, with the Blue Valkyrie pinned in the inspector"></p>
 
@@ -82,8 +83,14 @@ room to spare. The 370 ms is the very first draw, which builds the board and loa
 
 Drop `--seconds` and the window stays open until you close it.
 
-The same command opens the other kinds of source. One of them at a time, not all three. A
-recording of a real battle:
+The same command opens the other kinds of source. One of them at a time, not all three.
+
+The three lines below, and the other bare `python` lines on this page, assume the venv is active:
+`..\.venv\Scripts\Activate.ps1` in PowerShell, `source ../.venv/bin/activate` on macOS and Linux,
+from the `RoyaleViser` folder. Without it, `python` is your system Python and the error names a
+missing package such as pygame or msgspec.
+
+A recording of a real battle:
 
 ```
 python -m royaleviser frames-my-match.jsonl.gz
@@ -245,11 +252,15 @@ Nothing is sent until a viewer says hello. Sending stops three seconds after the
 away. So you can leave this switched on in a training run you are not watching.
 
 Three things happen, in three different places. First, in the shell where the training run will
-start and before it starts, name the address the frames go to:
+start and before it starts, name the address the frames go to. In PowerShell:
 
 ```
-set ROYALEVISER=127.0.0.1:9870
+$env:ROYALEVISER = "127.0.0.1:9870"
 ```
+
+In `cmd` it is `set ROYALEVISER=127.0.0.1:9870`. On macOS and Linux it is
+`export ROYALEVISER=127.0.0.1:9870`. A `set` line typed into PowerShell or bash sets nothing, and
+the viewer then waits for frames that never come.
 
 The vectorised environment reads that when you build it. It binds one publisher and watches
 game 0. None of your own code changes:
@@ -358,15 +369,21 @@ The whole stack shares one setup. The repos sit side by side in one folder, with
 environment at its root. You do not need all of it to use the viewer, so it comes in two parts.
 
 **The short way, for the viewer on its own.** No Rust, no engine build, no game files. You need
-Python 3.12 and git. Run these from wherever you keep your projects, one line at a time:
+Python 3.12 or newer and git. Run these from wherever you keep your projects, one line at a time:
 
 ```
 mkdir Royale
 cd Royale
 git clone https://github.com/RoyaleGym/RoyaleViser.git
-python -m venv .venv
+py -3.12 -m venv .venv
+.venv\Scripts\python --version
 .venv\Scripts\python -m pip install -e RoyaleViser
 ```
+
+The venv line asks for Python 3.12 by name. On macOS and Linux it is `python3.12 -m venv .venv`.
+If `python --version` already prints 3.12 or newer, `python -m venv .venv` works too. The version
+line must print 3.12 or newer before you go on. With an older Python, pip refuses the install
+line.
 
 The last line downloads pygame, msgspec and numpy, which is a few tens of MB. You now have the
 two recordings that ship with the tests, and the board is drawn from a copy of the arena built
@@ -381,14 +398,15 @@ Add the other three clones and the build tools, from the `Royale` folder:
 git clone https://github.com/RoyaleGym/RoyaleSim.git
 git clone https://github.com/RoyaleGym/RoyaleGym.git
 git clone https://github.com/RoyaleGym/RoyaleLearn.git
-.venv\Scripts\python -m pip install maturin pytest hypothesis ruff
+.venv\Scripts\python -m pip install maturin pytest hypothesis ruff numpy msgspec
 ```
 
-Next, generate the card and arena data the engine reads. This writes `RoyaleSim/data/derived/`,
-which no clone carries and the engine cannot start without. The copy line is the important one:
-`cards-15.535.json` is committed to RoyaleSim and is the table the engine loads. The
-`extract_cards.py --vintage 2018` line still runs, building the older table beside it for the
-cross-engine comparisons that use it:
+Next, generate the card and arena data the engine reads, in `RoyaleSim/data/derived/`. The
+engine cannot start without it. A clone carries only `cards-15.535.json` in `data/derived/`;
+these lines generate the rest. The copy line is the important one: `cards-15.535.json` is the
+table the engine loads. The `extract_cards.py --vintage 2018` line still runs, building the older
+table beside it for the cross-engine comparisons that use it. On macOS and Linux the copy is
+`cp data/derived/cards-15.535.json data/derived/cards.json`.
 
 ```
 cd RoyaleSim
@@ -399,8 +417,8 @@ Copy-Item data\derived\cards-15.535.json data\derived\cards.json
 ```
 
 Then build the engine into the environment, from that same `RoyaleSim` folder. Give it a few
-minutes and some free memory. It prints very little while it works, so a long quiet stretch is
-not a hang:
+minutes and some free memory. It can go quiet for a minute or more on the engine itself; let it
+finish:
 
 ```
 ..\.venv\Scripts\maturin develop --release
@@ -507,8 +525,8 @@ run.
 
 Tests. Start in the `Royale` folder. On a clone the first line prints 298 passed, 4 skipped
 (2026-09-24, f5ea915), and the second prints nothing at all when it is happy. Both tools come
-from the `pip install maturin pytest hypothesis ruff` line in [Setup](#setup), so the short way
-on its own does not have them:
+from the `pip install maturin pytest hypothesis ruff numpy msgspec` line in [Setup](#setup), so
+the short way on its own does not have them:
 
 ```
 cd RoyaleViser
