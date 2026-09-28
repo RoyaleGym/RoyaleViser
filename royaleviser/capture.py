@@ -123,6 +123,7 @@ def _renderer_for(source: Any, scale: int, theme: Theme) -> Renderer:
     names = _names_of(source)
     if names is not None:
         r.cost_of = names.cost_of_name
+        r.face_of = names.face_of
     return r
 
 

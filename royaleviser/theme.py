@@ -125,11 +125,25 @@ class Theme:
     hp_low: Color = (200, 50, 50)
     elixir: Color = (150, 50, 200)
     elixir_bg: Color = (80, 80, 100)
-    # Cards (the hand boxes): light on the dark UI like the old renderer's grey cards
+    # Cards: the face of a card whose kind the source does not give, and the tile's text
     card_bg: Color = (205, 205, 212)
     card_text: Color = (20, 20, 30)
     card_border: Color = (240, 240, 240)
     card_unknown: Color = (70, 70, 84)
+    # A card tile's face by what the card is. The kind is also a glyph on the tile, so the
+    # colour is never the only thing that says it.
+    card_troop: Color = (226, 194, 140)
+    card_building: Color = (168, 184, 200)
+    card_spell: Color = (200, 174, 232)
+    card_footer: Color = (34, 34, 46)  # the band the name sits on
+    card_veil: tuple[int, int, int, int] = (18, 18, 26, 150)  # the elixir not yet there
+    # The special forms: an evolved card or unit, a hero card or unit, a hero's ability.
+    evo: Color = (234, 66, 214)
+    hero: Color = (255, 196, 40)
+    ability_idle: Color = (84, 84, 100)
+    # A unit the engine reports under ground, and one that is invisible or hidden.
+    burrow: Color = (132, 92, 54)
+    unseen_alpha: int = 80
     live_pill: Color = (200, 40, 40)
     # Fonts: pygame.font.Font(font_name, size); None is pygame's bundled default. The
     # monospace one goes through pygame.font.SysFont (comma-separated candidates, the

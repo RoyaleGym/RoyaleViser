@@ -61,6 +61,46 @@ LIVE_UNITS_PER_TILE = 1000
 LIVE_ELIXIR_PER_MILLI = 10
 TICK_MS = 50  # the client (20 ticks/s, measured 2026-09-17) and the engine (time.TICK_MS)
 
+# ``Unit.extra["status_flags"]``: one int of bits, each set by the engine's own predicate.
+# 1, 2 and 4 are royalegym.protocol.STATUS_* (repeated so the model imports without royalegym;
+# tests/test_cards.py compares them); 8 and 16 are the numbers the engine's evolution and hero
+# work gives them (2026-09-27). Read them through ``status_bits``, never raw: "not reported"
+# arrives as None or -1, and -1 & anything is that thing.
+STATUS_UNDERGROUND = 1  # travelling under ground: untargetable, immune (Miner, Goblin Drill)
+STATUS_INVISIBLE = 2  # invisible to enemies (Royal Ghost)
+STATUS_HIDDEN = 4  # a building hidden in the ground (Tesla)
+STATUS_EVOLVED = 8  # an evolved form of its card
+STATUS_HERO = 16  # a hero form of its card
+
+# What a card IS, for drawing it: the engine's CARD_KINDS lower-cased, or None when the source
+# does not say.
+CARD_TROOP = "troop"
+CARD_BUILDING = "building"
+CARD_SPELL = "spell"
+# The live client's card ids name their class in the millions: 26xxxxxx troops, 27xxxxxx
+# buildings, 28xxxxxx spells (client 16.402). A form id (203000014) is in none of them.
+LIVE_ID_CLASSES = {26: CARD_TROOP, 27: CARD_BUILDING, 28: CARD_SPELL}
+
+# Player.abilities[i][3], an ability button's phase (the engine's numbering).
+ABILITY_NO_UNIT = 0  # the hero is not on the board
+ABILITY_UNREADY = 1
+ABILITY_READY = 2
+ABILITY_CASTING = 3
+ABILITY_SPENT = 4
+
+
+def status_bits(unit: Unit) -> int | None:
+    """The unit's status bits, or None when the source did not report them.
+
+    THE ONLY SAFE WAY TO READ THEM (royalegym.protocol.status_of says the same). The engine's
+    "not reported" is -1, and ``-1 & STATUS_UNDERGROUND`` is 1: a raw mask would draw every
+    unit of an engine that said nothing as under ground, invisible, evolved and a hero at once.
+    """
+    v = unit.extra.get("status_flags") if unit.extra else None
+    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+        return None
+    return v
+
 
 @dataclass(slots=True)
 class Player:
@@ -77,6 +117,18 @@ class Player:
     tower_hp: list[int]  # [king, left, right] owner's frame; UNKNOWN_HP unknown
     tower_max_hp: list[int]
     king_active: bool | None
+    # THE SPECIAL FORMS (evolutions, heroes). Trailing and EMPTY BY DEFAULT, and empty means
+    # "the source did not say", never "none": every source today and every frame recorded
+    # before the engine carried them decode unchanged, and nothing is drawn for them.
+    #
+    # Per hand slot: 1 the slot's next play is evolved, 0 the card has an evolution that is
+    # not charged yet, -1 the card has none.
+    hand_evolved: list[int] = field(default_factory=list)
+    # Per evolved deck entry, in deck order: (card name, cycles counted, cycles needed).
+    evo: list[tuple[str, int, int]] = field(default_factory=list)
+    # Per ability button: (button, card name, hero uid or -1, phase ABILITY_*, elixir cost,
+    # ticks until ready, charges left).
+    abilities: list[tuple[int, str, int, int, int, int, int]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -286,26 +338,60 @@ CARDS_ENV = "ROYALEVISER_CARDS"
 LIVE_FORMS = {203000014: 26000014}
 
 
+@dataclass(slots=True, frozen=True)
+class CardFace:
+    """What the renderer draws a card tile from. None in a field: the source does not say."""
+
+    name: str
+    cost: int | None
+    kind: str | None = None  # CARD_TROOP, CARD_BUILDING, CARD_SPELL
+    count: int | None = None  # units one play summons
+    flying: bool | None = None
+
+
+def live_card_kind(card_id: int) -> str | None:
+    """A live card id's class (LIVE_ID_CLASSES), None for an id outside them."""
+    return LIVE_ID_CLASSES.get(card_id // 1_000_000) if card_id >= 0 else None
+
+
+def engine_card_kind(card: Any) -> str | None:
+    """An engine CardInfo's kind: its ``card_kind`` column, None from an engine without it.
+
+    Not from ``placement``: that says where a card may be played, not what it is (a Heal
+    places like a troop), and a guess drawn as a fact is worse than a plain tile.
+    """
+    kind = getattr(card, "card_kind", None)
+    return str(kind).lower() if kind else None
+
+
 class Names:
-    """card id -> (name, elixir cost) for one source.
+    """card id -> (name, elixir cost) for one source, plus what each card is (``face_of``).
 
     ``Names.live()`` reads the live client's card table (``path``, else the ROYALEVISER_CARDS
     environment variable, else the package's ``cards.json``) plus LIVE_FORMS.
     ``Names.from_cards(cards)`` takes any sequence with ``card_id``, ``name`` and ``elixir``
-    attributes -- a trace header's ``cards`` or ``engine.cards()``. Unknown ids print as
-    ``#<id>`` so a hole in a table is visible, never silent.
+    attributes -- a trace header's ``cards`` or ``engine.cards()`` -- and reads ``card_kind``,
+    ``count`` and ``flying`` where they are there. Unknown ids print as ``#<id>`` so a hole in
+    a table is visible, never silent.
     """
 
-    def __init__(self, entries: Iterable[tuple[int, str, int]] = ()) -> None:
+    def __init__(
+        self, entries: Iterable[tuple[int, str, int]] = (), infos: Iterable[CardFace] = ()
+    ) -> None:
         self._by_id: dict[int, tuple[str, int]] = {}
         for card_id, name, cost in entries:
             self._by_id.setdefault(card_id, (name, cost))
+        self._info: dict[str, CardFace] = {}
+        for info in infos:
+            self._info.setdefault(info.name, info)
 
     @classmethod
     def live(cls, path: Path | None = None) -> Names:
         table = Path(path or os.environ.get(CARDS_ENV) or CARDS_JSON)
         raw = json.loads(table.read_text(encoding="utf-8"))
-        names = cls((int(cid), name, int(cost)) for name, (cid, cost) in raw.items())
+        rows = [(int(cid), name, int(cost)) for name, (cid, cost) in raw.items()]
+        infos = (CardFace(name, cost, live_card_kind(cid)) for cid, name, cost in rows)
+        names = cls(rows, infos)
         for form_id, register_id in LIVE_FORMS.items():
             if register_id in names._by_id:
                 names._by_id.setdefault(form_id, names._by_id[register_id])
@@ -313,7 +399,28 @@ class Names:
 
     @classmethod
     def from_cards(cls, cards: Sequence[Any]) -> Names:
-        return cls((int(c.card_id), str(c.name), int(c.elixir)) for c in cards)
+        infos = []
+        for c in cards:
+            count = getattr(c, "count", None)
+            flying = getattr(c, "flying", None)
+            infos.append(
+                CardFace(
+                    str(c.name),
+                    int(c.elixir),
+                    engine_card_kind(c),
+                    int(count) if isinstance(count, int) and count > 0 else None,
+                    bool(flying) if isinstance(flying, bool) else None,
+                )
+            )
+        return cls(((int(c.card_id), str(c.name), int(c.elixir)) for c in cards), infos)
+
+    def face_of(self, name: str) -> CardFace | None:
+        """What a card is, by name; None for a name the table does not have."""
+        info = self._info.get(name)
+        if info is None:
+            cost = self.cost_of_name(name)
+            return CardFace(name, cost) if cost is not None else None
+        return info
 
     def __len__(self) -> int:
         return len(self._by_id)
@@ -440,4 +547,16 @@ def problems(frame: Frame) -> list[str]:
     for s in frame.spells:
         if s.team not in (0, 1):
             out.append(f"spell {s.name} team {s.team}")
+    for i, p in enumerate(frame.players):
+        # The special-form rows: empty is "not said"; anything else must be whole.
+        if p.hand_evolved and len(p.hand_evolved) != HAND_SIZE:
+            out.append(f"players[{i}].hand_evolved has {len(p.hand_evolved)} entries")
+        if any(v not in (-1, 0, 1) for v in p.hand_evolved):
+            out.append(f"players[{i}].hand_evolved {p.hand_evolved} is not -1/0/1")
+        for name, n, need in p.evo:
+            if need < 0 or n < 0:
+                out.append(f"players[{i}].evo {name} counts {n} of {need}")
+        for row in p.abilities:
+            if not ABILITY_NO_UNIT <= row[3] <= ABILITY_SPENT:
+                out.append(f"players[{i}].abilities button {row[0]} phase {row[3]}")
     return out

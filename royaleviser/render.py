@@ -22,7 +22,7 @@ no game data: a ``Theme``, a ``Layout``, the board geometry (``Board``) and its 
 PERFORMANCE (measured 2026-09-20 on a laptop, SDL dummy driver, scale 24): the static
 board is rendered once per (seat, grid) into a Surface and blitted; text surfaces are
 cached by (text, font, colour, shadow) in a bounded OrderedDict; translucent discs and the
-card dimmer are cached by size; target lines are at most 16 dashes each. A 100-troop frame
+card veils are cached by size; target lines are at most 16 dashes each. A 100-troop frame
 with paths, targets and labels on: 5.1 ms mean on a quiet machine, 3.8-5.8 ms best-of-60
 on a busy machine (mean then 9-11 ms from contention); the synthetic battle's
 frames 2.7 ms mean; a real capture frame ~5 ms (tests/test_render.py prints the numbers).
@@ -48,17 +48,31 @@ import pygame
 
 from .engine_tables import BUFF_KINDS, SHOT_KIND, SPELL_RADIUS_MILLI
 from .model import (
+    ABILITY_CASTING,
+    ABILITY_NO_UNIT,
+    ABILITY_READY,
+    ABILITY_SPENT,
+    CARD_BUILDING,
+    CARD_SPELL,
+    CARD_TROOP,
     KIND_BUILDING,
     KIND_KING_TOWER,
     KIND_PRINCESS_TOWER,
     KIND_TROOP,
+    STATUS_EVOLVED,
+    STATUS_HERO,
+    STATUS_HIDDEN,
+    STATUS_INVISIBLE,
+    STATUS_UNDERGROUND,
     UNKNOWN_HP,
+    CardFace,
     Frame,
     Learning,
     Player,
     Projectile,
     Spell,
     Unit,
+    status_bits,
 )
 from .theme import DEFAULT, Color, Layout, Rect, Theme, layout
 
@@ -67,6 +81,10 @@ MOTION_FLIGHT = 0
 MOTION_AIRBORNE = 1
 MOTION_ROLLING = 2
 MOTION_AREA = 3
+MOTION_PULSING = 4  # an area that hits on a period (Poison, the Goblin Curse)
+# How far outside a unit's body the evolution / hero ring sits: past the status rings, which
+# reach body + 5 (Freeze, Rage) and the Rage glow to body + 6.
+FORM_RING_GAP = 8
 
 KIND_NAMES = {
     KIND_TROOP: "troop",
@@ -279,7 +297,10 @@ def spell_style(name: str, motion: int) -> tuple[str, str]:
     key = norm_name(name)
     if key in SPELL_STYLES:
         return SPELL_STYLES[key]
-    if motion == MOTION_AREA:
+    if motion in (MOTION_AREA, MOTION_PULSING):
+        # A pulsing spell is an area too. It used to fall through to "ball", so a Goblin Curse
+        # (no style of its own) was drawn as a dot with a ring round it (seen on a RoyaleSim
+        # 1d661b0 engine, where the Goblin Curse loads).
         return ("spell", "area")
     if motion == MOTION_ROLLING:
         return ("spell", "log")
@@ -590,6 +611,46 @@ def split_name(name: str, limit: int) -> list[str]:
     return lines
 
 
+def name_words(name: str) -> list[str]:
+    """A card name's words: split at spaces, underscores, digits and CamelCase."""
+    words: list[str] = []
+    for part in name.replace("_", " ").split():
+        start = 0
+        for i in range(1, len(part)):
+            if part[i].isupper() and not part[i - 1].isupper():
+                words.append(part[start:i])
+                start = i
+        words.append(part[start:])
+    return [w for w in ("".join(ch for ch in w if ch.isalpha()) for w in words) if w]
+
+
+def monogram(name: str) -> str:
+    """The two letters a card tile shows large: the first two words' initials (HogRider "HR",
+    Elixir Collector "EC"), or a one-word name's first two letters (Knight "Kn").
+    "?" for a name with no letters (an unknown card, "#26000099")."""
+    words = name_words(name)
+    if not words:
+        return "?"
+    if len(words) == 1:
+        return words[0][:2].capitalize()
+    return (words[0][0] + words[1][0]).upper()
+
+
+def shade(color: Color, f: float) -> Color:
+    """``color`` scaled by ``f`` (below 1 darker), each channel clamped to 0..255."""
+    r, g, b = color
+    return (min(255, int(r * f)), min(255, int(g * f)), min(255, int(b * f)))
+
+
+def card_color(theme: Theme, kind: str | None) -> Color:
+    """A card tile's face colour by what the card is; the plain tile when nobody says."""
+    return {
+        CARD_TROOP: theme.card_troop,
+        CARD_BUILDING: theme.card_building,
+        CARD_SPELL: theme.card_spell,
+    }.get(kind or "", theme.card_bg)
+
+
 def footprint_note(frame: Frame) -> str:
     """What the status block says about the sizes on the board, or "" when nothing is guessed.
 
@@ -670,11 +731,15 @@ class Renderer:
         # next(iter()) walks every deleted slot at its front once the cache churns).
         self._text_cache: OrderedDict[tuple[str, str, Color, bool], pygame.Surface] = OrderedDict()
         self._disc_cache: dict[tuple[int, tuple[int, int, int, int]], pygame.Surface] = {}
-        self._dim_cache: dict[tuple[int, int, int], pygame.Surface] = {}
-        # name -> elixir cost for the hand badges and the "unaffordable" dimming; the app
-        # installs a source's Names.cost_of_name. None: no badge, no dimming.
+        self._tint_cache: dict[tuple[int, int, tuple[int, int, int, int]], pygame.Surface] = {}
+        # name -> elixir cost for the elixir drop and the veil over the elixir still missing;
+        # the app installs a source's Names.cost_of_name. None: no drop, no veil.
         self.cost_of: Callable[[str], int | None] = lambda name: None
         self._cost_cache: dict[str, int | None] = {}
+        # name -> what the card is (kind, count, flying) for the tile's colour and badges; the
+        # app installs a source's Names.face_of. None: a plain tile, nothing guessed.
+        self.face_of: Callable[[str], CardFace | None] = lambda name: None
+        self._face_cache: dict[str, CardFace | None] = {}
 
     # ------------------------------------------------------------------ geometry
 
@@ -832,15 +897,6 @@ class Renderer:
             surf = pygame.Surface((2 * radius + 2, 2 * radius + 2), pygame.SRCALPHA)
             pygame.draw.circle(surf, rgba, (radius + 1, radius + 1), radius)
             self._disc_cache[key] = surf
-        return surf
-
-    def dimmer(self, w: int, h: int, alpha: int = 110) -> pygame.Surface:
-        key = (w, h, alpha)
-        surf = self._dim_cache.get(key)
-        if surf is None:
-            surf = pygame.Surface((w, h), pygame.SRCALPHA)
-            surf.fill((0, 0, 0, alpha))
-            self._dim_cache[key] = surf
         return surf
 
     # ------------------------------------------------------------------ the board
@@ -1182,13 +1238,32 @@ class Renderer:
             px, py = pos[u.uid]
             r = radii[u.uid]
             color = t.team_color(u.team, king=u.kind == KIND_KING_TOWER)
+            # The engine's own status bits, None when the source did not report them, which
+            # draws exactly as before: nothing here is inferred from a name or a card.
+            bits = status_bits(u) or 0
             if u.kind == KIND_TROOP:
-                if u.flying:
-                    surface.blit(self.disc(r, (0, 0, 0, 90)), (px - r + 2, py - r + 4))
-                pygame.draw.circle(surface, color, (px, py), r)
-                pygame.draw.circle(surface, t.troop_outline, (px, py), r, 1)
-                if u.flying:
-                    pygame.draw.circle(surface, (255, 255, 255), (px, py), r + 3, 1)
+                if bits & STATUS_UNDERGROUND:
+                    # Travelling under ground: nothing can hit it, so no body. A patch of
+                    # turned earth with the team's colour dashed round it.
+                    surface.blit(self.disc(r, (*t.burrow, 170)), (px - r - 1, py - r - 1))
+                    dashed_circle(surface, color, (px, py), r, 2)
+                else:
+                    if u.flying:
+                        surface.blit(self.disc(r, (0, 0, 0, 90)), (px - r + 2, py - r + 4))
+                    if bits & STATUS_INVISIBLE:
+                        # Invisible to the enemy: the body faded, the black outline kept and
+                        # the team's colour dashed round it, so the watcher still sees what the
+                        # enemy cannot, and whose it is, even on the river.
+                        surface.blit(
+                            self.disc(r, (*color, t.unseen_alpha)), (px - r - 1, py - r - 1)
+                        )
+                        pygame.draw.circle(surface, t.troop_outline, (px, py), r, 1)
+                        dashed_circle(surface, color, (px, py), r + 2, 2)
+                    else:
+                        pygame.draw.circle(surface, color, (px, py), r)
+                        pygame.draw.circle(surface, t.troop_outline, (px, py), r, 1)
+                    if u.flying:
+                        pygame.draw.circle(surface, (255, 255, 255), (px, py), r + 3, 1)
                 if u.direction is not None and (u.direction[0] or u.direction[1]):
                     dx, dy = u.direction
                     if seat == 0:
@@ -1217,7 +1292,13 @@ class Renderer:
                 # is is a fact about the building. One ring, no hairline over it, so the drawn
                 # extent is the footprint exactly rather than two pixels inside it.
                 pygame.draw.rect(surface, t.footprint_box, rect, 2)
-                if body > 0:
+                if body > 0 and bits & (STATUS_HIDDEN | STATUS_INVISIBLE):
+                    # Hidden in the ground (a Tesla between fights): faded like an invisible
+                    # troop, because the enemy cannot target it either.
+                    a = t.unseen_alpha
+                    surface.blit(self.disc(body, (*color, a)), (px - body - 1, py - body - 1))
+                    pygame.draw.circle(surface, t.collision_circle, (px, py), body, 1)
+                elif body > 0:
                     pygame.draw.circle(surface, color, (px, py), body)
                     pygame.draw.circle(surface, t.collision_circle, (px, py), body, 1)
                 else:
@@ -1247,9 +1328,13 @@ class Renderer:
                     "center",
                 )
             self._draw_status(u, px, py, h, hw)
+            # After the status marks and outside them, so a Freeze or a Rage never covers it.
+            rings = self._draw_form_ring(bits, (px, py), max(h, hw, 3) + FORM_RING_GAP)
             if u.uid == view.selected_uid or u.uid == view.hover_uid:
                 if u.kind == KIND_TROOP:
-                    pygame.draw.circle(surface, t.hover, (px, py), r + 6, 2)
+                    # Outside the form rings when there are any: the pin ring is yellow too.
+                    pin = rings + 4 if rings else r + 6
+                    pygame.draw.circle(surface, t.hover, (px, py), pin, 2)
                 else:
                     pygame.draw.rect(
                         surface, t.hover, self.unit_rect_px(u, upt, seat).inflate(10, 10), 2
@@ -1265,6 +1350,10 @@ class Renderer:
                     pygame.draw.rect(
                         surface, t.hp_color(u.hp, u.max_hp), (bar[0], bar[1], fill, bar[3])
                     )
+            if bits & STATUS_HERO:
+                # Above the status pips when there are any (they sit just over the hp bar).
+                lift = 9 if status_kinds(u) else 0
+                self._draw_crown((px, py - h - 3 - t.hp_bar_h - 13 - lift), t.hero)
             if u.kind == KIND_TROOP or u.kind == KIND_BUILDING or view.show_debug:
                 label = u.name if s >= 16 else ""
                 if label:
@@ -1284,6 +1373,19 @@ class Renderer:
                     "midtop",
                     shadow=True,
                 )
+
+    def _draw_form_ring(self, bits: int, center: tuple[int, int], r: int) -> int:
+        """The special forms on the board: an evolved unit wears a ring in the evolution colour
+        at ``r``, a hero one in gold (and a crown over its hp bar); both, the gold one outside.
+        Each on a black copy, like every other mark, so it reads on the yellow grass.
+        Returns the outermost ring's radius, 0 when there is none."""
+        t = self.theme
+        colours = [c for bit, c in ((STATUS_EVOLVED, t.evo), (STATUS_HERO, t.hero)) if bits & bit]
+        for i, c in enumerate(colours):
+            rad = r + 4 * i
+            pygame.draw.circle(self.surface, (0, 0, 0), center, rad + 1, 4)
+            pygame.draw.circle(self.surface, c, center, rad, 2)
+        return r + 4 * (len(colours) - 1) + 1 if colours else 0
 
     def _draw_fallback_marks(self, rect: pygame.Rect) -> None:
         """The corner ticks on a building drawn at a GUESSED size (no footprint in the frame).
@@ -1638,8 +1740,8 @@ class Renderer:
         top_team, bottom_team = 1 - view.seat, view.seat
         top, bottom = frame.player(top_team), frame.player(bottom_team)
         self._draw_hand(top, lay.top_hand)
-        self._draw_elixir_row(top, lay.top_elixir)
-        self._draw_elixir_row(bottom, lay.bottom_elixir)
+        self._draw_elixir_row(top, lay.top_elixir, frame.tick_ms)
+        self._draw_elixir_row(bottom, lay.bottom_elixir, frame.tick_ms)
         self._draw_hand(bottom, lay.bottom_hand)
         log_bottom = self._draw_status_block(frame, lay.debug, transport, view)
         self._draw_learning_block(
@@ -1655,12 +1757,33 @@ class Renderer:
             self._cost_cache[name] = self.cost_of(name)
         return self._cost_cache[name]
 
+    def card_face(self, name: str) -> CardFace | None:
+        if name not in self._face_cache:
+            self._face_cache[name] = self.face_of(name)
+        return self._face_cache[name]
+
+    def tint(self, w: int, h: int, rgba: tuple[int, int, int, int]) -> pygame.Surface:
+        """A translucent w x h rectangle (a card's veil), cached by size and colour."""
+        key = (w, h, rgba)
+        surf = self._tint_cache.get(key)
+        if surf is None:
+            surf = pygame.Surface((max(1, w), max(1, h)), pygame.SRCALPHA)
+            surf.fill(rgba)
+            self._tint_cache[key] = surf
+        return surf
+
     def _draw_hand(self, p: Player, rect: Rect) -> None:
-        """Four 80x100 boxes filling ``rect`` exactly: name, cost badge, dimmed when
-        unaffordable, hatched when unknown."""
+        """Four card tiles filling ``rect`` exactly, hatched "?" when the source has no hand.
+
+        What each tile says is in ``_draw_card``. The special forms come from the player's
+        own rows and are drawn only when the source carries them: ``hand_evolved`` per slot,
+        ``evo`` per card, and a hero is any card an ability button belongs to.
+        """
         t = self.theme
         x, y, _, _ = rect
         cw, ch, gap = t.card_w, t.card_h, t.card_gap
+        heroes = {row[1] for row in p.abilities}
+        progress = {name: (n, need) for name, n, need in p.evo}
         for i in range(4):
             cx = x + i * (cw + gap)
             box = pygame.Rect(cx, y, cw, ch)
@@ -1674,20 +1797,209 @@ class Renderer:
                 self.blit_text("?", box.center, "large", t.ui_dim, "center")
                 continue
             name = p.hand[i] if i < len(p.hand) else "?"
-            pygame.draw.rect(self.surface, t.card_bg, box)
-            pygame.draw.rect(self.surface, t.card_border, box, 2)
-            ly = y + 5
-            for line in split_name(name, 10)[:2]:
-                self.blit_text(line, (cx + cw // 2, ly), "tiny", t.card_text, "midtop")
-                ly += self.line_h["tiny"] - 4
-            cost = self.card_cost(name)
-            if cost is not None:
-                pygame.draw.circle(self.surface, t.elixir, (cx + 14, y + ch - 14), 11)
-                self.blit_text(str(cost), (cx + 14, y + ch - 14), "tiny", t.ui_text, "center")
-                if p.elixir_known and p.elixir_milli < cost * 1000:
-                    self.surface.blit(self.dimmer(cw, ch), box.topleft)
+            self._draw_card(
+                box,
+                name,
+                p.elixir_milli if p.elixir_known else None,
+                evolved=p.hand_evolved[i] if i < len(p.hand_evolved) else None,
+                evo=progress.get(name),
+                hero=name in heroes,
+            )
 
-    def _draw_elixir_row(self, p: Player, rect: Rect) -> None:
+    def _draw_card(
+        self,
+        box: pygame.Rect,
+        name: str,
+        elixir_milli: int | None,
+        *,
+        evolved: int | None = None,
+        evo: tuple[int, int] | None = None,
+        hero: bool = False,
+    ) -> None:
+        """One card tile.
+
+        The face is coloured by what the card is (troop, building, spell) and a glyph in the
+        corner says the same, so colour is never the only cue; a card whose kind the source
+        does not give is the plain grey tile. Large in the middle, the name's two-letter
+        monogram, so a hand reads at a glance; the whole name on the dark band below. An
+        elixir drop with the cost, "x3" for a card that summons three, a wing for a flyer.
+        Elixir still missing is a veil from the top down, so a card fills as it becomes
+        playable instead of switching on.
+
+        The special forms: ``evolved`` 1 (the next play of this slot is evolved) frames the
+        tile in the evolution colour with an EVO tag; ``evo`` (cycles, needed) draws the
+        cycles as pips; ``hero`` frames it in gold with a crown. None / False draws nothing.
+        """
+        t = self.theme
+        s = self.surface
+        cx, y, cw, ch = box
+        if name == "":  # a slot known to be empty: an outline, nothing in it
+            pygame.draw.rect(s, t.card_unknown, box)
+            pygame.draw.rect(s, t.ui_border, box, 1)
+            return
+        face = self.card_face(name)
+        kind = face.kind if face is not None else None
+        base = card_color(t, kind)
+        ink = shade(base, 0.42)
+        foot_h = 30
+        pygame.draw.rect(s, base, box)
+        art = pygame.Rect(cx + 4, y + 4, cw - 8, ch - foot_h - 7)
+        pygame.draw.rect(s, shade(base, 1.1), art)
+        pygame.draw.rect(s, shade(base, 0.8), art, 1)
+        self.blit_text(monogram(name), (art.centerx, art.centery + 3), "large", ink, "center")
+        self._draw_kind_glyph(kind, (art.right - 8, art.bottom - 8), ink)
+        if face is not None and face.flying:
+            self._draw_wing((art.x + 9, art.bottom - 8), ink)
+        foot = pygame.Rect(cx, y + ch - foot_h, cw, foot_h)
+        pygame.draw.rect(s, t.card_footer, foot)
+        lines = split_name(name, 10)[:2]
+        step = self.line_h["tiny"] - 4
+        ly = foot.y + (foot_h - len(lines) * step) // 2 - 1
+        for line in lines:
+            self.blit_text(line, (foot.centerx, ly), "tiny", t.ui_text, "midtop")
+            ly += step
+        evo_tag = self.text("EVO", "tiny", t.ui_text)
+        evo_pill = evo_tag.get_rect(midtop=(cx + 41, y + 3)).inflate(4, -2)
+        if face is not None and face.count is not None and face.count > 1:
+            tag = self.text(f"x{face.count}", "tiny", t.ui_text)
+            pill = tag.get_rect(topright=(cx + cw - 5, y + 5)).inflate(6, 0)
+            if evolved == 1 and not hero and pill.colliderect(evo_pill):
+                pill.top = evo_pill.bottom + 2  # under the tag, never under it (Evo Skeletons)
+            pygame.draw.rect(s, t.card_footer, pill, border_radius=6)
+            s.blit(tag, tag.get_rect(center=pill.center))
+        if evo is not None:
+            self._draw_pips(evo, evolved == 1, (art.centerx, art.bottom - 3))
+        cost = self.card_cost(name)
+        if cost is not None:
+            if cost > 0 and elixir_milli is not None and elixir_milli < cost * 1000:
+                missing = cost * 1000 - max(0, elixir_milli)
+                s.blit(self.tint(cw, ch * missing // (cost * 1000), t.card_veil), (cx, y))
+            self._draw_drop((cx + 14, y + 17), cost)
+        if hero:
+            pygame.draw.rect(s, t.hero, box, 3)
+            self._draw_crown((box.centerx, y + 2), t.hero)
+        elif evolved == 1:
+            pygame.draw.rect(s, t.evo, box, 3)
+            pygame.draw.rect(s, t.evo, evo_pill, border_radius=5)
+            s.blit(evo_tag, evo_tag.get_rect(center=evo_pill.center))
+        else:
+            pygame.draw.rect(s, t.card_border, box, 2)
+
+    def _draw_drop(self, center: tuple[int, int], cost: int, r: int = 11) -> None:
+        """An elixir drop: a disc with a point on top, the cost in it."""
+        t = self.theme
+        x, y = center
+        tip = [(x, y - r - 6), (x - r + 3, y - r // 2), (x + r - 3, y - r // 2)]
+        pygame.draw.polygon(self.surface, t.elixir, tip)
+        pygame.draw.circle(self.surface, t.elixir, center, r)
+        pygame.draw.circle(self.surface, shade(t.elixir, 0.55), center, r, 1)
+        self.blit_text(str(cost), (x, y + 1), "tiny", t.ui_text, "center", shadow=True)
+
+    def _draw_kind_glyph(self, kind: str | None, at: tuple[int, int], color: Color) -> None:
+        """A 12 px mark for what a card is: a sword, a tower, a spark. Nothing when unknown."""
+        s = self.surface
+        x, y = at
+        if kind == CARD_TROOP:
+            pygame.draw.line(s, color, (x - 5, y + 5), (x + 5, y - 5), 2)
+            pygame.draw.line(s, color, (x - 5, y - 1), (x + 1, y + 5), 2)
+        elif kind == CARD_BUILDING:
+            pygame.draw.rect(s, color, (x - 5, y - 3, 11, 9))
+            for dx in (-5, -1, 3):
+                pygame.draw.rect(s, color, (x + dx, y - 6, 3, 3))
+        elif kind == CARD_SPELL:
+            pts = [(x, y - 6), (x + 2, y - 2), (x + 6, y), (x + 2, y + 2), (x, y + 6)]
+            pts += [(x - 2, y + 2), (x - 6, y), (x - 2, y - 2)]
+            pygame.draw.polygon(s, color, pts)
+
+    def _draw_wing(self, at: tuple[int, int], color: Color) -> None:
+        """A flyer's mark: two chevrons pointing up."""
+        x, y = at
+        for dy in (-2, 3):
+            pygame.draw.lines(
+                self.surface,
+                color,
+                False,
+                [(x - 6, y + dy + 3), (x, y + dy - 2), (x + 6, y + dy + 3)],
+                2,
+            )
+
+    def _draw_crown(self, top: tuple[int, int], color: Color) -> None:
+        """A hero's crown, 16 px wide, its top edge at ``top``."""
+        x, y = top
+        pts = [(x - 8, y + 10), (x - 8, y + 2), (x - 4, y + 6), (x, y), (x + 4, y + 6)]
+        pts += [(x + 8, y + 2), (x + 8, y + 10)]
+        pygame.draw.polygon(self.surface, color, pts)
+        pygame.draw.polygon(self.surface, shade(color, 0.5), pts, 1)
+
+    def _draw_pips(self, evo: tuple[int, int], charged: bool, at: tuple[int, int]) -> None:
+        """An evolution's cycles: one pip per cycle needed, filled for each one counted (all of
+        them when the next play is evolved), centred on ``at``."""
+        n, need = evo
+        if need <= 0:
+            return
+        t = self.theme
+        filled = need if charged else max(0, min(n, need))
+        gap = 9
+        x0 = at[0] - (need - 1) * gap // 2
+        for k in range(need):
+            c = (x0 + k * gap, at[1])
+            if k < filled:
+                pygame.draw.circle(self.surface, t.evo, c, 3)
+            pygame.draw.circle(self.surface, shade(t.evo, 0.5), c, 3, 1)
+
+    def _draw_mini_card(self, box: pygame.Rect, name: str) -> None:
+        """The next card, small: its face colour, monogram and cost dot."""
+        t = self.theme
+        face = self.card_face(name)
+        base = card_color(t, face.kind if face is not None else None)
+        pygame.draw.rect(self.surface, base, box)
+        pygame.draw.rect(self.surface, t.card_border, box, 1)
+        self.blit_text(monogram(name), box.center, "tiny", shade(base, 0.42), "center")
+        cost = self.card_cost(name)
+        if cost is not None:
+            c = (box.right - 5, box.bottom - 5)
+            pygame.draw.circle(self.surface, t.elixir, c, 6)
+            self.blit_text(str(cost), (c[0], c[1] + 1), "tiny", t.ui_text, "center")
+
+    def _draw_abilities(self, p: Player, x: int, cy: int, tick_ms: int) -> int:
+        """A hero's ability buttons, left to right from ``x``; returns the x after the last.
+
+        Gold when ready, a white ring while casting, grey with the seconds left while it
+        recharges, dark and crossed when spent, dim when there is no hero on the board. The
+        cost is the elixir dot, the charges left the pips over the button.
+        """
+        t = self.theme
+        s = self.surface
+        r = 13
+        for _button, name, _uid, phase, cost, ready_in, charges in sorted(p.abilities):
+            c = (x + r, cy)
+            fill = t.hero if phase in (ABILITY_READY, ABILITY_CASTING) else t.ability_idle
+            if phase in (ABILITY_SPENT, ABILITY_NO_UNIT):
+                fill = shade(t.ability_idle, 0.6)
+            pygame.draw.circle(s, fill, c, r)
+            ring = t.ui_text if phase == ABILITY_CASTING else shade(fill, 0.55)
+            pygame.draw.circle(s, ring, c, r, 3 if phase == ABILITY_CASTING else 1)
+            if phase == ABILITY_SPENT:
+                pygame.draw.line(s, t.ui_dim, (c[0] - 7, c[1] + 7), (c[0] + 7, c[1] - 7), 2)
+            elif phase in (ABILITY_READY, ABILITY_CASTING):
+                self.blit_text(monogram(name), c, "tiny", shade(t.hero, 0.35), "center")
+            elif ready_in > 0 and phase != ABILITY_NO_UNIT:
+                # Whole seconds rounded UP: a button that is not ready never reads 0.
+                secs = -(-ready_in * tick_ms // 1000)
+                self.blit_text(str(secs), c, "tiny", t.ui_text, "center")
+            else:
+                self.blit_text(monogram(name), c, "tiny", t.ui_dim, "center")
+            if cost > 0:
+                d = (c[0] + r - 2, c[1] + r - 3)
+                pygame.draw.circle(s, t.elixir, d, 6)
+                self.blit_text(str(cost), (d[0], d[1] + 1), "tiny", t.ui_text, "center")
+            x0 = c[0] - 3 * (max(0, charges) - 1)
+            for k in range(max(0, charges)):
+                pygame.draw.circle(s, t.hero, (x0 + 6 * k, c[1] - r - 3), 2)
+            x += 2 * r + 4
+        return x
+
+    def _draw_elixir_row(self, p: Player, rect: Rect, tick_ms: int = 50) -> None:
         t = self.theme
         x, y, _, h = rect
         bar_w, bar_h = 200, h - 8
@@ -1720,10 +2032,20 @@ class Renderer:
                 "in this source", (rx, y + 2 + self.line_h["tiny"] - 3), "tiny", t.ui_warn
             )
         else:  # a trace under a shuffle mode may not know the queue's front yet: "?"
-            self.blit_text("next", (rx, y + 2), "tiny", t.ui_dim)
-            self.blit_text(
-                p.next_card or "?", (rx, y + 2 + self.line_h["tiny"] - 3), "tiny", t.ui_text
-            )
+            tile = pygame.Rect(rx, y + 2, 24, h - 4)
+            if p.next_card:
+                self._draw_mini_card(tile, p.next_card)
+            else:
+                pygame.draw.rect(self.surface, t.card_unknown, tile)
+                self.blit_text("?", tile.center, "tiny", t.ui_dim, "center")
+            tx = tile.right + 5
+            if p.abilities:  # the buttons take the room the next card's name had
+                self._draw_abilities(p, tx, y + h // 2, tick_ms)
+            else:
+                self.blit_text("next", (tx, y + 2), "tiny", t.ui_dim)
+                self.blit_text(
+                    p.next_card or "?", (tx, y + 2 + self.line_h["tiny"] - 3), "tiny", t.ui_text
+                )
 
     def outside_arena(self, frame: Frame) -> list[str]:
         """One line per unit whose CARRIED box runs off the board, newest board geometry.
@@ -2020,6 +2342,7 @@ class Renderer:
             f"path     {len(unit.path)} points" + (f", to {unit.path[-1]}" if unit.path else ""),
             f"dir      {unit.direction}",
             f"state    {unit.state}",
+            f"flags    {status_words(unit)}",
         ]
         if unit.extra:
             lines.append("extra")
@@ -2081,6 +2404,40 @@ class Renderer:
 
 
 # ---------------------------------------------------------------------- helpers
+
+
+STATUS_WORDS = (
+    (STATUS_UNDERGROUND, "underground"),
+    (STATUS_INVISIBLE, "invisible"),
+    (STATUS_HIDDEN, "hidden"),
+    (STATUS_EVOLVED, "evolved"),
+    (STATUS_HERO, "hero"),
+)
+
+
+def status_words(unit: Unit) -> str:
+    """The unit's status bits in words for the inspector: "none", "not reported", or the set
+    bits by name, with any bit this viewer does not know as its number."""
+    bits = status_bits(unit)
+    if bits is None:
+        return "not reported"
+    words = [word for bit, word in STATUS_WORDS if bits & bit]
+    rest = bits & ~sum(bit for bit, _ in STATUS_WORDS)
+    if rest:
+        words.append(f"bits {rest}")
+    return ", ".join(words) or "none"
+
+
+def dashed_circle(
+    surface: pygame.Surface, color: Color, center: tuple[int, int], r: int, width: int = 1
+) -> None:
+    """A circle drawn as eight dashes, half ink."""
+    if r < 2:
+        return
+    box = pygame.Rect(center[0] - r, center[1] - r, 2 * r, 2 * r)
+    for k in range(8):
+        start = k * math.pi / 4
+        pygame.draw.arc(surface, color, box, start, start + math.pi / 8, width)
 
 
 def dashed_line(

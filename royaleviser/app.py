@@ -623,6 +623,7 @@ class App:
         names = source_names(self.source)
         if names is not None:
             self.renderer.cost_of = names.cost_of_name
+            self.renderer.face_of = names.face_of
         self.title = title
         self.frame: Frame | None = None
         self.dirty = True
