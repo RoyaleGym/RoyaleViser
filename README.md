@@ -143,12 +143,13 @@ it is a troop, a building or a spell. The big letters are its name, and the purp
 cost. A card fills in from the bottom as elixir comes in, so you can see how close it is to
 being played.
 
-**Evolutions and heroes.** The engine does not play them yet, but the viewer is ready for them.
-An evolved card gets a pink frame and an EVO tag, with dots for the cycles it needs. A hero card
-wears a gold crown, and its ability button sits next to the elixir bar. On the board, an evolved
-unit gets a pink ring and a hero a gold one. These show once the engine sends them and RoyaleGym
-passes them on. Two marks work today: a unit travelling under ground (Miner, Goblin Drill) is a
-patch of dirt, and an invisible one is faded.
+**Evolutions and heroes.** An evolved card gets a dot for each time it was played since its
+last evolution, and a pink frame with an EVO tag when its next play is the evolution. A hero
+card wears a gold crown, and its ability button sits next to the elixir bar: gold when it can be
+used, crossed out once it has been. On the board, an evolved unit gets a pink ring and a hero a
+gold one. A unit travelling under ground (Miner, Goblin Drill) is a patch of dirt, and an
+invisible one is faded. The board marks show in every source today. The hand marks need RoyaleGym
+to pass them on to a live stream, which is on its way.
 
 ## Save a picture or a clip
 
@@ -466,13 +467,13 @@ Here is what each piece of the viewer needs.
 ## Status
 
 <p align="center">
-  <img alt="pytest on a clone at 383d604, 2026-09-27: 350 passed, 5 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--27-350_passed%2C_5_skipped-2ea043?style=flat-square">
+  <img alt="pytest on a clone at ceb446c, 2026-09-27: 351 passed, 4 skipped" src="https://img.shields.io/badge/tests_on_a_clone%2C_2026--09--27-351_passed%2C_4_skipped-2ea043?style=flat-square">
   <img alt="Draw cost" src="https://img.shields.io/badge/draw-2--5_ms_per_frame-2ea043?style=flat-square">
   <img alt="Cost when unwatched" src="https://img.shields.io/badge/unwatched-193_ns_per_step-2ea043?style=flat-square">
 </p>
 
-The test badge is a clone's run at `383d604`, measured with `ROYALELIVE_REPORTS` pointed at
-an empty folder. On a machine that has the recordings the same pytest run is 353 passed, 2 skipped.
+The test badge is a clone's run at `ceb446c`, measured with `ROYALELIVE_REPORTS` pointed at
+an empty folder. On a machine that has the recordings the same pytest run is 354 passed, 1 skipped.
 
 As of 2026-09-22, this works end to end:
 
@@ -535,8 +536,8 @@ same name. The counts below are for a machine with the rest of
 the stack. Until 2026-09-23 that case could not collect the suite at all, which nothing had ever
 run.
 
-Tests. Start in the `Royale` folder. On a clone the first line prints 350 passed, 5 skipped
-(2026-09-27, 383d604), and the second prints nothing at all when it is happy. Both tools come
+Tests. Start in the `Royale` folder. On a clone the first line prints 351 passed, 4 skipped
+(2026-09-27, ceb446c), and the second prints nothing at all when it is happy. Both tools come
 from the `pip install maturin pytest hypothesis ruff numpy msgspec` line in [Setup](#setup), so
 the short way on its own does not have them:
 
@@ -549,9 +550,8 @@ cd RoyaleViser
 Three of those skips are tests that pin numbers only a recording of a real battle has. Those
 recordings are private, so your clone does not have them, and the run prints "SKIPPED, NOT
 PASSED" for each one so nobody mistakes a skip for a pass. The fourth needs a parity results
-file from RoyaleSim's replay harness. The fifth checks that a running engine's stream carries the
-evolution and hero rows, and waits until RoyaleGym sends them. On the machine that has the
-recordings, the first three run and the count is 353 passed, 2 skipped.
+file from RoyaleSim's replay harness. On the machine that has the recordings, the first three
+run and the count is 354 passed, 1 skipped.
 
 Without the `media` extra (`imageio-ffmpeg`), the mp4 and gif test skips as well, and it says so.
 Install it with `.venv\Scripts\python -m pip install -e "RoyaleViser[media]"` from the `Royale`

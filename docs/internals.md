@@ -224,26 +224,31 @@ Empress (`MergeMaiden`: an event card among the spell ids that summons a flying 
 stream carries no card table, so the window falls back to the live one, and those two cards,
 every `xN` and every wing differ between a stream and a trace of the same battle.
 
-**The special forms** (evolutions and heroes) are three trailing `Player` fields. Each is
-empty by default, and empty means "not said", so every frame from before them decodes
-unchanged and draws as it did. Names, not ids, as everywhere on the wire; `model.problems`
-checks their shapes.
+**The special forms** (evolutions and heroes) are two trailing `Player` fields in the layout the
+engine ships (RoyaleSim `state_json`, 2026-09-27), names for its ids. Each is empty by
+default, and empty means "not said", so every frame from before them decodes unchanged and
+draws as it did. `model.problems` checks their shapes.
 
 | Field | One row | Drawn as |
 |---|---|---|
-| `hand_evolved` | per hand slot: 1 the slot's next play is evolved, 0 the card has an evolution not yet charged, -1 it has none | 1: the tile framed in `theme.evo` with an EVO tag |
-| `evo` | per evolved deck entry: (card name, cycles counted, cycles needed) | pips at the foot of the tile's art, one per cycle needed, filled per cycle counted, all of them when charged |
-| `abilities` | per button: (button, card name, hero uid or -1, phase, elixir cost, ticks until ready, charges); phase 0 no hero on the board, 1 recharging, 2 ready, 3 casting, 4 spent | the card's tile framed in gold with a crown, and a 13 px button in the elixir row where the next card's name was: gold when ready, a white ring while casting, grey with whole seconds rounded up while recharging, crossed when spent, dim with no hero; the cost as an elixir dot, the charges as pips |
+| `evo` | per evolved deck entry, in deck order: (card name, the card's plays since its last evolved play, 1 when its next play is the evolution else 0) | a filled pip per play at the foot of the tile's art (one hollow pip for none yet); and when its next play is the evolution, the tile framed in `theme.evo` with an EVO tag |
+| `abilities` | per hero deck entry, in deck order: (the hero card's name, or "" when the source does not know it, available 0/1, spent 0/1, the press's elixir) | a 13 px button in the elixir row where the next card's name was: gold when available, dark and crossed when spent, grey when neither (no hero of it standing); the monogram when named; the elixir as a dot. A named row also frames that card's tile in gold with a crown |
+
+There is no per-slot row: a hand slot is "evolved now" when the `evo` row for its card says
+so (`model.hand_evolved`: 1, 0, or -1 for a card with no row). The engine says how many plays
+a card has counted but not how many it takes, so the pips count up and promise no total. It
+sends no casting state, no time until ready and no charges, and the button draws none.
 
 Where they come from. `sources.frame_from_state` adds them from an engine `PlayerState` that
-carries the engine's rows (`sources.special_fields`: `hand_evolved`; `evo` rows `[card_id,
-cycles, needed]`; `abilities` rows `[button, card_id, uid, phase, cost, ready_in_ticks,
-charges]`), unless the frame dict already has them. **A running engine's stream does not carry
-them yet.** `royalegym.viser.player_dict` writes a fixed set of keys, so until it sends these
-three, with names, a live window shows no evolution frame, pip, crown or button, and that is not
-"no evolutions". `tests/test_cards.py::test_a_running_engines_stream_carries_the_special_rows`
-skips and says so until the day it sends them, and then runs by itself and fails on ids or on
-rows under the wrong player. A trace records none of them yet either.
+carries the engine's rows (`sources.special_fields`: `evo` rows `[card_id, plays,
+next_evolved]`, `abilities` rows `[available, spent, cost]`), unless the frame dict already has
+them. The engine's ability row names no card, so from a bare state the name is "" and no hand
+card is crowned; a publisher that knows the deck's forms can name it. **A running engine's stream
+does not carry them yet.** `royalegym.viser.player_dict` writes a fixed set of keys, so until it
+sends these two, with names, a live window shows no evolution frame, pip, crown or button, and
+that is not "no evolutions". The check for the day it does belongs to the publisher:
+`RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's decoder,
+and ids where names belong fail that decode. A trace records none of them yet either.
 
 **On the board**, the engine's status bits, `Unit.extra["status_flags"]`, read only through
 `model.status_bits`: None and -1 mean not reported and draw exactly as 0, for troops,
@@ -257,8 +262,8 @@ body + 6). They are drawn after the status marks, so a Freeze and an evolution r
 show. A hero also wears a crown over its hp bar, lifted above the status pips when it has any,
 and the pin ring moves outside the form rings. The inspector's `flags` line names the set bits:
 "none", "not reported", or for example "underground, hero", with a bit it does not know as its
-number. 1, 2 and 4 are `royalegym.protocol.STATUS_*`; 8 and 16 are the numbers the engine's
-evolution and hero work gives them.
+number. 1, 2 and 4 are `royalegym.protocol.STATUS_*`; 8 and 16 are the engine's evolved and
+hero bits.
 
 ## The recording format
 
@@ -437,18 +442,17 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at 383d604 on 2026-09-27, with `pytest --collect-only -q` collecting 355:
+The suite has two correct results, and both are one command apart. Measured at ceb446c on 2026-09-27, with `pytest --collect-only -q` collecting 355:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **350 passed, 5 skipped** |
-| this machine, with the recordings | **353 passed, 2 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **351 passed, 4 skipped** |
+| this machine, with the recordings | **354 passed, 1 skipped** |
 
-The five skips in a clone are the three tests that pin numbers only a recording of a real
+The four skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
-surfacing 73 ticks later), the parity test that needs a results file written with the
-harness's `--trace`, and the stream test that waits for `royalegym.viser.player_dict` to send
-the special-form rows ([Cards and the special forms](#cards-and-the-special-forms)). The first three say `SKIPPED, NOT PASSED` and `tests/conftest.py` prints
+surfacing 73 ticks later), plus the parity test that needs a results file written with the
+harness's `--trace`. The first three say `SKIPPED, NOT PASSED` and `tests/conftest.py` prints
 them by name at the end of the run, so a clone's "N passed, M skipped" is never read as all
 green. Pointing `ROYALELIVE_REPORTS` at a folder holding
 `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
