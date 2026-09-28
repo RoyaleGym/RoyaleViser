@@ -199,6 +199,67 @@ before the units, and their edges, labels and shots after. Drawn over the units,
 cloud dyed every unit in it and a splash dyed its target, so a reader saw the effect's colour
 where the team's colour should have been.
 
+## Cards and the special forms
+
+**A card tile** (`Renderer._draw_card`, 80 x 100 px). The face is `theme.card_troop`,
+`card_building` or `card_spell` by what the card is, and a glyph in the art panel's corner says
+the same (a sword, a tower, a spark), so colour is never the only cue. A card no table
+describes is the plain `card_bg` tile with no glyph. Large in the middle, a two-letter monogram
+(`render.monogram`: the first two words' initials, or a one-word name's first two letters);
+the whole name on a dark band; an elixir drop with the cost; `xN` for a card that summons N;
+two chevrons for a flyer. The elixir still missing is a veil from the top down
+(`theme.card_veil`): at 1.5 of 3 elixir the top half is veiled. A free card is never veiled,
+and an unknown elixir veils nothing. The next card is a 24 px tile beside the elixir bar.
+
+**What a card is** comes from `Names.face_of(name)`, a `model.CardFace(name, cost, kind,
+count, flying)` with None in any field the source does not give. An engine table
+(`Names.from_cards`) reads the engine's `card_kind` column, `count` and `flying`; an engine
+without the column gives no kind, and none is guessed from `placement`, which says where a
+card may be played and not what it is (a Heal places like a troop). A live table
+(`Names.live`) takes the kind from the card id's class (26xxxxxx troop, 27xxxxxx building,
+28xxxxxx spell) and has no count or flight. The two agree on every card both know except two,
+pinned by name in `tests/test_cards.py`: the Furnace (`FirespiritHut`: a building by its id, a
+troop by the engine's kind, which is the row the card puts on the board) and the Spirit
+Empress (`MergeMaiden`: an event card among the spell ids that summons a flying troop). A
+stream carries no card table, so the window falls back to the live one, and those two cards,
+every `xN` and every wing differ between a stream and a trace of the same battle.
+
+**The special forms** (evolutions and heroes) are three trailing `Player` fields. Each is
+empty by default, and empty means "not said", so every frame from before them decodes
+unchanged and draws as it did. Names, not ids, as everywhere on the wire; `model.problems`
+checks their shapes.
+
+| Field | One row | Drawn as |
+|---|---|---|
+| `hand_evolved` | per hand slot: 1 the slot's next play is evolved, 0 the card has an evolution not yet charged, -1 it has none | 1: the tile framed in `theme.evo` with an EVO tag |
+| `evo` | per evolved deck entry: (card name, cycles counted, cycles needed) | pips at the foot of the tile's art, one per cycle needed, filled per cycle counted, all of them when charged |
+| `abilities` | per button: (button, card name, hero uid or -1, phase, elixir cost, ticks until ready, charges); phase 0 no hero on the board, 1 recharging, 2 ready, 3 casting, 4 spent | the card's tile framed in gold with a crown, and a 13 px button in the elixir row where the next card's name was: gold when ready, a white ring while casting, grey with whole seconds rounded up while recharging, crossed when spent, dim with no hero; the cost as an elixir dot, the charges as pips |
+
+Where they come from. `sources.frame_from_state` adds them from an engine `PlayerState` that
+carries the engine's rows (`sources.special_fields`: `hand_evolved`; `evo` rows `[card_id,
+cycles, needed]`; `abilities` rows `[button, card_id, uid, phase, cost, ready_in_ticks,
+charges]`), unless the frame dict already has them. **A running engine's stream does not carry
+them yet.** `royalegym.viser.player_dict` writes a fixed set of keys, so until it sends these
+three, with names, a live window shows no evolution frame, pip, crown or button, and that is not
+"no evolutions". `tests/test_cards.py::test_a_running_engines_stream_carries_the_special_rows`
+skips and says so until the day it sends them, and then runs by itself and fails on ids or on
+rows under the wrong player. A trace records none of them yet either.
+
+**On the board**, the engine's status bits, `Unit.extra["status_flags"]`, read only through
+`model.status_bits`: None and -1 mean not reported and draw exactly as 0, for troops,
+buildings and towers alike (a raw `-1 & bit` is the bit). 1, under ground: no body, a patch of
+turned earth (`theme.burrow`) with the team's colour dashed round it. 2, invisible: the body
+faded (`theme.unseen_alpha`) with its black outline kept and the team's colour dashed outside
+it. 4, hidden (a Tesla), and 2 on a building: the body faded the same way. 8, evolved, and 16,
+hero: rings in `theme.evo` and `theme.hero`, each on a black copy, `FORM_RING_GAP` (8) px
+outside the body and so outside every status ring (those reach body + 5, and the Rage glow
+body + 6). They are drawn after the status marks, so a Freeze and an evolution ring both
+show. A hero also wears a crown over its hp bar, lifted above the status pips when it has any,
+and the pin ring moves outside the form rings. The inspector's `flags` line names the set bits:
+"none", "not reported", or for example "underground, hero", with a bit it does not know as its
+number. 1, 2 and 4 are `royalegym.protocol.STATUS_*`; 8 and 16 are the numbers the engine's
+evolution and hero work gives them.
+
 ## The recording format
 
 A recording (a *capture* in the code: `CaptureSource`, `frames-*.jsonl` or `.jsonl.gz`) is
@@ -357,6 +418,10 @@ crowns), so the converters are tested against a known answer rather than against
 - `tests/test_status_effects.py`: status effects, spell cards and shots, read back from the
   drawn pixels on unit rows shaped the way the engine sends them, and `engine_tables.py`
   re-derived from RoyaleSim's card data of the same vintage (a loud skip without it).
+- `tests/test_cards.py`: the card tiles, the special-form rows and the status bits, read back
+  from the drawn pixels with every expected colour taken from the theme; the rows through
+  `frame_from_state` from a MockEngine state; a source without the rows or the bits draws byte
+  for byte as before; the live and engine card kinds agree but for the two named cards.
 - `tests/test_parity.py`: both sides of a parity trace, on a file written by hand in the
   harness's row shape. One test opens a file the harness itself wrote and SKIPS where no
   results file with rows is on this machine; it is the only one that can say the shape is
@@ -372,17 +437,18 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at f5ea915 on 2026-09-24, with `pytest --collect-only -q` collecting 302:
+The suite has two correct results, and both are one command apart. Measured at 383d604 on 2026-09-27, with `pytest --collect-only -q` collecting 355:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **298 passed, 4 skipped** |
-| this machine, with the recordings | **301 passed, 1 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **350 passed, 5 skipped** |
+| this machine, with the recordings | **353 passed, 2 skipped** |
 
-The four skips in a clone are the three tests that pin numbers only a recording of a real
+The five skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
-surfacing 73 ticks later), plus the parity test that needs a results file written with the
-harness's `--trace`. The first three say `SKIPPED, NOT PASSED` and `tests/conftest.py` prints
+surfacing 73 ticks later), the parity test that needs a results file written with the
+harness's `--trace`, and the stream test that waits for `royalegym.viser.player_dict` to send
+the special-form rows ([Cards and the special forms](#cards-and-the-special-forms)). The first three say `SKIPPED, NOT PASSED` and `tests/conftest.py` prints
 them by name at the end of the run, so a clone's "N passed, M skipped" is never read as all
 green. Pointing `ROYALELIVE_REPORTS` at a folder holding
 `frames-demo-20260920-120752-A.jsonl`, `frames-demo-20260920-120754-B.jsonl` and
@@ -440,7 +506,9 @@ already holds a `Frame`.
    than nothing. (Measured by the training session; its log carries the raw iterations.)
 4. `royalegym.viser.frame_dict` builds the wire dict from a `BattleState`;
    `sources.frame_from_state` turns it into a `Frame`, and `TraceSource` builds its rows the
-   same way, so a trace and a stream of one battle draw identically. Spawn and death event
+   same way, so a trace and a stream of one battle draw identically. The one exception is the
+   special-form player rows, which `frame_from_state` adds from the state and the stream does
+   not carry yet ([Cards and the special forms](#cards-and-the-special-forms)). Spawn and death event
    lines come from uid diffing, play lines from the step's accepted deploys.
    `RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's
    decoder, so a drift between the two ends fails there rather than in someone's window.
@@ -645,9 +713,9 @@ the renderer computes no size of its own and everything is an integer.
 
 | Column | Width at 24 px/tile | Contents |
 |---|---|---|
-| dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px cards with their cost, dimmed when it is more than the player's elixir), its elixir bar (thousandths) and next card; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading naming the port it is listening on while nothing is there ("no learner on 127.0.0.1:9871" for a stream, "no learner attached" for a source that names no learner at all), and the rows that do not fit the column left out); the bottom player's elixir bar and next card, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
+| dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px card tiles, see [Cards and the special forms](#cards-and-the-special-forms)), its elixir bar (thousandths) and the next card as a small tile, with a hero's ability buttons where the next card's name would be; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading naming the port it is listening on while nothing is there ("no learner on 127.0.0.1:9871" for a stream, "no learner attached" for a source that names no learner at all), and the rows that do not fit the column left out); the bottom player's elixir bar, next card and ability buttons, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
 | arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, each crown tower's zone outline, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the crowns and clock in a small box top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
-| inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, then whatever else the source carries under "extra"), except each status effect's time left, which is shown in tenths of a second; then the compare lines and the `H` help footer |
+| inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, the status bits in words (`flags`), then whatever else the source carries under "extra"), except each status effect's time left, which is shown in tenths of a second; then the compare lines and the `H` help footer |
 
 The palette is carried over from the project's earlier Python renderer: grass
 (188,195,55)/(217,215,47), river (106,230,237), bridge (255,175,120), team 0 blue
