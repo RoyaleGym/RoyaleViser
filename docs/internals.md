@@ -731,6 +731,9 @@ the board surface is built once per seat and grid setting and blitted on every d
 
 `royaleviser.capture.capture` writes what the window would show, with no window and no clock:
 the README media of all four repos is regenerated from it when the engine changes.
+`battle.msgpack` below is the trace the README's
+[Saving a battle to a file](../README.md#saving-a-battle-to-a-file) program writes, so run that
+first. Its battle runs about 1900 ticks, and the clip stops inside it.
 
 ```python
 from royaleviser.capture import capture
@@ -738,7 +741,7 @@ from royaleviser.sources import open_source
 
 src = open_source("battle.msgpack")
 capture(src, "still.png", ticks=(900, 901, 1), scale=24, crop="left")
-capture(src, "clip.gif", ticks=(0, 2400, 8), scale=16, crop="left", fps=20)
+capture(src, "clip.gif", ticks=(0, 1800, 8), scale=16, crop="left", fps=20)
 ```
 
 - **The suffix picks the format.** `.png` writes one file, or `name-0000.png` upward for a
