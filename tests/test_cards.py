@@ -329,9 +329,13 @@ def special_state() -> tuple[object, Names]:
     from royalegym.mock_engine import MockEngine
     from royalegym.protocol import MatchSetup, PlayerState
 
-    class Special(PlayerState, frozen=True):  # the fields the engine adds to a player
+    class Special(PlayerState, frozen=True):  # the fields the engine adds, for an older royalegym
         evo: list[list[int]] = msgspec.field(default_factory=list)
         abilities: list[list[int]] = msgspec.field(default_factory=list)
+
+    # RoyaleGym 2aecf93 gave PlayerState its own evo and abilities; before it, only the subclass
+    # has them. Either way the rows are set once (asdict already holds them on a newer one).
+    carrier = PlayerState if {"evo", "abilities"} <= set(PlayerState.__struct_fields__) else Special
 
     eng = MockEngine()
     cards = eng.cards()
@@ -344,7 +348,7 @@ def special_state() -> tuple[object, Names]:
         dict(evo=[], abilities=[[1, 0, 2]]),
     )
     players = [
-        Special(**msgspec.structs.asdict(p), **rows[i])  # type: ignore[arg-type]
+        carrier(**{**msgspec.structs.asdict(p), **rows[i]})  # type: ignore[arg-type]
         for i, p in enumerate(st.players)
     ]
     return msgspec.structs.replace(st, players=players), Names.from_cards(cards)
