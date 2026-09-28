@@ -244,11 +244,11 @@ carries the engine's rows (`sources.special_fields`: `evo` rows `[card_id, plays
 next_evolved]`, `abilities` rows `[available, spent, cost]`), unless the frame dict already has
 them. The engine's ability row names no card, so from a bare state the name is "" and no hand
 card is crowned; a publisher that knows the deck's forms can name it. **A running engine's stream
-does not carry them yet.** `royalegym.viser.player_dict` writes a fixed set of keys, so until it
-sends these two, with names, a live window shows no evolution frame, pip, crown or button, and
-that is not "no evolutions". The check for the day it does belongs to the publisher:
-`RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's decoder,
-and ids where names belong fail that decode. A trace records none of them yet either.
+carries them** (RoyaleGym 2aecf93): `royalegym.viser.player_dict` sends both, with names, and
+names each ability button by the deck's form-2 entry it belongs to, whenever the env's setup
+has forms; a battle without forms sends neither key, which reads as not said.
+`RoyaleGym/tests/test_viser.py` round-trips such a frame through this package's decoder, so ids
+where names belong fail there, on the publisher's side. A trace records none of them yet.
 
 **On the board**, the engine's status bits, `Unit.extra["status_flags"]`, read only through
 `model.status_bits`: None and -1 mean not reported and draw exactly as 0, for troops,
@@ -511,8 +511,9 @@ already holds a `Frame`.
 4. `royalegym.viser.frame_dict` builds the wire dict from a `BattleState`;
    `sources.frame_from_state` turns it into a `Frame`, and `TraceSource` builds its rows the
    same way, so a trace and a stream of one battle draw identically. The one exception is the
-   special-form player rows, which `frame_from_state` adds from the state and the stream does
-   not carry yet ([Cards and the special forms](#cards-and-the-special-forms)). Spawn and death event
+   special-form player rows, which a stream and `frame_from_state` carry and a trace does not
+   keep yet; only the stream names the hero buttons
+   ([Cards and the special forms](#cards-and-the-special-forms)). Spawn and death event
    lines come from uid diffing, play lines from the step's accepted deploys.
    `RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's
    decoder, so a drift between the two ends fails there rather than in someone's window.

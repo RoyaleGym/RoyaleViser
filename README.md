@@ -148,8 +148,8 @@ last evolution, and a pink frame with an EVO tag when its next play is the evolu
 card wears a gold crown, and its ability button sits next to the elixir bar: gold when it can be
 used, crossed out once it has been. On the board, an evolved unit gets a pink ring and a hero a
 gold one. A unit travelling under ground (Miner, Goblin Drill) is a patch of dirt, and an
-invisible one is faded. The board marks show in every source today. The hand marks need RoyaleGym
-to pass them on to a live stream, which is on its way.
+invisible one is faded. The board marks show in every source. The hand marks show when you
+watch a running battle that has evolutions or heroes. A saved trace does not keep them yet.
 
 ## Save a picture or a clip
 
