@@ -733,7 +733,7 @@ the board surface is built once per seat and grid setting and blitted on every d
 the README media of all four repos is regenerated from it when the engine changes.
 `battle.msgpack` below is the trace the README's
 [Saving a battle to a file](../README.md#saving-a-battle-to-a-file) program writes, so run that
-first. Its battle runs about 1900 ticks, and the clip stops inside it.
+first. It saves 200 steps, 2001 frames up to tick 2000, and the clip stops inside that.
 
 ```python
 from royaleviser.capture import capture
