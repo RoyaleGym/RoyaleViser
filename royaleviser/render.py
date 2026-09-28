@@ -48,10 +48,6 @@ import pygame
 
 from .engine_tables import BUFF_KINDS, SHOT_KIND, SPELL_RADIUS_MILLI
 from .model import (
-    ABILITY_CASTING,
-    ABILITY_NO_UNIT,
-    ABILITY_READY,
-    ABILITY_SPENT,
     CARD_BUILDING,
     CARD_SPELL,
     CARD_TROOP,
@@ -72,6 +68,7 @@ from .model import (
     Projectile,
     Spell,
     Unit,
+    hand_evolved,
     status_bits,
 )
 from .theme import DEFAULT, Color, Layout, Rect, Theme, layout
@@ -1740,8 +1737,8 @@ class Renderer:
         top_team, bottom_team = 1 - view.seat, view.seat
         top, bottom = frame.player(top_team), frame.player(bottom_team)
         self._draw_hand(top, lay.top_hand)
-        self._draw_elixir_row(top, lay.top_elixir, frame.tick_ms)
-        self._draw_elixir_row(bottom, lay.bottom_elixir, frame.tick_ms)
+        self._draw_elixir_row(top, lay.top_elixir)
+        self._draw_elixir_row(bottom, lay.bottom_elixir)
         self._draw_hand(bottom, lay.bottom_hand)
         log_bottom = self._draw_status_block(frame, lay.debug, transport, view)
         self._draw_learning_block(
@@ -1776,14 +1773,17 @@ class Renderer:
         """Four card tiles filling ``rect`` exactly, hatched "?" when the source has no hand.
 
         What each tile says is in ``_draw_card``. The special forms come from the player's
-        own rows and are drawn only when the source carries them: ``hand_evolved`` per slot,
-        ``evo`` per card, and a hero is any card an ability button belongs to.
+        own rows and are drawn only when the source carries them: ``evo`` per card (and from
+        it whether a slot's next play is evolved), and a hero is any card an ability button
+        names -- the engine's rows name none, so only a publisher that knows the deck's forms
+        crowns a card.
         """
         t = self.theme
         x, y, _, _ = rect
         cw, ch, gap = t.card_w, t.card_h, t.card_gap
-        heroes = {row[1] for row in p.abilities}
-        progress = {name: (n, need) for name, n, need in p.evo}
+        heroes = {row[0] for row in p.abilities if row[0]}
+        plays = {name: n for name, n, _nxt in p.evo}
+        evolved = hand_evolved(p)
         for i in range(4):
             cx = x + i * (cw + gap)
             box = pygame.Rect(cx, y, cw, ch)
@@ -1801,8 +1801,8 @@ class Renderer:
                 box,
                 name,
                 p.elixir_milli if p.elixir_known else None,
-                evolved=p.hand_evolved[i] if i < len(p.hand_evolved) else None,
-                evo=progress.get(name),
+                evolved=evolved[i] if i < len(evolved) else None,
+                evo=plays.get(name),
                 hero=name in heroes,
             )
 
@@ -1813,7 +1813,7 @@ class Renderer:
         elixir_milli: int | None,
         *,
         evolved: int | None = None,
-        evo: tuple[int, int] | None = None,
+        evo: int | None = None,
         hero: bool = False,
     ) -> None:
         """One card tile.
@@ -1827,8 +1827,9 @@ class Renderer:
         playable instead of switching on.
 
         The special forms: ``evolved`` 1 (the next play of this slot is evolved) frames the
-        tile in the evolution colour with an EVO tag; ``evo`` (cycles, needed) draws the
-        cycles as pips; ``hero`` frames it in gold with a crown. None / False draws nothing.
+        tile in the evolution colour with an EVO tag; ``evo`` (the card's plays since its last
+        evolved play) draws those plays as pips; ``hero`` frames it in gold with a crown.
+        None / False draws nothing.
         """
         t = self.theme
         s = self.surface
@@ -1931,20 +1932,20 @@ class Renderer:
         pygame.draw.polygon(self.surface, color, pts)
         pygame.draw.polygon(self.surface, shade(color, 0.5), pts, 1)
 
-    def _draw_pips(self, evo: tuple[int, int], charged: bool, at: tuple[int, int]) -> None:
-        """An evolution's cycles: one pip per cycle needed, filled for each one counted (all of
-        them when the next play is evolved), centred on ``at``."""
-        n, need = evo
-        if need <= 0:
-            return
+    def _draw_pips(self, plays: int, charged: bool, at: tuple[int, int]) -> None:
+        """An evolution's count: one filled pip per play since the last evolved play, centred
+        on ``at``. The engine does not say how many it takes, so no empty pips promise a total;
+        a card with an evolution and no plays counted yet shows one hollow pip."""
         t = self.theme
-        filled = need if charged else max(0, min(n, need))
+        n = max(0, min(plays, 6))  # six is as many as fit; the engine's rule is every third
         gap = 9
-        x0 = at[0] - (need - 1) * gap // 2
-        for k in range(need):
+        if n == 0 and not charged:
+            pygame.draw.circle(self.surface, shade(t.evo, 0.5), at, 3, 1)
+            return
+        x0 = at[0] - (n - 1) * gap // 2
+        for k in range(n):
             c = (x0 + k * gap, at[1])
-            if k < filled:
-                pygame.draw.circle(self.surface, t.evo, c, 3)
+            pygame.draw.circle(self.surface, t.evo, c, 3)
             pygame.draw.circle(self.surface, shade(t.evo, 0.5), c, 3, 1)
 
     def _draw_mini_card(self, box: pygame.Rect, name: str) -> None:
@@ -1961,45 +1962,37 @@ class Renderer:
             pygame.draw.circle(self.surface, t.elixir, c, 6)
             self.blit_text(str(cost), (c[0], c[1] + 1), "tiny", t.ui_text, "center")
 
-    def _draw_abilities(self, p: Player, x: int, cy: int, tick_ms: int) -> int:
+    def _draw_abilities(self, p: Player, x: int, cy: int) -> int:
         """A hero's ability buttons, left to right from ``x``; returns the x after the last.
 
-        Gold when ready, a white ring while casting, grey with the seconds left while it
-        recharges, dark and crossed when spent, dim when there is no hero on the board. The
-        cost is the elixir dot, the charges left the pips over the button.
+        What the engine says of a button, and nothing more: gold when available, dark and
+        crossed when spent, grey when neither (no hero of it standing). The hero card's
+        monogram when the source names it, the press's elixir as the dot.
         """
         t = self.theme
         s = self.surface
         r = 13
-        for _button, name, _uid, phase, cost, ready_in, charges in sorted(p.abilities):
+        for name, available, spent, cost in p.abilities:
             c = (x + r, cy)
-            fill = t.hero if phase in (ABILITY_READY, ABILITY_CASTING) else t.ability_idle
-            if phase in (ABILITY_SPENT, ABILITY_NO_UNIT):
+            if spent:
                 fill = shade(t.ability_idle, 0.6)
-            pygame.draw.circle(s, fill, c, r)
-            ring = t.ui_text if phase == ABILITY_CASTING else shade(fill, 0.55)
-            pygame.draw.circle(s, ring, c, r, 3 if phase == ABILITY_CASTING else 1)
-            if phase == ABILITY_SPENT:
-                pygame.draw.line(s, t.ui_dim, (c[0] - 7, c[1] + 7), (c[0] + 7, c[1] - 7), 2)
-            elif phase in (ABILITY_READY, ABILITY_CASTING):
-                self.blit_text(monogram(name), c, "tiny", shade(t.hero, 0.35), "center")
-            elif ready_in > 0 and phase != ABILITY_NO_UNIT:
-                # Whole seconds rounded UP: a button that is not ready never reads 0.
-                secs = -(-ready_in * tick_ms // 1000)
-                self.blit_text(str(secs), c, "tiny", t.ui_text, "center")
             else:
-                self.blit_text(monogram(name), c, "tiny", t.ui_dim, "center")
+                fill = t.hero if available else t.ability_idle
+            pygame.draw.circle(s, fill, c, r)
+            pygame.draw.circle(s, shade(fill, 0.55), c, r, 1)
+            if spent:
+                pygame.draw.line(s, t.ui_dim, (c[0] - 7, c[1] + 7), (c[0] + 7, c[1] - 7), 2)
+            elif name:
+                ink = shade(t.hero, 0.35) if available else t.ui_dim
+                self.blit_text(monogram(name), c, "tiny", ink, "center")
             if cost > 0:
                 d = (c[0] + r - 2, c[1] + r - 3)
                 pygame.draw.circle(s, t.elixir, d, 6)
                 self.blit_text(str(cost), (d[0], d[1] + 1), "tiny", t.ui_text, "center")
-            x0 = c[0] - 3 * (max(0, charges) - 1)
-            for k in range(max(0, charges)):
-                pygame.draw.circle(s, t.hero, (x0 + 6 * k, c[1] - r - 3), 2)
             x += 2 * r + 4
         return x
 
-    def _draw_elixir_row(self, p: Player, rect: Rect, tick_ms: int = 50) -> None:
+    def _draw_elixir_row(self, p: Player, rect: Rect) -> None:
         t = self.theme
         x, y, _, h = rect
         bar_w, bar_h = 200, h - 8
@@ -2040,7 +2033,7 @@ class Renderer:
                 self.blit_text("?", tile.center, "tiny", t.ui_dim, "center")
             tx = tile.right + 5
             if p.abilities:  # the buttons take the room the next card's name had
-                self._draw_abilities(p, tx, y + h // 2, tick_ms)
+                self._draw_abilities(p, tx, y + h // 2)
             else:
                 self.blit_text("next", (tx, y + 2), "tiny", t.ui_dim)
                 self.blit_text(

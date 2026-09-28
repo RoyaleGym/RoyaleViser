@@ -1,7 +1,8 @@
 """Card tiles, the special forms (evolutions, heroes) and the engine's status bits, headless.
 
-The special forms are not in any engine yet (2026-09-27): these tests feed the viewer the
-rows the specs define and check it draws them, and -- the half that matters today -- that a
+The special forms arrive in the engine's own layout (RoyaleSim state_json, 2026-09-27: "evo"
+rows [card_id, plays, next_evolved], "abilities" rows [available, spent, cost]): these tests
+feed the viewer those rows and check it draws them, and -- the half that matters today -- that a
 source which does not carry them draws exactly as before. "Not reported" is None or -1, and
 ``-1 & bit`` is the bit, so a raw mask would dress every unit of an older engine as under
 ground, invisible, evolved and a hero at once.
@@ -28,11 +29,6 @@ import pytest
 from royaleviser import capture
 from royaleviser.app import App
 from royaleviser.model import (
-    ABILITY_CASTING,
-    ABILITY_NO_UNIT,
-    ABILITY_READY,
-    ABILITY_SPENT,
-    ABILITY_UNREADY,
     CARD_BUILDING,
     CARD_SPELL,
     CARD_TROOP,
@@ -51,6 +47,7 @@ from royaleviser.model import (
     Unit,
     decode_frame,
     encode_frame,
+    hand_evolved,
     live_card_kind,
     problems,
     status_bits,
@@ -221,11 +218,27 @@ KNOWN_KIND_DIFFERENCES = {
 }
 
 
-def test_the_live_and_engine_tables_agree_on_every_card_but_the_known_ones() -> None:
-    pytest.importorskip("royalesim", reason="SKIPPED, NOT PASSED: needs the compiled engine")
-    from royalegym.rust_engine import RustEngine
+NOT_A_PASS = "SKIPPED, NOT PASSED"
 
-    cards = RustEngine().cards()
+
+def engine_cards() -> list:
+    """The engine's card table, or a loud skip for each of the three ways there is none: no
+    royalegym, no built extension, or a build STALE against the data on disk (another repo's
+    drift, not a defect here). The same three states as test_sources.engine_or_skip, which
+    this module cannot import: that module skips whole where royalegym is absent."""
+    rust_engine = pytest.importorskip("royalegym.rust_engine", reason=f"{NOT_A_PASS}: no royalegym")
+    if not rust_engine.core_available():
+        pytest.skip(f"{NOT_A_PASS}: the royalesim extension is not built")
+    from royalegym.protocol import default_calibration
+
+    stale = rust_engine.stale_build_differences(default_calibration())
+    if stale:
+        pytest.skip(f"{NOT_A_PASS}: the engine is built but STALE ({len(stale)} differences)")
+    return rust_engine.RustEngine().cards()
+
+
+def test_the_live_and_engine_tables_agree_on_every_card_but_the_known_ones() -> None:
+    cards = engine_cards()
     engine, live = Names.from_cards(cards), Names.live()
     diff = {}
     for name in (c.name for c in cards):
@@ -241,7 +254,9 @@ def test_the_live_and_engine_tables_agree_on_every_card_but_the_known_ones() -> 
 def test_the_status_bit_numbers_are_the_contract() -> None:
     bits = (STATUS_UNDERGROUND, STATUS_INVISIBLE, STATUS_HIDDEN, STATUS_EVOLVED, STATUS_HERO)
     assert bits == (1, 2, 4, 8, 16)
-    protocol = pytest.importorskip("royalegym.protocol")
+    protocol = pytest.importorskip(
+        "royalegym.protocol", reason=f"{NOT_A_PASS}: no royalegym to compare the numbers with"
+    )
     assert bits[:3] == (
         protocol.STATUS_UNDERGROUND,
         protocol.STATUS_INVISIBLE,
@@ -266,61 +281,55 @@ def test_status_bits_and_their_words() -> None:
 
 def test_a_player_without_the_special_rows_decodes_with_none_of_them() -> None:
     old = msgspec.to_builtins(player())
-    for key in ("hand_evolved", "evo", "abilities"):
+    for key in ("evo", "abilities"):
         old.pop(key)
     p = msgspec.convert(old, Player)
-    assert (p.hand_evolved, p.evo, p.abilities) == ([], [], [])
+    assert (p.evo, p.abilities, hand_evolved(p)) == ([], [], [-1, -1, -1, -1])
 
 
 def test_the_special_rows_ride_the_frame_codec() -> None:
-    p = player(
-        hand_evolved=[1, 0, -1, -1],
-        evo=[("Knight", 2, 2), ("Fireball", 1, 2)],
-        abilities=[(0, "Cannon", 12, 2, 1, 0, 1)],
-    )
+    p = player(evo=[("Knight", 2, 1), ("Fireball", 1, 0)], abilities=[("Cannon", 1, 0, 1)])
     back = decode_frame(encode_frame(frame([], [p, player(team=1)])))
-    assert back.players[0].hand_evolved == [1, 0, -1, -1]
-    assert back.players[0].evo == [("Knight", 2, 2), ("Fireball", 1, 2)]
-    assert back.players[0].abilities == [(0, "Cannon", 12, 2, 1, 0, 1)]
+    assert back.players[0].evo == [("Knight", 2, 1), ("Fireball", 1, 0)]
+    assert back.players[0].abilities == [("Cannon", 1, 0, 1)]
     assert back.players[1].abilities == []
 
 
+def test_a_hand_slot_is_evolved_when_its_cards_row_says_the_next_play_is() -> None:
+    p = player(evo=[("Knight", 2, 1), ("Fireball", 1, 0), ("Golem", 0, 0)])
+    assert hand_evolved(p) == [1, 0, -1, -1]  # Knight, Fireball, Cannon, MinionHorde
+
+
 def test_the_contract_check_reads_the_special_rows() -> None:
-    assert problems(frame([], [player(hand_evolved=[1, 0, -1, -1]), player(team=1)])) == []
-    bad = player(
-        hand_evolved=[1, 2],
-        evo=[("Knight", 1, -1)],
-        abilities=[(0, "Cannon", 5, 9, 1, 0, 1)],
-    )
+    good = player(evo=[("Knight", 2, 1)], abilities=[("", 0, 1, 1)])
+    assert problems(frame([], [good, player(team=1)])) == []
+    bad = player(evo=[("Knight", -1, 2)], abilities=[("Cannon", 2, 0, 1), ("", 0, 0, -3)])
     found = problems(frame([], [bad, player(team=1)]))
-    assert len(found) == 4, found
+    assert len(found) == 3, found
 
 
 def test_special_fields_turn_the_engine_rows_into_names() -> None:
     @dataclass
     class State:
-        hand_evolved: list[int]
         evo: list[list[int]]
         abilities: list[list[int]]
 
-    got = special_fields(State([1, 0, -1, -1], [[0, 2, 2]], [[0, 2, 7, 2, 1, 0, 1]]), NAMES.name_of)
-    assert got == {
-        "hand_evolved": [1, 0, -1, -1],
-        "evo": [["Knight", 2, 2]],
-        "abilities": [[0, "Cannon", 7, 2, 1, 0, 1]],
-    }
+    got = special_fields(State([[0, 2, 1]], [[1, 0, 2]]), NAMES.name_of)
+    # The engine's ability row names no card, so the viewer's name column is "".
+    assert got == {"evo": [["Knight", 2, 1]], "abilities": [["", 1, 0, 2]]}
     # A PlayerState from before the special forms has none of the attributes: nothing added.
     assert special_fields(object(), NAMES.name_of) == {}
+    # The engine sends both keys on every player, empty without forms: still nothing added.
+    assert special_fields(State([], []), NAMES.name_of) == {}
 
 
 def special_state() -> tuple[object, Names]:
-    """A MockEngine BattleState whose players carry the specs' rows, each team different."""
-    pytest.importorskip("royalegym")
+    """A MockEngine BattleState whose players carry the engine's rows, each team different."""
+    pytest.importorskip("royalegym", reason=f"{NOT_A_PASS}: no royalegym, so no engine state")
     from royalegym.mock_engine import MockEngine
     from royalegym.protocol import MatchSetup, PlayerState
 
-    class Special(PlayerState, frozen=True):  # the fields the specs add to PlayerState
-        hand_evolved: list[int] = msgspec.field(default_factory=list)
+    class Special(PlayerState, frozen=True):  # the fields the engine adds to a player
         evo: list[list[int]] = msgspec.field(default_factory=list)
         abilities: list[list[int]] = msgspec.field(default_factory=list)
 
@@ -329,9 +338,10 @@ def special_state() -> tuple[object, Names]:
     ids = [c.card_id for c in cards][:8]
     eng.reset(1, MatchSetup(decks=[ids, ids], shuffle=0, start_tick=0))
     st = eng.state()
+    hand0 = st.players[0].hand[0]
     rows = (
-        dict(hand_evolved=[1, 0, -1, -1], evo=[[ids[0], 2, 2]], abilities=[]),
-        dict(hand_evolved=[], evo=[], abilities=[[0, ids[1], -1, 0, 2, 0, 1]]),
+        dict(evo=[[hand0, 2, 1]], abilities=[]),
+        dict(evo=[], abilities=[[1, 0, 2]]),
     )
     players = [
         Special(**msgspec.structs.asdict(p), **rows[i])  # type: ignore[arg-type]
@@ -343,45 +353,10 @@ def special_state() -> tuple[object, Names]:
 def test_frame_from_state_carries_each_players_rows() -> None:
     state, names = special_state()
     f = frame_from_state(state, names, UPT)
-    first, second = (
-        names.name_of(state.players[0].evo[0][0]),
-        names.name_of(state.players[1].abilities[0][1]),
-    )
-    assert f.players[0].hand_evolved == [1, 0, -1, -1]
-    assert f.players[0].evo == [(first, 2, 2)] and f.players[0].abilities == []
-    assert f.players[1].hand_evolved == [] and f.players[1].evo == []
-    assert f.players[1].abilities == [(0, second, -1, 0, 2, 0, 1)]
-
-
-def test_a_running_engines_stream_carries_the_special_rows() -> None:
-    """The wire form a running engine publishes (royalegym.viser.player_dict) must carry the
-    rows the same way frame_from_state does: card NAMES, per player. It does not send them
-    yet, so until it does this SKIPS and says why -- a live stream shows no hand marks, and
-    that is not "no evolutions". The day it sends them this runs by itself, and fails if they
-    arrive as ids or on the wrong player."""
-    from royalegym.viser import frame_dict
-
-    state, names = special_state()
-    d = frame_dict(state, names.name_of, UPT)  # type: ignore[arg-type]
-    if not any(key in d["players"][0] for key in ("hand_evolved", "evo", "abilities")):
-        pytest.skip(
-            "SKIPPED, NOT PASSED: royalegym.viser.player_dict does not send hand_evolved / "
-            "evo / abilities yet, so a running engine's stream shows no evolution frames, "
-            "pips, crowned cards or ability buttons (frame_from_state and this viewer do)"
-        )
-    back = decode_frame(msgspec.msgpack.encode(d))
-    # The expectation is built from the state here, not through frame_dict: a comparison with
-    # anything that also calls player_dict would agree with whatever player_dict sends.
-    for got, ps in zip(back.players, state.players, strict=True):
-        rows = msgspec.convert(
-            {**msgspec.to_builtins(got), **special_fields(ps, names.name_of)}, Player
-        )
-        assert (got.hand_evolved, got.evo, got.abilities) == (
-            rows.hand_evolved,
-            rows.evo,
-            rows.abilities,
-        )
-    assert back.players[0].hand_evolved == [1, 0, -1, -1]
+    first = names.name_of(state.players[0].evo[0][0])
+    assert f.players[0].evo == [(first, 2, 1)] and f.players[0].abilities == []
+    assert hand_evolved(f.players[0])[0] == 1  # the hand's first card is the evolved one
+    assert f.players[1].evo == [] and f.players[1].abilities == [("", 1, 0, 2)]
 
 
 # --------------------------------------------------------------------- the tiles
@@ -468,13 +443,17 @@ def test_the_evo_tag_and_the_count_do_not_cover_each_other(renderer: Renderer, n
     assert footer_px(with_count) == footer_px(no_tag) > 0  # and so is the pill
 
 
-def test_the_pips_count_the_cycles(renderer: Renderer) -> None:
-    # Two pips centred under the monogram, 9 px apart: x 40-4 and 40+5 at the art's foot.
+def test_the_pips_count_the_plays(renderer: Renderer) -> None:
+    # Pips 9 px apart, centred under the monogram at the art's foot (x 40 is the centre).
     y = ART_BOTTOM - 3
     art = shade(T.card_troop, ART)
-    assert [tile_px(renderer, "Knight", x, y, evo=(1, 2)) for x in (36, 45)] == [T.evo, art]
-    full = [tile_px(renderer, "Knight", x, y, evo=(1, 2), evolved=1) for x in (36, 45)]
-    assert full == [T.evo, T.evo]
+    assert [tile_px(renderer, "Knight", x, y, evo=1) for x in (36, 40, 45)] == [art, T.evo, art]
+    assert [tile_px(renderer, "Knight", x, y, evo=2) for x in (36, 40, 45)] == [T.evo, art, T.evo]
+    # An evolution with nothing counted: one hollow pip, not a promise of a total.
+    assert tile_px(renderer, "Knight", 40, y, evo=0) == art
+    ring = {tile_px(renderer, "Knight", 40 + d, y, evo=0) for d in range(-3, 4)}
+    assert shade(T.evo, 0.5) in ring and T.evo not in ring
+    assert tile_px(renderer, "Knight", 43, y) == art  # and no evolution, no pip
 
 
 def hand_band(r: Renderer, p: Player, elixir_row: bool = True) -> bytes:
@@ -487,13 +466,16 @@ def hand_band(r: Renderer, p: Player, elixir_row: bool = True) -> bytes:
 
 def test_a_player_without_special_rows_draws_no_special_marks(renderer: Renderer) -> None:
     plain = hand_band(renderer, player())
-    # -1 everywhere says "no card here has an evolution": the same hand, byte for byte.
-    assert hand_band(renderer, player(hand_evolved=[-1, -1, -1, -1])) == plain
+    # An evolution of a card not in the hand changes nothing drawn there, byte for byte.
+    assert hand_band(renderer, player(evo=[("Golem", 1, 0)]), False) == hand_band(
+        renderer, player(), False
+    )
     x, y = renderer.layout.bottom_hand[:2]
     step = T.card_w + T.card_gap
     renderer.draw(frame([], [player(), player(team=1)]), ViewState(), Transport())
     edges = [px(renderer.surface, x + i * step, y + 50) for i in range(4)]
     assert edges == [T.card_border] * 4
+    assert plain == hand_band(renderer, player(evo=[], abilities=[]))
     # Unknown elixir: nothing is veiled, whatever the number in the field says.
     unknown = player(elixir_known=False, elixir_milli=0)
     assert hand_band(renderer, unknown, False) == hand_band(renderer, player(), False)
@@ -503,19 +485,19 @@ def test_a_player_without_special_rows_draws_no_special_marks(renderer: Renderer
 
 
 def test_a_hand_draws_evolved_hero_and_pips_from_the_player_rows(renderer: Renderer) -> None:
-    p = player(
-        hand_evolved=[1, 0, -1, -1],
-        evo=[("Knight", 2, 2), ("Fireball", 1, 2)],
-        abilities=[(0, "Cannon", 5, ABILITY_READY, 1, 0, 1)],
-    )
+    p = player(evo=[("Knight", 2, 1), ("Fireball", 1, 0)], abilities=[("Cannon", 1, 0, 1)])
     renderer.draw(frame([], [p, player(team=1)]), ViewState(), Transport())
     x, y = renderer.layout.bottom_hand[:2]
     step = T.card_w + T.card_gap
     edges = [px(renderer.surface, x + i * step, y + 50) for i in range(4)]
     assert edges == [T.evo, T.card_border, T.hero, T.card_border]
-    # The Fireball's evo row: one of two pips filled, from Player.evo by name.
-    pips = [px(renderer.surface, x + step + dx, y + ART_BOTTOM - 3) for dx in (36, 45)]
-    assert pips == [T.evo, shade(T.card_spell, ART)]
+    # The Fireball's row: one play counted, one pip, from Player.evo by name.
+    assert px(renderer.surface, x + step + 40, y + ART_BOTTOM - 3) == T.evo
+    # An ability row that names no card crowns nothing (the engine's rows name none).
+    renderer.draw(
+        frame([], [player(abilities=[("", 1, 0, 1)]), player(team=1)]), ViewState(), Transport()
+    )
+    assert [px(renderer.surface, x + i * step, y + 50) for i in range(4)] == [T.card_border] * 4
 
 
 def test_the_next_card_is_a_small_tile_of_its_kind(renderer: Renderer) -> None:
@@ -525,29 +507,23 @@ def test_the_next_card_is_a_small_tile_of_its_kind(renderer: Renderer) -> None:
         assert px(renderer.surface, ex + 200 + 8 + 2, ey + 4) == face, name
 
 
-def button_px(r: Renderer, phase: int, dx: int = 0, dy: int = 9, ready_in: int = 40) -> tuple:
-    p = player(abilities=[(0, "Cannon", 5, phase, 1, ready_in, 2)])
-    r.draw(frame([], [p, player(team=1)]), ViewState(), Transport())
+def button_px(r: Renderer, row: tuple[str, int, int, int], dx: int = 0, dy: int = 9) -> tuple:
+    r.draw(frame([], [player(abilities=[row]), player(team=1)]), ViewState(), Transport())
     ex, ey, _, eh = r.layout.bottom_elixir
     # After the 200 px bar, the 8 px gap, the 24 px next card and 5 px: a 13 px button.
     return px(r.surface, ex + 200 + 8 + 24 + 5 + 13 + dx, ey + eh // 2 + dy)
 
 
-def test_an_ability_button_shows_its_phase(renderer: Renderer) -> None:
+def test_an_ability_button_shows_what_the_engine_says(renderer: Renderer) -> None:
     idle = T.ability_idle
-    got = {ph: button_px(renderer, ph) for ph in range(5)}
-    assert got == {
-        ABILITY_NO_UNIT: shade(idle, 0.6),
-        ABILITY_UNREADY: idle,
-        ABILITY_READY: T.hero,
-        ABILITY_CASTING: T.hero,
-        ABILITY_SPENT: shade(idle, 0.6),
-    }
-    # Casting wears a white ring, ready does not.
-    assert button_px(renderer, ABILITY_CASTING, dx=12, dy=0) == T.ui_text
-    assert button_px(renderer, ABILITY_READY, dx=12, dy=0) != T.ui_text
-    # Two charges: two gold pips over the button, 6 px apart.
-    assert [button_px(renderer, ABILITY_READY, dx=d, dy=-16) for d in (-3, 3)] == [T.hero] * 2
+    assert button_px(renderer, ("", 1, 0, 1)) == T.hero  # available
+    assert button_px(renderer, ("", 0, 0, 1)) == idle  # neither: no hero of it standing
+    assert button_px(renderer, ("", 0, 1, 1)) == shade(idle, 0.6)  # spent
+    # Spent is crossed out: the slash runs through the centre.
+    assert button_px(renderer, ("", 0, 1, 1), dx=0, dy=0) == T.ui_dim
+    assert button_px(renderer, ("", 0, 0, 1), dx=0, dy=0) == idle
+    # The press's elixir is the dot at the lower right (sampled beside its digit).
+    assert button_px(renderer, ("", 1, 0, 1), dx=16, dy=10) == T.elixir
 
 
 # --------------------------------------------------------------------- the board

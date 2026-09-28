@@ -63,8 +63,8 @@ TICK_MS = 50  # the client (20 ticks/s, measured 2026-09-17) and the engine (tim
 
 # ``Unit.extra["status_flags"]``: one int of bits, each set by the engine's own predicate.
 # 1, 2 and 4 are royalegym.protocol.STATUS_* (repeated so the model imports without royalegym;
-# tests/test_cards.py compares them); 8 and 16 are the numbers the engine's evolution and hero
-# work gives them (2026-09-27). Read them through ``status_bits``, never raw: "not reported"
+# tests/test_cards.py compares them); 8 and 16 are the engine's evolved and hero bits
+# (RoyaleSim, 2026-09-27). Read them through ``status_bits``, never raw: "not reported"
 # arrives as None or -1, and -1 & anything is that thing.
 STATUS_UNDERGROUND = 1  # travelling under ground: untargetable, immune (Miner, Goblin Drill)
 STATUS_INVISIBLE = 2  # invisible to enemies (Royal Ghost)
@@ -80,13 +80,6 @@ CARD_SPELL = "spell"
 # The live client's card ids name their class in the millions: 26xxxxxx troops, 27xxxxxx
 # buildings, 28xxxxxx spells (client 16.402). A form id (203000014) is in none of them.
 LIVE_ID_CLASSES = {26: CARD_TROOP, 27: CARD_BUILDING, 28: CARD_SPELL}
-
-# Player.abilities[i][3], an ability button's phase (the engine's numbering).
-ABILITY_NO_UNIT = 0  # the hero is not on the board
-ABILITY_UNREADY = 1
-ABILITY_READY = 2
-ABILITY_CASTING = 3
-ABILITY_SPENT = 4
 
 
 def status_bits(unit: Unit) -> int | None:
@@ -117,18 +110,26 @@ class Player:
     tower_hp: list[int]  # [king, left, right] owner's frame; UNKNOWN_HP unknown
     tower_max_hp: list[int]
     king_active: bool | None
-    # THE SPECIAL FORMS (evolutions, heroes). Trailing and EMPTY BY DEFAULT, and empty means
-    # "the source did not say", never "none": every source today and every frame recorded
-    # before the engine carried them decode unchanged, and nothing is drawn for them.
+    # THE SPECIAL FORMS (evolutions, heroes), in the layout the engine ships (RoyaleSim
+    # state_json, 2026-09-27) with names for its ids. Trailing and EMPTY BY DEFAULT, and empty
+    # means "the source did not say", never "none": every older frame decodes unchanged and
+    # draws as it did.
     #
-    # Per hand slot: 1 the slot's next play is evolved, 0 the card has an evolution that is
-    # not charged yet, -1 the card has none.
-    hand_evolved: list[int] = field(default_factory=list)
-    # Per evolved deck entry, in deck order: (card name, cycles counted, cycles needed).
+    # Per evolved deck entry, in deck order: (card name, the card's plays since its last
+    # evolved play, 1 when its next play is the evolution else 0). A hand slot's "evolved
+    # now" is read from here by name (``hand_evolved``); there is no separate row for it.
     evo: list[tuple[str, int, int]] = field(default_factory=list)
-    # Per ability button: (button, card name, hero uid or -1, phase ABILITY_*, elixir cost,
-    # ticks until ready, charges left).
-    abilities: list[tuple[int, str, int, int, int, int, int]] = field(default_factory=list)
+    # Per ability button, one per hero deck entry in deck order: (the hero card's name, or ""
+    # when the source does not know which card it is -- the engine's row does not say --,
+    # available 0/1, spent 0/1, the press's elixir cost).
+    abilities: list[tuple[str, int, int, int]] = field(default_factory=list)
+
+
+def hand_evolved(p: Player) -> list[int]:
+    """Per hand slot: 1 its next play is evolved, 0 the card has an evolution not yet due,
+    -1 it has none (or the source did not say). Read from ``p.evo`` by card name."""
+    due = {name: nxt for name, _plays, nxt in p.evo}
+    return [(1 if due[c] else 0) if c in due else -1 for c in p.hand]
 
 
 @dataclass(slots=True)
@@ -549,14 +550,13 @@ def problems(frame: Frame) -> list[str]:
             out.append(f"spell {s.name} team {s.team}")
     for i, p in enumerate(frame.players):
         # The special-form rows: empty is "not said"; anything else must be whole.
-        if p.hand_evolved and len(p.hand_evolved) != HAND_SIZE:
-            out.append(f"players[{i}].hand_evolved has {len(p.hand_evolved)} entries")
-        if any(v not in (-1, 0, 1) for v in p.hand_evolved):
-            out.append(f"players[{i}].hand_evolved {p.hand_evolved} is not -1/0/1")
-        for name, n, need in p.evo:
-            if need < 0 or n < 0:
-                out.append(f"players[{i}].evo {name} counts {n} of {need}")
-        for row in p.abilities:
-            if not ABILITY_NO_UNIT <= row[3] <= ABILITY_SPENT:
-                out.append(f"players[{i}].abilities button {row[0]} phase {row[3]}")
+        for name, plays, nxt in p.evo:
+            if plays < 0 or nxt not in (0, 1):
+                out.append(f"players[{i}].evo {name}: plays {plays}, next evolved {nxt}")
+        for k, (name, available, spent, cost) in enumerate(p.abilities):
+            if available not in (0, 1) or spent not in (0, 1) or cost < 0:
+                out.append(
+                    f"players[{i}].abilities[{k}] {name or '?'}: available {available}, "
+                    f"spent {spent}, cost {cost}"
+                )
     return out

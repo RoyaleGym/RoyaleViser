@@ -1361,26 +1361,21 @@ def frame_from_state(
 
 
 def special_fields(p: Any, name_of: Callable[[int], str]) -> dict[str, Any]:
-    """A PlayerState's special-form fields in the viewer's shape (``model.Player``), names for ids.
+    """A PlayerState's special-form rows in the viewer's shape (``model.Player``), names for ids.
 
-    The engine's layout for the special forms (as specified 2026-09-27): ``hand_evolved`` per
-    hand slot, ``evo`` rows [card_id, cycles, needed], ``abilities`` rows [button, card_id,
-    uid, phase, cost, ready_in_ticks, charges]. A PlayerState without them -- every engine and
-    royalegym before the special forms -- gives {}, which the model reads as "not said".
+    The engine's layout (RoyaleSim state_json, 2026-09-27): ``evo`` rows [card_id, plays,
+    next_evolved]; ``abilities`` rows [available, spent, cost], one per hero deck entry in deck
+    order, with no card id, so the viewer's name column is "" (a publisher that knows the deck's
+    forms fills it). A PlayerState without them -- every engine and royalegym before the
+    special forms -- gives {}, which the model reads as "not said".
     """
     out: dict[str, Any] = {}
-    hand_evolved = getattr(p, "hand_evolved", None)
-    if hand_evolved:
-        out["hand_evolved"] = [int(v) for v in hand_evolved]
     evo = getattr(p, "evo", None)
     if evo:
-        out["evo"] = [[name_of(int(c)), int(n), int(need)] for c, n, need in evo]
+        out["evo"] = [[name_of(int(c)), int(plays), int(nxt)] for c, plays, nxt in evo]
     abilities = getattr(p, "abilities", None)
     if abilities:
-        out["abilities"] = [
-            [int(b), name_of(int(c)), int(uid), int(ph), int(cost), int(ready), int(charges)]
-            for b, c, uid, ph, cost, ready, charges in abilities
-        ]
+        out["abilities"] = [["", int(a), int(sp), int(cost)] for a, sp, cost in abilities]
     return out
 
 
