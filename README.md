@@ -88,7 +88,8 @@ The same command opens the other kinds of source. One of them at a time, not all
 The three lines below, and the other bare `python` lines on this page, assume the venv is active:
 `..\.venv\Scripts\Activate.ps1` in PowerShell, `source ../.venv/bin/activate` on macOS and Linux,
 from the `RoyaleViser` folder. Without it, `python` is your system Python and the error names a
-missing package such as pygame or msgspec.
+missing package such as pygame or msgspec. If PowerShell refuses to run `Activate.ps1`, write the
+venv's python by path instead: `..\.venv\Scripts\python`.
 
 A recording of a real battle:
 
