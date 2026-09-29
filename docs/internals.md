@@ -310,7 +310,7 @@ draws as it did. `model.problems` checks their shapes.
 |---|---|---|
 | `evo` | per evolved deck entry, in deck order: (card name, the card's plays since its last evolved play, 1 when its next play is the evolution else 0) | a filled pip per play at the foot of the tile's art (one hollow pip for none yet); and when its next play is the evolution, the tile framed in `theme.evo` with an EVO tag |
 | `abilities` | per button, the side's heroes in deck order and then its champion: (the card's name, or "" when the source does not know it, available 0/1, spent 0/1, the press's elixir) | a 13 px button in the elixir row where the next card's name was (three fit): gold when available, dark and crossed when spent, grey when neither; on grey, the whole seconds until it can be pressed when `ability_cooldowns` gives them (rounded up, so never 0 while it waits), else the card's code when named (as the next card's, above); the elixir as a dot. A named row also frames that card's tile in gold with a crown |
-| `ability_cooldowns` | per button, parallel to `abilities`: ticks until it can be pressed again, -1 when the source does not say | the seconds on a grey button, above. A key of its own and not a fifth column of `abilities`, so a viewer from before it still decodes every frame |
+| `ability_cooldowns` | per button, parallel to `abilities`: the ticks its recharge has left, -1 when the source does not say. 0 does not mean it can be pressed: a champion's row reads 0, and not available, while his chain runs; `available` is what says | the seconds on a grey button, above. A key of its own and not a fifth column of `abilities`, so a viewer from before it still decodes every frame |
 
 There is no per-slot row: a hand slot is "evolved now" when the `evo` row for its card says
 so (`model.hand_evolved`: 1, 0, or -1 for a card with no row). The engine says how many plays
@@ -325,12 +325,15 @@ up), and the frame's contract check (`model.problems`) comes back empty.
 
 Where they come from. `sources.frame_from_state` adds them from an engine `PlayerState` that
 carries the engine's rows (`sources.special_fields`: `evo` rows `[card_id, plays,
-next_evolved]`, `abilities` rows `[available, spent, cost]`), unless the frame dict already has
-them. The engine's ability row names no card, so from a bare state the name is "" and no hand
-card is crowned; a publisher that knows the deck's forms can name it. **A running engine's stream
-carries them** (RoyaleGym 2aecf93): `royalegym.viser.player_dict` sends both, with names, and
-names each ability button by the deck's form-2 entry it belongs to, whenever the env's setup
-has forms; a battle without forms sends neither key, which reads as not said.
+next_evolved]`, `abilities` rows `[available, spent, cost, card_id, cooldown_ticks]`), unless
+the frame dict already has them. Every ability row names its card, a hero's and a champion's
+alike (RoyaleSim 2245f9f), so a bare state names each button and crowns its card in the hand.
+An engine from before that column sends `[available, spent, cost]`, the name is "", and only a
+publisher that knows the deck's forms can name it. **A running engine's stream carries them**
+(RoyaleGym 2aecf93 on): `royalegym.viser.player_dict` sends both, with names: a button by its
+row's card, else by the deck's k-th form-2 entry when the env's setup has forms, else "". A
+side with no evolution, hero or champion sends them empty, which reads as not said. A champion
+needs no forms, so a Golden Knight deck without any sends his button.
 `RoyaleGym/tests/test_viser.py` round-trips such a frame through this package's decoder, so ids
 where names belong fail there, on the publisher's side. A trace records none of them yet.
 
@@ -599,8 +602,7 @@ already holds a `Frame`.
    `sources.frame_from_state` turns it into a `Frame`, and `TraceSource` builds its rows the
    same way, so a trace and a stream of one battle draw identically. The one exception is the
    special-form player rows, which a stream and `frame_from_state` carry and a trace does not
-   keep yet; only the stream names the hero buttons
-   ([Cards and the special forms](#cards-and-the-special-forms)). Spawn and death event
+   keep yet ([Cards and the special forms](#cards-and-the-special-forms)). Spawn and death event
    lines come from uid diffing, play lines from the step's accepted deploys.
    `RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's
    decoder, so a drift between the two ends fails there rather than in someone's window.
@@ -812,7 +814,7 @@ the renderer computes no size of its own and everything is an integer.
 
 | Column | Width at 24 px/tile | Contents |
 |---|---|---|
-| dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px card tiles, see [Cards and the special forms](#cards-and-the-special-forms)), its elixir bar (thousandths) and the next card as a small tile, with a hero's ability buttons where the next card's name would be; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading naming the port it is listening on while nothing is there ("no learner on 127.0.0.1:9871" for a stream, "no learner attached" for a source that names no learner at all), and the rows that do not fit the column left out); the bottom player's elixir bar, next card and ability buttons, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
+| dashboard (left) | 345 px (`dashboard_w`: 4 cards of 80 px + 3 gaps of 5 = 335, flush with the window's left edge, plus a 10 px gutter before the arena) | the top player's hand flush with the top edge (80 x 100 px card tiles, see [Cards and the special forms](#cards-and-the-special-forms)), its elixir bar (thousandths) and the next card as a small tile, with the ability buttons (heroes' and a champion's) where the next card's name would be; a status block as tall as its content (source name, tick and clock, playing/live, the source's own status line, draw time and fps, then the last `events_lines` events, newest last); under it a learning panel filling the rest of the column (`LEARNING_GROUPS` down two columns: **learner** iteration, the two losses, entropy, KL, clip fraction, explained variance, grad norm and learning rate; **rollout** env steps/s, engine ticks/s, episode ticks, crowns and towers per episode, illegal actions and elixir wasted; **ladder** ELO, win rate, pool size and games against the frozen pool; then **extra**, whatever rows the learner named itself -- every value an em dash until a learner fills `Transport.learning` -- which a stream does from the status datagrams described in [The learning status](#the-learning-status) -- the heading naming the port it is listening on while nothing is there ("no learner on 127.0.0.1:9871" for a stream, "no learner attached" for a source that names no learner at all), and the rows that do not fit the column left out); the bottom player's elixir bar, next card and ability buttons, and its hand flush with the bottom edge. Crowns, tower hp and the cycle are not repeated here: the crowns and clock sit in the small box top right of the arena, the tower hp bars on the towers |
 | arena (middle) | 18 x 24 = 432 px wide, 32 x 24 = 768 px tall | checkerboard grass, river band, bridges, each crown tower's zone outline, troops as circles and buildings and towers as squares, hp bars, names, paths, target lines, spells and projectiles; the crowns and clock in a small box top right, `OVERTIME` centred, the `GAME OVER` banner; the status line and the scrub bar underneath |
 | inspector (right) | 300 px (`inspector_w`; 0 in the compact layout) | the hovered or pinned unit's fields, raw and unrounded (position, hp, radius, target, the stun and deploy counters, the status bits in words (`flags`), then whatever else the source carries under "extra"), except each status effect's time left, which is shown in tenths of a second; then the compare lines and the `H` help footer |
 

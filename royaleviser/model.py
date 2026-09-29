@@ -123,9 +123,10 @@ class Player:
     # name, or "" when the source does not know which card it is, available 0/1, spent 0/1,
     # the press's elixir cost).
     abilities: list[tuple[str, int, int, int]] = field(default_factory=list)
-    # Per ability button, parallel to ``abilities``: ticks until it can be pressed again, -1 when
-    # the source does not say. A key of its own rather than a fifth column of ``abilities``, so a
-    # viewer from before it still decodes every frame (it drops the key).
+    # Per ability button, parallel to ``abilities``: the ticks its recharge has left, -1 when the
+    # source does not say. 0 does not mean pressable (a champion's row reads 0, not available,
+    # while his chain runs); ``available`` says that. A key of its own rather than a fifth column
+    # of ``abilities``, so a viewer from before it still decodes every frame (it drops the key).
     ability_cooldowns: list[int] = field(default_factory=list)
 
 

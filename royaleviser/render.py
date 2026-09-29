@@ -1902,9 +1902,10 @@ class Renderer:
 
         What each tile says is in ``_draw_card``. The special forms come from the player's
         own rows and are drawn only when the source carries them: ``evo`` per card (and from
-        it whether a slot's next play is evolved), and a hero is any card an ability button
-        names -- the engine's rows name none, so only a publisher that knows the deck's forms
-        crowns a card.
+        it whether a slot's next play is evolved), and a card an ability button names (a
+        hero's or a champion's) is crowned. The engine's rows name their card (RoyaleSim
+        2245f9f); from an engine before that, only a publisher that knows the deck's forms
+        names one.
         """
         t = self.theme
         x, y, _, _ = rect
