@@ -317,6 +317,13 @@ def test_special_fields_turn_the_engine_rows_into_names() -> None:
     got = special_fields(State([[0, 2, 1]], [[1, 0, 2]]), NAMES.name_of)
     # The engine's ability row names no card, so the viewer's name column is "".
     assert got == {"evo": [["Knight", 2, 1]], "abilities": [["", 1, 0, 2]]}
+    # The champion build's rows add [card_id, cooldown_ticks]; read by index, rows of three
+    # and five mix, and the cooldowns go to a key of their own, -1 where a row has none.
+    got = special_fields(State([], [[1, 0, 2], [0, 0, 1, 2, 45], [0, 1, 1, -1, 0]]), NAMES.name_of)
+    assert got == {
+        "abilities": [["", 1, 0, 2], ["Cannon", 0, 0, 1], ["", 0, 1, 1]],
+        "ability_cooldowns": [-1, 45, 0],
+    }
     # A PlayerState from before the special forms has none of the attributes: nothing added.
     assert special_fields(object(), NAMES.name_of) == {}
     # The engine sends both keys on every player, empty without forms: still nothing added.
@@ -530,6 +537,33 @@ def button_px(r: Renderer, row: tuple[str, int, int, int], dx: int = 0, dy: int 
     ex, ey, _, eh = r.layout.bottom_elixir
     # After the 200 px bar, the 8 px gap, the 24 px next card and 5 px: a 13 px button.
     return px(r.surface, ex + 200 + 8 + 24 + 5 + 13 + dx, ey + eh // 2 + dy)
+
+
+def test_a_waiting_button_shows_its_seconds_and_three_fit(renderer: Renderer) -> None:
+    ex, ey, ew, eh = renderer.layout.bottom_elixir
+
+    def row(p: Player) -> bytes:
+        renderer.draw(frame([], [p, player(team=1)]), ViewState(), Transport())
+        return pygame.image.tobytes(renderer.surface.subsurface((ex, ey, ew, eh)), "RGB")
+
+    base = [("Cannon", 0, 0, 1)]
+    plain = row(player(abilities=base))
+    # 45 ticks at 50 ms is 2.25 s: "3", drawn over the grey button instead of its code.
+    assert row(player(abilities=base, ability_cooldowns=[45])) != plain
+    assert row(player(abilities=base, ability_cooldowns=[-1])) == plain  # not said: as before
+    # An available button shows no countdown, whatever the cooldown says.
+    ready = [("Cannon", 1, 0, 1)]
+    assert row(player(abilities=ready, ability_cooldowns=[45])) == row(player(abilities=ready))
+    # Heroes and a champion: three buttons, and the third ends inside the elixir row.
+    three = [("Cannon", 1, 0, 1), ("Knight", 0, 0, 2), ("Zap", 0, 1, 3)]
+    renderer.draw(frame([], [player(abilities=three), player(team=1)]), ViewState(), Transport())
+    third_right = ex + 200 + 8 + 24 + 5 + 3 * (2 * 13 + 4)
+    assert third_right <= ex + ew
+    assert px(renderer.surface, third_right - 4 - 13, ey + eh // 2 + 9) == shade(
+        T.ability_idle, 0.6
+    )
+    # The contract check reads the cooldowns' shape.
+    assert problems(frame([], [player(abilities=base, ability_cooldowns=[1, 2]), player(team=1)]))
 
 
 def test_an_ability_button_shows_what_the_engine_says(renderer: Renderer) -> None:

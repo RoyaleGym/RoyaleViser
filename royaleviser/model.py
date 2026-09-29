@@ -119,10 +119,14 @@ class Player:
     # evolved play, 1 when its next play is the evolution else 0). A hand slot's "evolved
     # now" is read from here by name (``hand_evolved``); there is no separate row for it.
     evo: list[tuple[str, int, int]] = field(default_factory=list)
-    # Per ability button, one per hero deck entry in deck order: (the hero card's name, or ""
-    # when the source does not know which card it is -- the engine's row does not say --,
-    # available 0/1, spent 0/1, the press's elixir cost).
+    # Per ability button (the side's heroes in deck order, then its champion): (the card's
+    # name, or "" when the source does not know which card it is, available 0/1, spent 0/1,
+    # the press's elixir cost).
     abilities: list[tuple[str, int, int, int]] = field(default_factory=list)
+    # Per ability button, parallel to ``abilities``: ticks until it can be pressed again, -1 when
+    # the source does not say. A key of its own rather than a fifth column of ``abilities``, so a
+    # viewer from before it still decodes every frame (it drops the key).
+    ability_cooldowns: list[int] = field(default_factory=list)
 
 
 def hand_evolved(p: Player) -> list[int]:
@@ -559,4 +563,11 @@ def problems(frame: Frame) -> list[str]:
                     f"players[{i}].abilities[{k}] {name or '?'}: available {available}, "
                     f"spent {spent}, cost {cost}"
                 )
+        if p.ability_cooldowns and len(p.ability_cooldowns) != len(p.abilities):
+            out.append(
+                f"players[{i}].ability_cooldowns has {len(p.ability_cooldowns)} entries for "
+                f"{len(p.abilities)} buttons"
+            )
+        if any(c < -1 for c in p.ability_cooldowns):
+            out.append(f"players[{i}].ability_cooldowns {p.ability_cooldowns} below -1")
     return out

@@ -305,12 +305,16 @@ draws as it did. `model.problems` checks their shapes.
 | Field | One row | Drawn as |
 |---|---|---|
 | `evo` | per evolved deck entry, in deck order: (card name, the card's plays since its last evolved play, 1 when its next play is the evolution else 0) | a filled pip per play at the foot of the tile's art (one hollow pip for none yet); and when its next play is the evolution, the tile framed in `theme.evo` with an EVO tag |
-| `abilities` | per hero deck entry, in deck order: (the hero card's name, or "" when the source does not know it, available 0/1, spent 0/1, the press's elixir) | a 13 px button in the elixir row where the next card's name was: gold when available, dark and crossed when spent, grey when neither (no hero of it standing); the card's code when named (as the next card's, above); the elixir as a dot. A named row also frames that card's tile in gold with a crown |
+| `abilities` | per button, the side's heroes in deck order and then its champion: (the card's name, or "" when the source does not know it, available 0/1, spent 0/1, the press's elixir) | a 13 px button in the elixir row where the next card's name was (three fit): gold when available, dark and crossed when spent, grey when neither; on grey, the whole seconds until it can be pressed when `ability_cooldowns` gives them (rounded up, so never 0 while it waits), else the card's code when named (as the next card's, above); the elixir as a dot. A named row also frames that card's tile in gold with a crown |
+| `ability_cooldowns` | per button, parallel to `abilities`: ticks until it can be pressed again, -1 when the source does not say | the seconds on a grey button, above. A key of its own and not a fifth column of `abilities`, so a viewer from before it still decodes every frame |
 
 There is no per-slot row: a hand slot is "evolved now" when the `evo` row for its card says
 so (`model.hand_evolved`: 1, 0, or -1 for a card with no row). The engine says how many plays
 a card has counted but not how many it takes, so the pips count up and promise no total. It
-sends no casting state, no time until ready and no charges, and the button draws none.
+sends no casting state and no charges, and the button draws neither. The champion build appends
+[card_id, cooldown_ticks] to each engine ability row; `sources.special_fields` reads the rows by
+index, so rows of three and of five both convert, the card id naming the button and the
+cooldown going to `ability_cooldowns` (the key only when some row has one).
 
 Where they come from. `sources.frame_from_state` adds them from an engine `PlayerState` that
 carries the engine's rows (`sources.special_fields`: `evo` rows `[card_id, plays,

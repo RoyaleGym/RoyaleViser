@@ -1363,11 +1363,14 @@ def frame_from_state(
 def special_fields(p: Any, name_of: Callable[[int], str]) -> dict[str, Any]:
     """A PlayerState's special-form rows in the viewer's shape (``model.Player``), names for ids.
 
-    The engine's layout (RoyaleSim state_json, 2026-09-27): ``evo`` rows [card_id, plays,
-    next_evolved]; ``abilities`` rows [available, spent, cost], one per hero deck entry in deck
-    order, with no card id, so the viewer's name column is "" (a publisher that knows the deck's
-    forms fills it). A PlayerState without them -- every engine and royalegym before the
-    special forms -- gives {}, which the model reads as "not said".
+    The engine's layout (RoyaleSim state_json): ``evo`` rows [card_id, plays, next_evolved];
+    ``abilities`` rows [available, spent, cost], one per button (heroes in deck order, then the
+    champion), to which the champion build appends [card_id, cooldown_ticks]. Read BY INDEX,
+    so a row of three and a row of five both convert: the card's name from its card_id where the
+    row has one (else "", which a publisher that knows the deck's forms fills), and the cooldown
+    into ``ability_cooldowns`` (-1 where a row has none; the key only when some row has one). A
+    PlayerState without them -- every engine and royalegym before the special forms -- gives {},
+    which the model reads as "not said".
     """
     out: dict[str, Any] = {}
     evo = getattr(p, "evo", None)
@@ -1375,7 +1378,14 @@ def special_fields(p: Any, name_of: Callable[[int], str]) -> dict[str, Any]:
         out["evo"] = [[name_of(int(c)), int(plays), int(nxt)] for c, plays, nxt in evo]
     abilities = getattr(p, "abilities", None)
     if abilities:
-        out["abilities"] = [["", int(a), int(sp), int(cost)] for a, sp, cost in abilities]
+        rows, cooldowns = [], []
+        for row in abilities:
+            card = int(row[3]) if len(row) > 3 else -1
+            rows.append([name_of(card) if card >= 0 else "", int(row[0]), int(row[1]), int(row[2])])
+            cooldowns.append(int(row[4]) if len(row) > 4 else -1)
+        out["abilities"] = rows
+        if any(c >= 0 for c in cooldowns):
+            out["ability_cooldowns"] = cooldowns
     return out
 
 

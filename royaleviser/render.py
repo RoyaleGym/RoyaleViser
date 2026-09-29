@@ -1865,8 +1865,8 @@ class Renderer:
         top_team, bottom_team = 1 - view.seat, view.seat
         top, bottom = frame.player(top_team), frame.player(bottom_team)
         self._draw_hand(top, lay.top_hand)
-        self._draw_elixir_row(top, lay.top_elixir)
-        self._draw_elixir_row(bottom, lay.bottom_elixir)
+        self._draw_elixir_row(top, lay.top_elixir, frame.tick_ms)
+        self._draw_elixir_row(bottom, lay.bottom_elixir, frame.tick_ms)
         self._draw_hand(bottom, lay.bottom_hand)
         log_bottom = self._draw_status_block(frame, lay.debug, transport, view)
         self._draw_learning_block(
@@ -2103,18 +2103,21 @@ class Renderer:
             pygame.draw.circle(self.surface, t.elixir, c, 6)
             self.blit_text(str(cost), (c[0], c[1] + 1), "tiny", t.ui_text, "center")
 
-    def _draw_abilities(self, p: Player, x: int, cy: int) -> int:
-        """A hero's ability buttons, left to right from ``x``; returns the x after the last.
+    def _draw_abilities(self, p: Player, x: int, cy: int, tick_ms: int = 50) -> int:
+        """The ability buttons (heroes, then a champion), left to right from ``x``; returns the
+        x after the last. Three fit the elixir row.
 
-        What the engine says of a button, and nothing more: gold when available, dark and
-        crossed when spent, grey when neither (no hero of it standing). The hero card's
-        code among the deck (``tile_code``) when the source names it, the press's elixir as
-        the dot.
+        What the source says of a button, and nothing more: gold when available, dark and
+        crossed when spent, grey when neither. A grey button whose cooldown the source gives
+        shows the whole seconds left, rounded up so it never reads 0 while it cannot be pressed;
+        otherwise the card's code among the deck (``tile_code``) when the source names it. The
+        press's elixir is the dot.
         """
         t = self.theme
         s = self.surface
         r = 13
-        for name, available, spent, cost in p.abilities:
+        for k, (name, available, spent, cost) in enumerate(p.abilities):
+            wait = p.ability_cooldowns[k] if k < len(p.ability_cooldowns) else -1
             c = (x + r, cy)
             if spent:
                 fill = shade(t.ability_idle, 0.6)
@@ -2124,6 +2127,9 @@ class Renderer:
             pygame.draw.circle(s, shade(fill, 0.55), c, r, 1)
             if spent:
                 pygame.draw.line(s, t.ui_dim, (c[0] - 7, c[1] + 7), (c[0] + 7, c[1] - 7), 2)
+            elif not available and wait > 0:
+                secs = -(-wait * tick_ms // 1000)
+                self.blit_text(str(secs), c, "tiny", t.ui_text, "center")
             elif name:
                 ink = shade(t.hero, 0.35) if available else t.ui_dim
                 self.blit_text(tile_code(name, known_cards(p)), c, "tiny", ink, "center")
@@ -2134,7 +2140,7 @@ class Renderer:
             x += 2 * r + 4
         return x
 
-    def _draw_elixir_row(self, p: Player, rect: Rect) -> None:
+    def _draw_elixir_row(self, p: Player, rect: Rect, tick_ms: int = 50) -> None:
         t = self.theme
         x, y, _, h = rect
         bar_w, bar_h = 200, h - 8
@@ -2175,7 +2181,7 @@ class Renderer:
                 self.blit_text("?", tile.center, "tiny", t.ui_dim, "center")
             tx = tile.right + 5
             if p.abilities:  # the buttons take the room the next card's name had
-                self._draw_abilities(p, tx, y + h // 2)
+                self._draw_abilities(p, tx, y + h // 2, tick_ms)
             else:
                 self.blit_text("next", (tx, y + 2), "tiny", t.ui_dim)
                 self.blit_text(
