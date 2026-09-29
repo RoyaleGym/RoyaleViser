@@ -688,6 +688,20 @@ def known_cards(p: Player) -> tuple[str, ...]:
     return tuple(p.deck) if p.deck_known else (*p.hand, p.next_card or "")
 
 
+def riders(units: Sequence[Unit]) -> dict[str | int, str | int]:
+    """rider uid -> the uid of the troop it rides, for every troop whose source says which unit
+    it sits on (``extra["mount"]``, RoyaleGym's EntityState.mount_uid) and whose mount is in the
+    frame. Empty from a source that does not say, which draws exactly as before.
+    """
+    troops = {u.uid for u in units if u.kind == KIND_TROOP}
+    out: dict[str | int, str | int] = {}
+    for u in units:
+        mount = u.extra.get("mount") if u.kind == KIND_TROOP and u.extra else None
+        if isinstance(mount, int) and not isinstance(mount, bool) and mount in troops:
+            out[u.uid] = mount
+    return out
+
+
 def stacks(units: Sequence[Unit], units_per_tile: int) -> dict[str | int, int]:
     """The troops drawn over teammates they hide: uid -> how many units the stack holds, for
     the one drawn LAST (on top), and 0 for each one under it. Empty when nothing is stacked.
@@ -698,7 +712,9 @@ def stacks(units: Sequence[Unit], units_per_tile: int) -> dict[str | int, int]:
     in the frame is the one on top.
     """
     reach = STACK_TILES_X100 * units_per_tile  # 100 x the distance, raw units
-    troops = [u for u in units if u.kind == KIND_TROOP]
+    # A rider whose mount the source names is drawn as a rider (``riders``), not as a stack.
+    seated = riders(units)
+    troops = [u for u in units if u.kind == KIND_TROOP and u.uid not in seated]
     parent = list(range(len(troops)))
 
     def root(i: int) -> int:
@@ -1328,12 +1344,17 @@ class Renderer:
                 if u.target is not None and u.target in pos and u.target != u.uid:
                     dashed_line(surface, t.target_line, pos[u.uid], pos[u.target])
         # Towers and buildings first (troops walk over them), then troops.
-        order = sorted(frame.units, key=lambda u: u.kind == KIND_TROOP)
+        # A rider goes last of all, whatever the frame's order, so it sits on its mount.
+        seated = riders(frame.units)
+        order = sorted(frame.units, key=lambda u: (u.kind == KIND_TROOP, u.uid in seated))
         stacked = stacks(frame.units, upt)
         for u in order:
             px, py = pos[u.uid]
             r = radii[u.uid]
             color = t.team_color(u.team, king=u.kind == KIND_KING_TOWER)
+            if u.uid in seated:
+                self._draw_rider(u, pos[seated[u.uid]], radii[seated[u.uid]], color, view)
+                continue
             # The engine's own status bits, None when the source did not report them, which
             # draws exactly as before: nothing here is inferred from a name or a card.
             bits = status_bits(u) or 0
@@ -1477,6 +1498,23 @@ class Renderer:
                     "midtop",
                     shadow=True,
                 )
+
+    def _draw_rider(
+        self, u: Unit, mount_at: tuple[int, int], mount_r: int, color: Color, view: ViewState
+    ) -> None:
+        """A rider on its mount: a small disc in the team's colour with a white rim, set on the
+        mount's upper half. Drawn from the MOUNT's position, not its own: the engine puts a rider
+        where its mount stood a tick before, which would make the seat jitter. Its name, hp and
+        effects are the mount's to show on the board and its own in the inspector.
+        """
+        t = self.theme
+        mx, my = mount_at
+        sr = max(3, mount_r * 11 // 20)
+        seat = (mx, my - mount_r * 2 // 5)
+        pygame.draw.circle(self.surface, color, seat, sr)
+        pygame.draw.circle(self.surface, t.rider_rim, seat, sr, 2)
+        if u.uid == view.selected_uid or u.uid == view.hover_uid:
+            pygame.draw.circle(self.surface, t.hover, seat, sr + 4, 2)
 
     def _draw_form_ring(self, bits: int, center: tuple[int, int], r: int) -> int:
         """The special forms on the board: an evolved unit wears a ring in the evolution colour

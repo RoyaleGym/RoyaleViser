@@ -24,10 +24,12 @@ from royaleviser.render import (
     Transport,
     ViewState,
     monogram,
+    riders,
     stacks,
     tile_code,
     tile_codes,
 )
+from royaleviser.theme import DEFAULT
 from test_cards import UPT, engine_cards, frame, player, unit
 
 QUARTER = STACK_TILES_X100 * UPT // 100  # the stack reach, raw units
@@ -73,6 +75,41 @@ def test_a_stack_draws_as_its_top_unit_labelled_with_the_count() -> None:
 def test_no_label_scale_draws_no_count() -> None:
     r = Renderer(scale=12)  # below 16 px a tile, units carry no names, and so no count
     assert board_bytes(r, [ram(1), ram(2)]) == board_bytes(r, [ram(2)])
+
+
+# --------------------------------------------------------------------- riders
+
+
+def rider(uid: int, mount: object, **kw: object) -> object:
+    return ram(uid, extra={"tower_slot": -1, "mount": mount}, **kw)
+
+
+def test_a_rider_is_known_only_by_what_the_source_says() -> None:
+    assert riders([ram(1), rider(2, 1)]) == {2: 1}
+    assert riders([ram(1), ram(2)]) == {}  # no mount said: nothing inferred from names
+    assert riders([rider(2, 1)]) == {}  # its mount is not in the frame
+    assert riders([ram(1), rider(2, True)]) == {}  # a bool is not a uid
+    tesla = unit(uid=3, kind=KIND_BUILDING)
+    assert riders([tesla, rider(2, 3)]) == {}  # only a troop is ridden
+
+
+def test_a_rider_is_drawn_on_its_mount_not_counted_in_a_stack() -> None:
+    assert stacks([ram(1), rider(2, 1)], UPT) == {}
+    r = Renderer(scale=24)
+    seated = board_bytes(r, [ram(1), rider(2, 1)])
+    # The frame's order does not matter: the rider is drawn last, on top.
+    assert board_bytes(r, [rider(2, 1), ram(1)]) == seated
+    # Its seat shows: the board is not the mount alone, and not a stack labelled x2.
+    assert seated != board_bytes(r, [ram(1)])
+    assert seated != board_bytes(r, [ram(2, name="RamRider x2")])
+    # The seat: the team's colour at its centre, a white rim, on the mount's upper half.
+    m = ram(1)
+    x, y = r.to_px(m.x, m.y, UPT, 0)
+    mr = r.unit_radius_px(m, UPT)
+    sr, sy = max(3, mr * 11 // 20), y - mr * 2 // 5
+    r.draw(frame([ram(1), rider(2, 1)]), ViewState(show_targets=False), Transport())
+    assert tuple(r.surface.get_at((x, sy)))[:3] == DEFAULT.team_color(0)
+    assert DEFAULT.rider_rim in {tuple(r.surface.get_at((x + sr - d, sy)))[:3] for d in (0, 1)}
 
 
 # --------------------------------------------------------------------- the small tiles' codes
