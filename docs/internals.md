@@ -511,12 +511,12 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at ceb446c on 2026-09-27, with `pytest --collect-only -q` collecting 355:
+The suite has two correct results, and both are one command apart. Measured at f1f6f7c on 2026-09-28, with `pytest --collect-only -q` collecting 363:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **351 passed, 4 skipped** |
-| this machine, with the recordings | **354 passed, 1 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **359 passed, 4 skipped** |
+| this machine, with the recordings | **362 passed, 1 skipped** |
 
 The four skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
@@ -530,11 +530,11 @@ gitignored) runs those three.
 
 Two more things move the count, in either run. Without the `media` extra
 (`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) ONE more skips,
-the single `@needs_ffmpeg` test: a clone then gives **350 passed, 5 skipped** (76bd9a1,
+the single `@needs_ffmpeg` test: a clone then gives **358 passed, 5 skipped** (f1f6f7c,
 2026-09-28, pytest run with `sys.modules["imageio_ffmpeg"] = None`). Without RoyaleLearn
 importable, `tests/test_learner_protocol.py` skips AT IMPORT: its four tests are not collected
-(351 rather than 355) and the run reports ONE skip for the whole module, so a clone gives 347
-passed and 5 skipped (76bd9a1, 2026-09-28). A count in this file is the output of the command
+(359 rather than 363) and the run reports ONE skip for the whole module, so a clone gives 355
+passed and 5 skipped (f1f6f7c, 2026-09-28). A count in this file is the output of the command
 beside it and nothing else; the ones that stood here before were measured at a commit fifteen
 behind and were wrong at that commit too.
 
