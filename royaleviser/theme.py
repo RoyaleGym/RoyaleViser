@@ -30,10 +30,12 @@ class Theme:
     river: Color = (106, 230, 237)
     bridge: Color = (255, 175, 120)
     grid_line: Color = (135, 146, 43)
-    tower_zone: Color = (120, 130, 40)  # outline of a crown tower's no-deploy rect
-    # Ground nothing may be placed on, filled rather than outlined: the river's corners, the
-    # back rows and the blocks under the crown towers. A player cannot use it, so it is not
-    # grass, and the viewer should not make someone infer that from an outline.
+    # The outline round each crown tower's zone. The king's is its no-deploy block; the
+    # princess's 2x2 is a mark only, as the arena has no no-deploy ground under her.
+    tower_zone: Color = (120, 130, 40)
+    # Ground nothing may be placed on, filled rather than outlined: the river's corners and
+    # the back rows (the king's block is carried, not filled). A player cannot use it, so it
+    # is not grass, and the viewer should not make someone infer that from an outline.
     no_deploy_fill: Color = (150, 150, 146)
     # The bridge's two long sides. A bridge is the only ground across the river and its edges
     # are where a unit stops being on it, so they are drawn rather than left to the eye.
@@ -76,7 +78,6 @@ class Theme:
     # The guess colour is the warning red so a guessed size reads as one on a first look.
     footprint_guess: Color = (255, 80, 80)
     footprint_edge: Color = (255, 255, 255)
-    footprint_refused: Color = (255, 80, 80)
     projectile: Color = (180, 50, 220)
     spell: Color = (255, 100, 255)  # a spell this viewer does not recognise by name
     # STATUS EFFECTS. Each has a colour AND a shape on the body (render._draw_status), because

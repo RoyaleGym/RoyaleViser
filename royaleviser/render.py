@@ -35,10 +35,11 @@ lower half) holds the compare panel and the help footer.
 
 from __future__ import annotations
 
+import functools
 import math
 import os
 from collections import OrderedDict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -82,6 +83,12 @@ MOTION_PULSING = 4  # an area that hits on a period (Poison, the Goblin Curse)
 # How far outside a unit's body the evolution / hero ring sits: past the status rings, which
 # reach body + 5 (Freeze, Rage) and the Rage glow to body + 6.
 FORM_RING_GAP = 8
+# Two troops of one team, both flying or both on the ground, whose centres are closer than
+# this many hundredths of a tile are one STACK (``stacks``): the one drawn first is covered by
+# the other and cannot be seen. A quarter of a tile, because the Ram Rider's rider stands
+# where its Ram stood a tick before, at most 0.21 tile away (measured 2026-09-28 on the
+# engine over 48 scripted battles).
+STACK_TILES_X100 = 25
 
 KIND_NAMES = {
     KIND_TROOP: "troop",
@@ -313,7 +320,7 @@ class ViewState:
     show_targets: bool = True  # a line from each unit to its target
     show_grid: bool = False  # tile grid lines
     show_debug: bool = False  # raw numbers on the board: hp, state, deploy/stun ticks
-    show_footprints: bool = False  # shade each carried footprint and the taps it refuses
+    show_footprints: bool = False  # shade each carried footprint box (no verdict on taps)
     # Ring the units whose collision circles overlap the pinned one: the inputs a separation
     # step is a function of. RECOMPUTED from positions and radii, never recorded -- see
     # ``Renderer._draw_contact_neighbours``.
@@ -631,6 +638,97 @@ def monogram(name: str) -> str:
     if len(words) == 1:
         return words[0][:2].capitalize()
     return (words[0][0] + words[1][0]).upper()
+
+
+def tile_codes(among: Iterable[str]) -> dict[str, str]:
+    """name -> what a small tile (the next card, an ability button) shows for it among these
+    cards: its monogram, unless another of them shares it.
+
+    Two cards can share a monogram (Witch and Wizard are both "Wi", both 5-elixir troops), or
+    have two that differ only in case (Skeletons "Sk", SkeletonKing "SK"), and a small tile
+    shows nothing else that tells them apart. Each such card gets its first letter and, in
+    lower case, the first letter of its name that differs from the letter at the same place in
+    every other one's (Witch "Wt", Wizard "Wz"), passing over a code another card already
+    shows. A name with no such letter keeps its monogram (RoyalRecruits "RR" beside
+    RoyalRecruits_Chess "Rc"). Still two characters, because three do not fit a 24 px tile in
+    the tiny font ("SkA" is 28 px). A card whose monogram nothing else here shares keeps it,
+    so such a deck draws as it did.
+    """
+    codes = {n: monogram(n) for n in sorted(set(among))}
+    groups: dict[str, list[str]] = {}
+    for n, mono in codes.items():
+        groups.setdefault(mono.upper(), []).append(n)
+    shown = {key for key, group in groups.items() if len(group) == 1}
+    for _key, group in sorted(groups.items()):
+        if len(group) == 1:
+            continue
+        words = {n: "".join(name_words(n)).lower() for n in group}
+        for n in group:
+            w = words[n]
+            others = [v for m, v in words.items() if m != n]
+            for i in range(1, len(w)):
+                code = w[0].upper() + w[i]
+                if code.upper() not in shown and all(i >= len(v) or v[i] != w[i] for v in others):
+                    codes[n] = code
+                    break
+            shown.add(codes[n].upper())
+    return codes
+
+
+@functools.lru_cache(maxsize=256)
+def tile_code(name: str, among: tuple[str, ...] = ()) -> str:
+    """``name``'s code among ``among`` (``tile_codes``). A tuple, so the answer is cached: a
+    deck does not change during a battle, and working one out takes about 0.14 ms."""
+    return tile_codes((*among, name))[name]
+
+
+def known_cards(p: Player) -> tuple[str, ...]:
+    """The cards a player's small tiles are told apart among: the deck when the source knows
+    it, else the hand and the next card."""
+    return tuple(p.deck) if p.deck_known else (*p.hand, p.next_card or "")
+
+
+def stacks(units: Sequence[Unit], units_per_tile: int) -> dict[str | int, int]:
+    """The troops drawn over teammates they hide: uid -> how many units the stack holds, for
+    the one drawn LAST (on top), and 0 for each one under it. Empty when nothing is stacked.
+
+    One team, one layer (a flyer over a ground troop is drawn apart, with its shadow and ring),
+    centres closer than ``STACK_TILES_X100`` hundredths of a tile, chained: a unit within
+    reach of any member joins the stack. Troops are drawn in frame order, so the last member
+    in the frame is the one on top.
+    """
+    reach = STACK_TILES_X100 * units_per_tile  # 100 x the distance, raw units
+    troops = [u for u in units if u.kind == KIND_TROOP]
+    parent = list(range(len(troops)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            i = parent[i]
+        return i
+
+    by_x = sorted(range(len(troops)), key=lambda i: troops[i].x)
+    for k, i in enumerate(by_x):
+        a = troops[i]
+        for j in by_x[k + 1 :]:
+            b = troops[j]
+            if 100 * (b.x - a.x) >= reach:
+                break
+            dx, dy = b.x - a.x, b.y - a.y
+            if (
+                a.team == b.team
+                and a.flying == b.flying
+                and 10000 * (dx * dx + dy * dy) < reach * reach
+            ):
+                parent[root(j)] = root(i)
+    groups: dict[int, list[int]] = {}
+    for i in range(len(troops)):
+        groups.setdefault(root(i), []).append(i)
+    out: dict[str | int, int] = {}
+    for g in groups.values():
+        if len(g) > 1:
+            out.update({troops[i].uid: 0 for i in g[:-1]})
+            out[troops[g[-1]].uid] = len(g)
+    return out
 
 
 def shade(color: Color, f: float) -> Color:
@@ -1231,6 +1329,7 @@ class Renderer:
                     dashed_line(surface, t.target_line, pos[u.uid], pos[u.target])
         # Towers and buildings first (troops walk over them), then troops.
         order = sorted(frame.units, key=lambda u: u.kind == KIND_TROOP)
+        stacked = stacks(frame.units, upt)
         for u in order:
             px, py = pos[u.uid]
             r = radii[u.uid]
@@ -1353,6 +1452,14 @@ class Renderer:
                 self._draw_crown((px, py - h - 3 - t.hp_bar_h - 13 - lift), t.hero)
             if u.kind == KIND_TROOP or u.kind == KIND_BUILDING or view.show_debug:
                 label = u.name if s >= 16 else ""
+                # A stack is labelled once, on its top unit, with how many it holds ("RamRider
+                # x2"): the units under it cannot be seen, and their names would print over
+                # its own in the same place and read as one.
+                n = stacked.get(u.uid)
+                if n == 0:
+                    label = ""
+                elif n and label:
+                    label = f"{label} x{n}"
                 if label:
                     self.blit_text(
                         label, (px, py + h + 2), "tiny", t.ui_text, "midtop", shadow=True
@@ -1401,49 +1508,32 @@ class Renderer:
                 line(self.surface, t.footprint_guess, (cx, cy), (cx, cy + sy * n), 2)
 
     def _draw_footprint_overlay(self, frame: Frame, view: ViewState) -> None:
-        """Over the units: every carried footprint shaded, and the tile taps it refuses.
+        """Over the units: every carried footprint shaded in its team's colour, and edged.
 
         Over, not under, because a building is drawn ON its own footprint and an overlay
         underneath would be covered by the very thing it describes (the call site says the
         same, and the two used to disagree).
 
-        A tile is drawn as refused when its CENTRE lies inside a footprint, which is the rule
-        the engine applies to the tap point itself. It is not the whole of deploy legality:
-        a building also brings its own size to the test, and the viewer does not know which
-        card a player is about to play. So this is the part of the answer that the frame
-        alone settles, and the status line says which frame it came from. Towers count as
-        much as buildings, because their box is what a placement runs into around the bridge.
+        It draws the boxes and says nothing about a tap inside one. What such a tap does is
+        the engine's answer, and it turns on the card and on whose box it is; the frame
+        carries neither the card about to be played nor the rule. Measured on RoyaleSim
+        0d0ccd6 (2026-09-28): a troop, a Heal or a building card tapped in its own side's
+        building or princess tower is moved off it, the own king's no-deploy block refuses
+        9 to 16 of the king's 16 tiles, a Fireball lands on the tile it was tapped on, and an
+        enemy box refuses a troop only on the tile its building's collision circle covers,
+        and only where that troop may be played at all. Until then this overlay marked every
+        tile whose centre lies in a box as refused.
         """
         t = self.theme
         upt = frame.units_per_tile
-        s = self.layout.scale
-        boxes = [
-            (u, self.box_px(tuple(u.footprint), upt, view.seat))
-            for u in frame.units
-            if u.footprint is not None
-        ]
-        for u, rect in boxes:
+        for u in frame.units:
+            if u.footprint is None:
+                continue
+            rect = self.box_px(tuple(u.footprint), upt, view.seat)
             shade = pygame.Surface(rect.size, pygame.SRCALPHA)
             shade.fill((*t.team_color(u.team), 70))
             self.surface.blit(shade, rect.topleft)
             pygame.draw.rect(self.surface, t.footprint_edge, rect, 1)
-        if not boxes:
-            return
-        # Tile centres, in the same pixel frame the boxes are in: the arena is a whole number
-        # of tiles, so the centre of tile (tx, ty) is half a tile in from its corner.
-        ax, ay, aw, ah = self.layout.arena
-        # Opaque, not blended: this mark is the overlay's answer about one tile, and a
-        # translucent one takes the colour of whatever it lands on, which is a building.
-        side = max(2, s // 4)
-        for ty in range(ah // s):
-            for tx in range(aw // s):
-                cx, cy = ax + tx * s + s // 2, ay + ty * s + s // 2
-                if any(r.collidepoint(cx, cy) for _, r in boxes):
-                    pygame.draw.rect(
-                        self.surface,
-                        t.footprint_refused,
-                        (cx - side // 2, cy - side // 2, side, side),
-                    )
 
     def _draw_status(self, u: Unit, px: int, py: int, h: int, hw: int) -> None:
         """Every status effect on one unit: the strongest on its BODY, all of them as PIPS.
@@ -1948,14 +2038,16 @@ class Renderer:
             pygame.draw.circle(self.surface, t.evo, c, 3)
             pygame.draw.circle(self.surface, shade(t.evo, 0.5), c, 3, 1)
 
-    def _draw_mini_card(self, box: pygame.Rect, name: str) -> None:
-        """The next card, small: its face colour, monogram and cost dot."""
+    def _draw_mini_card(self, box: pygame.Rect, name: str, among: tuple[str, ...] = ()) -> None:
+        """The next card, small: its face colour, its code among ``among`` (``tile_code``) and
+        its cost dot."""
         t = self.theme
         face = self.card_face(name)
         base = card_color(t, face.kind if face is not None else None)
         pygame.draw.rect(self.surface, base, box)
         pygame.draw.rect(self.surface, t.card_border, box, 1)
-        self.blit_text(monogram(name), box.center, "tiny", shade(base, 0.42), "center")
+        code = tile_code(name, among)
+        self.blit_text(code, box.center, "tiny", shade(base, 0.42), "center")
         cost = self.card_cost(name)
         if cost is not None:
             c = (box.right - 5, box.bottom - 5)
@@ -1967,7 +2059,8 @@ class Renderer:
 
         What the engine says of a button, and nothing more: gold when available, dark and
         crossed when spent, grey when neither (no hero of it standing). The hero card's
-        monogram when the source names it, the press's elixir as the dot.
+        code among the deck (``tile_code``) when the source names it, the press's elixir as
+        the dot.
         """
         t = self.theme
         s = self.surface
@@ -1984,7 +2077,7 @@ class Renderer:
                 pygame.draw.line(s, t.ui_dim, (c[0] - 7, c[1] + 7), (c[0] + 7, c[1] - 7), 2)
             elif name:
                 ink = shade(t.hero, 0.35) if available else t.ui_dim
-                self.blit_text(monogram(name), c, "tiny", ink, "center")
+                self.blit_text(tile_code(name, known_cards(p)), c, "tiny", ink, "center")
             if cost > 0:
                 d = (c[0] + r - 2, c[1] + r - 3)
                 pygame.draw.circle(s, t.elixir, d, 6)
@@ -2027,7 +2120,7 @@ class Renderer:
         else:  # a trace under a shuffle mode may not know the queue's front yet: "?"
             tile = pygame.Rect(rx, y + 2, 24, h - 4)
             if p.next_card:
-                self._draw_mini_card(tile, p.next_card)
+                self._draw_mini_card(tile, p.next_card, known_cards(p))
             else:
                 pygame.draw.rect(self.surface, t.card_unknown, tile)
                 self.blit_text("?", tile.center, "tiny", t.ui_dim, "center")

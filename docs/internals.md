@@ -106,16 +106,60 @@ bridges are rather than a hard-coded span.
 
 Two things the window can say about footprints without knowing any of the engine's rules:
 
-- **B** shades every carried box and marks each tile whose CENTRE lands inside one. That is
-  the part of deploy legality a frame settles by itself. It is not the whole of it: a
-  building brings its own size to the test, and no frame says which card a player is about to
-  play, so the overlay does not pretend to.
+- **B** shades every carried box in its team's colour and edges it. It draws nothing about a
+  tap inside a box: what that tap does turns on the card and on whose box it is, and no frame
+  carries either. Measured on RoyaleSim 0d0ccd6 (2026-09-28) at the tile centres inside the
+  boxes of two boards, both seats, for a Knight, Minions, a Cannon, a Tesla, a Fireball and a
+  Heal. A troop or a Heal tapped in its own side's building or princess tower is moved off it,
+  1 or 2 tiles. A building card tapped there is moved 1.5 to 4 tiles, to where its own box
+  fits. A Fireball lands on the tile it was tapped on. An enemy box refuses a troop only on
+  the tile under its building's collision circle (one of a Cannon's nine), and only where that
+  troop may be played at all. At your own king the refusals come from its no-deploy block,
+  which the arena carries with or without a box: a troop is refused on 9 of the box's 16
+  tiles and moved off the other 7, a building or a Heal is refused on all 16. Until
+  2026-09-28 B marked every tile whose centre lies in a box as refused, as the engine's rule
+  for the tap point. Of the 2,052 verdicts under those marks on the two boards, 954 were
+  accepted, 1,092 were refused for the ground (out of territory, or no-deploy cells), and 6
+  were refused for a building in the way.
 - The status block says when a carried box **runs off the board**, which is the shape of the
   defect the owner saw. Whether a placement was legal is the engine's answer; whether a box
   is inside the arena is two comparisons on numbers already in front of the window.
 
 Boxes may legitimately touch each other and the side walls; only a positive-area overlap is
 illegal, so a building drawn flush against a tower is not by itself a defect.
+
+## Units on one spot
+
+Two troops of one team and one layer (both flying or both on the ground) whose centres are
+closer than a quarter of a tile (`render.STACK_TILES_X100`) are a stack (`render.stacks`;
+chained, so a troop within reach of any member joins it). Troops are drawn in frame order, so
+the last member is on top and the only one that shows. It is labelled with the count,
+`RamRider x2`, and the members under it get no label, because theirs would print over its own
+in the same place. Below 16 px a tile no unit is labelled, so no count is drawn either.
+
+The rule was sized on the engine (RoyaleSim 0d0ccd6) over 48 scripted battles, 147,192 ticks,
+with decks of the Ram Rider, spawners and swarms. The Ram Rider's rider stands where its Ram
+stood a tick before: at most 0.207 tile away, 0.059 at the median, with the same radius (0.6
+tile), colour and name. At 24 px a tile that is at most 5 px off a 14 px body, so the rider
+cannot be seen, whichever of the two the frame lists last.
+
+| same-team troop pairs, counted per tick | within 0.1 tile | within 0.35 tile |
+|---|---|---|
+| a rider and its Ram (50,358) | 31,659 (62.9 %) | 50,358 (100 %) |
+| any other two | 1,775 | 5,257 |
+
+The other pairs within 0.35 tile are units that have just landed on one point (the
+Tombstone's skeletons, 3,167; a Skeleton Army while it deploys, 682) and a Minion Horde flying
+over ground teammates, which is drawn apart (its shadow and white ring) and so is left out.
+A troop came that close to the centre of its own team's building on 44 pair-ticks, 39 of them
+a Minion Horde over a Tombstone; troops are drawn after buildings, so none of those hides
+anything. Under the rule as written the Ram Rider was a stack on all 50,358 of its ticks.
+Every other stack lasted at most 7 ticks, 1,215 stack-ticks in all, and 1,208 of them held a
+unit at most 10 ticks old: the Tombstone's skeletons as they appear (they carry the
+Tombstone's name, the card that put them on the board) and a Skeleton Army landing. No two
+Barbarians, Goblins, Goblin Gang members or Minion Horde minions made one (121, 116, 124 and
+109 plays). `stacks` takes 20 us a frame at the median and 144 us on the largest frame (52
+troops).
 
 ## Effects, spells and shots
 
@@ -209,7 +253,20 @@ describes is the plain `card_bg` tile with no glyph. Large in the middle, a two-
 the whole name on a dark band; an elixir drop with the cost; `xN` for a card that summons N;
 two chevrons for a flyer. The elixir still missing is a veil from the top down
 (`theme.card_veil`): at 1.5 of 3 elixir the top half is veiled. A free card is never veiled,
-and an unknown elixir veils nothing. The next card is a 24 px tile beside the elixir bar.
+and an unknown elixir veils nothing. The next card is a 24 px tile beside the elixir bar, and
+it and the ability buttons show a two-character code (`render.tile_codes`) rather than always
+the monogram. Of the engine's 132 cards, 57 share their monogram with another (25 monograms:
+`Wi` for Witch and Wizard, five cards on `MM`), and three pairs of monograms differ only in
+case (`SK` and `Sk`, `GH` and `Gh`, `EA` and `Ea`). Even with the tile's colour and cost dot,
+9 groups of 18 cards draw identical small tiles (Witch and Wizard, Minions and Miner, Balloon
+and Barbarians, Skeleton Army and Super Archer, ...). So when the player's deck (without one,
+the hand and the next card) holds two cards whose monograms match, case aside, each shows its
+first letter and, in lower case, the first letter of its name that differs from the others' at
+the same place (Witch `Wt`, Wizard `Wz`); a deck without such a pair draws as before. A third
+letter does not fit: in the tiny font (pygame's default at 20) `SkA` is 28 px and `MMa` 29
+against the tile's 24, and the widest monogram, WitchMother's `WM`, is already 23. No code that
+replaces a monogram is wider than that (`tests/test_stacks_and_codes.py` tries every pair of
+cards whose monograms match with every third card).
 
 **What a card is** comes from `Names.face_of(name)`, a `model.CardFace(name, cost, kind,
 count, flying)` with None in any field the source does not give. An engine table
@@ -232,7 +289,7 @@ draws as it did. `model.problems` checks their shapes.
 | Field | One row | Drawn as |
 |---|---|---|
 | `evo` | per evolved deck entry, in deck order: (card name, the card's plays since its last evolved play, 1 when its next play is the evolution else 0) | a filled pip per play at the foot of the tile's art (one hollow pip for none yet); and when its next play is the evolution, the tile framed in `theme.evo` with an EVO tag |
-| `abilities` | per hero deck entry, in deck order: (the hero card's name, or "" when the source does not know it, available 0/1, spent 0/1, the press's elixir) | a 13 px button in the elixir row where the next card's name was: gold when available, dark and crossed when spent, grey when neither (no hero of it standing); the monogram when named; the elixir as a dot. A named row also frames that card's tile in gold with a crown |
+| `abilities` | per hero deck entry, in deck order: (the hero card's name, or "" when the source does not know it, available 0/1, spent 0/1, the press's elixir) | a 13 px button in the elixir row where the next card's name was: gold when available, dark and crossed when spent, grey when neither (no hero of it standing); the card's code when named (as the next card's, above); the elixir as a dot. A named row also frames that card's tile in gold with a crown |
 
 There is no per-slot row: a hand slot is "evolved now" when the `evo` row for its card says
 so (`model.hand_evolved`: 1, 0, or -1 for a card with no row). The engine says how many plays
@@ -461,8 +518,11 @@ gitignored) runs those three.
 
 Two more things move the count, in either run. Without the `media` extra
 (`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) ONE more skips,
-the single `@needs_ffmpeg` test. Without RoyaleLearn importable, the four in
-`tests/test_learner_protocol.py` skip. A count in this file is the output of the command
+the single `@needs_ffmpeg` test: a clone then gives **350 passed, 5 skipped** (76bd9a1,
+2026-09-28, pytest run with `sys.modules["imageio_ffmpeg"] = None`). Without RoyaleLearn
+importable, `tests/test_learner_protocol.py` skips AT IMPORT: its four tests are not collected
+(351 rather than 355) and the run reports ONE skip for the whole module, so a clone gives 347
+passed and 5 skipped (76bd9a1, 2026-09-28). A count in this file is the output of the command
 beside it and nothing else; the ones that stood here before were measured at a commit fifteen
 behind and were wrong at that commit too.
 
@@ -692,8 +752,13 @@ watched gets no frames, while its learner panel fills normally from the other po
 with no frames is diagnostic and the message says so.
 
 `SDL_VIDEODRIVER=dummy` makes `--seconds` and `--shot` work with no display at all, which is
-how the README's images and the render tests are produced. `--help` prints the key list
-(`app.KEYS`, the same list the `H` footer shows):
+how the README's images and the render tests are produced. Without it, a Linux machine with no
+display opened no window and the process still exited 0, with nothing printed about the missing
+window (Ubuntu 24.04, 2026-09-27). `SDL_AUDIODRIVER=dummy` is the other half: `app.run` calls
+`pygame.init()`, which starts the mixer and so opens an audio device, and on a machine with no
+sound device that prints ALSA errors. The viewer plays no sound. The render and CLI tests set
+both with `os.environ.setdefault`, so a driver set by the caller wins. `--help` prints the key
+list (`app.KEYS`, the same list the `H` footer shows):
 
 | Key | Action |
 |---|---|
@@ -704,7 +769,9 @@ how the README's images and the render tests are produced. `--help` prints the k
 | f | flip the seat |
 | p, t, g | unit paths, target lines, tile grid |
 | d | debug numbers |
-| b | building footprints: every carried box shaded, and the tile taps its centre rule refuses |
+| b | building footprints: every carried box shaded |
+| n | contact neighbours of the pinned unit: a ring on it and on every unit whose collision circle overlaps or touches it, with a line to each. Recomputed from the frame's positions and radii (`Renderer.contact_neighbours`), never recorded, so a unit with no radius has none |
+| v | divergence arrows against the compare source: an arrow from each unit to where the compare frame of the same tick has the unit with the same uid, for every unit whose position differs at all; only the pinned unit's while one is pinned. A unit whose row carries the engine's `push` (a parity trace) also gets a second arrow from it, the push applied on that tick |
 | c | compare ghost |
 | s / F12 | save a PNG |
 | click | pin a unit / seek the timeline |
@@ -766,11 +833,12 @@ capture(src, "clip.gif", ticks=(0, 1800, 8), scale=16, crop="left", fps=20)
 - **A live stream is refused.** It has no timeline to seek, so `capture` raises rather than
   recording whatever happened to arrive; `tests/run_stream.py --shot` photographs one.
 
-Measured on the scripted battle: the whole two-minute battle cropped `left` at scale 16,
-every eighth tick, is a 1.0 MB gif; the same range every fourth tick is a 0.74 MB mp4; a
-900-tick clip cropped `board` is 0.11 MB. ffmpeg is the `media` extra
-(`pip install royaleviser[media]`) and PNG needs nothing beyond this package, so nobody has
-to install a video encoder to look at a frame.
+Measured on the scripted battle (`tests/fixtures/frames-synthetic-A.jsonl.gz`: 418 frames,
+ticks 0 to 394) at 76bd9a1 on 2026-09-28, with imageio-ffmpeg 0.6.0: cropped `left` at scale
+16, every eighth tick (`ticks=(0, 395, 8)`), it is a 267,937-byte gif; the same range every
+fourth tick is a 252,239-byte mp4; every frame (no `ticks`) is a 1,545,027-byte gif. ffmpeg is
+the `media` extra (`pip install royaleviser[media]`) and PNG needs nothing beyond this package,
+so nobody has to install a video encoder to look at a frame.
 
 **What the tool cannot check for you.** `capture` takes any `Source`, so it will happily
 draw a recording of a real battle. Those are private, and they are not a source for published

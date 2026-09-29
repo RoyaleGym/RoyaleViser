@@ -61,7 +61,9 @@ Nothing else. No engine build, no game files, no recordings of your own. Then mo
 ..\.venv\Scripts\python -m royaleviser tests\fixtures\frames-synthetic-A.jsonl.gz --compare tests\fixtures\frames-synthetic-B.jsonl.gz --speed 4 --seconds 8
 ```
 
-A window opens and plays the battle at 4x speed.
+A window opens and plays the battle at 4x speed. On a computer with no screen, such as a Linux
+server, no window appears and nothing tells you so. The end of this section shows how to run it
+there.
 
 The second recording is drawn on top of the first as hollow ghosts. Nothing differs between
 these two recordings, so the ghosts sit exactly on the units and never step off. The compare
@@ -71,15 +73,20 @@ That battle is a script, not something the engine played. One frame of the recor
 six ticks of the script, so the units move at six times their scripted speed. It is an honest
 look at the window and a poor look at how the engine plays.
 
-After eight seconds the program closes itself and prints how long each picture took to draw
-(2026-09-21):
+After eight seconds the program closes itself and prints how many pictures it drew and how long
+they took. This is one run on the machine this page was written on (2026-09-21):
 
 ```
 royaleviser: 290 draws, mean 4.08 ms, max 370.22 ms
 ```
 
-That is 290 pictures at 4.08 ms each on average. A replay needs 20 a second, so there is a lot of
-room to spare. The 370 ms is the very first draw, which builds the board and loads the fonts.
+That is 290 pictures at 4.08 ms each on average. A replay needs 20 a second, so that machine had
+a lot of room to spare. The 370 ms is the very first draw, which builds the board and loads the
+fonts.
+
+Your numbers will differ. They depend on your machine and on what else it is running. On
+2026-09-28, on a machine with a training run busy on every core, five runs of this command with
+no window drew between 15 and 143 pictures.
 
 Drop `--seconds` and the window stays open until you close it.
 
@@ -91,13 +98,20 @@ from the `RoyaleViser` folder. Without it, `python` is your system Python and th
 missing package such as pygame or msgspec. If PowerShell refuses to run `Activate.ps1`, write the
 venv's python by path instead: `..\.venv\Scripts\python`.
 
-A recording of a real battle:
+A recording of a real battle. Real recordings come from RoyaleLive, which is private, so your
+clone has none. The two scripted recordings in `tests/fixtures` open this way, and so does a
+recording of your own in the format
+[`docs/internals.md`](docs/internals.md#the-recording-format) describes.
+`frames-my-match.jsonl.gz` stands for your file's name:
 
 ```
 python -m royaleviser frames-my-match.jsonl.gz
 ```
 
-A trace saved from the engine, opened at tick 900:
+A trace saved from the engine, opened at tick 900. This one needs RoyaleGym, from the rest of
+[Setup](#setup). `battle.msgpack` is the file the program in
+[Saving a battle to a file](#saving-a-battle-to-a-file) writes, in the folder you ran that
+program from. Run this from that folder, or give the file's path:
 
 ```
 python -m royaleviser battle.msgpack --start-tick 900
@@ -113,8 +127,21 @@ Keys in the window: space plays and pauses. The arrow keys step one frame. A cli
 or seeks the timeline if you click the bar. `c` turns the compare ghost on and off. `s` saves a
 PNG. `h` lists every key there is.
 
-Set `SDL_VIDEODRIVER=dummy` and no window opens at all. `--seconds` and `--shot` keep working,
-so that is how you drive the viewer on a machine with no screen.
+**No screen?** Set two variables first. `SDL_VIDEODRIVER=dummy` runs the viewer with no window,
+on purpose. `SDL_AUDIODRIVER=dummy` stops the sound errors (ALSA, on Linux) that a
+machine with no sound device prints. The viewer makes no sound anyway. Then add `--shot` to save
+the last picture as a PNG. In PowerShell:
+
+```
+$env:SDL_VIDEODRIVER = "dummy"
+$env:SDL_AUDIODRIVER = "dummy"
+..\.venv\Scripts\python -m royaleviser tests\fixtures\frames-synthetic-A.jsonl.gz --compare tests\fixtures\frames-synthetic-B.jsonl.gz --speed 4 --seconds 8 --shot shot.png
+```
+
+On Linux the first two lines are `export SDL_VIDEODRIVER=dummy` and
+`export SDL_AUDIODRIVER=dummy`. The command prints `royaleviser: saved shot.png` and the draw
+times, and `shot.png` shows `GAME OVER  Blue wins` and `395 ticks compared, 0 differ`. The two
+variables stay set until you close that shell.
 
 The seat, the window size, `--seconds`, `--shot` and the rest of the command line are in
 [`docs/internals.md`](docs/internals.md).
@@ -142,7 +169,9 @@ The seat, the window size, `--seconds`, `--shot` and the rest of the command lin
 **The cards.** Each card in a hand is a tile. Its colour and the mark in its corner say whether
 it is a troop, a building or a spell. The big letters are its name, and the purple drop is its
 cost. A card fills in from the bottom as elixir comes in, so you can see how close it is to
-being played.
+being played. The next card is the small tile by the elixir bar. Two cards can have the same
+big letters, like Witch and Wizard. When both are in the deck, the small tile shows other
+letters for each: Wt and Wz.
 
 **Evolutions and heroes.** An evolved card gets a dot for each time it was played since its
 last evolution, and a pink frame with an EVO tag when its next play is the evolution. A hero
@@ -151,6 +180,10 @@ used, crossed out once it has been. On the board, an evolved unit gets a pink ri
 gold one. A unit travelling under ground (Miner, Goblin Drill) is a patch of dirt, and an
 invisible one is faded. The board marks show in every source. The hand marks show when you
 watch a running battle that has evolutions or heroes. A saved trace does not keep them yet.
+
+**Units on one spot.** Two units of one team can stand on almost the same spot. Then you only
+see the one on top, so its name gets a count, like RamRider x2. A Ram Rider shows x2: its
+rider sits on its ram.
 
 ## Save a picture or a clip
 
@@ -193,8 +226,8 @@ The whole signature:
 - PNG needs nothing extra. mp4 and gif are encoded by ffmpeg, which comes with the optional
   `media` extra.
 
-For a sense of size: a whole scripted battle cropped to `left` at scale 16, every 8th tick, is a
-1.03 MB gif.
+For a sense of size: the whole scripted battle cropped to `left` at scale 16, every 8th tick
+(`ticks=(0, 395, 8)`), is a 0.27 MB gif (2026-09-28).
 
 ## With the rest of the stack
 
@@ -277,13 +310,25 @@ In `cmd` it is `set ROYALEVISER=127.0.0.1:9870`. On macOS and Linux it is
 the viewer then waits for frames that never come.
 
 The vectorised environment reads that when you build it. It binds one publisher and watches
-game 0. None of your own code changes:
+game 0. None of your own code changes. Frames only go out while the environment steps, so
+something has to step it: your training loop does. This stand-in plays random legal moves in
+eight games on the engine:
 
 ```python
-from royalegym import ClashSelfPlayVecEnv
+import numpy as np
+from royalegym import ClashParallelEnv, ClashSelfPlayVecEnv, RustEngine
 
-env = ClashSelfPlayVecEnv(8)
+env = ClashSelfPlayVecEnv(8, lambda: ClashParallelEnv(RustEngine()))
+env.reset(seed=0)
+rng = np.random.default_rng(0)
+for _ in range(2000):
+    masks = env.action_masks()
+    env.step([rng.choice(np.flatnonzero(m)) for m in masks])
 ```
+
+It ran for 87 seconds on a busy machine on 2026-09-28, which is time enough to attach the viewer.
+Leave out the `lambda` and the games run on `MockEngine`, the pure-Python stand-in, with a
+warning that no engine was chosen.
 
 Then, in another process, attach the viewer to that same address:
 
@@ -298,8 +343,9 @@ error, not eight streams.
 
 `9870` is a default, not the address. One run holds that port while it streams, so a second run
 on the same machine needs its own: `ROYALEVISER=127.0.0.1:9872`, and a viewer pointed at the same
-number. Starting a second run on a port that is taken fails when it binds, with the operating
-system's message about the address being in use rather than anything about training.
+number. A second run started on a port that is taken stops with an `OSError` as soon as it
+builds the environment. The message says the port is already in use, almost always by another
+run of yours, and tells you to pick another one.
 
 A single environment reads no environment variable of its own. You hand it a sender directly.
 `ViserPublisher` comes from `royalegym.viser`, and on its own it sends to `127.0.0.1:9870`:
@@ -334,14 +380,19 @@ with four other jobs running, that was 86 frames of 116.
 The learner can report too, on its own port, and the panel in the dashboard fills in:
 
 ```python
+import time
+
 from royaleviser.model import Learning
 from royaleviser.sources import LearningPublisher
 
 learner = LearningPublisher()                     # 127.0.0.1:9871, the stream's port plus one
-for it in range(iterations):
-    ...                                           # rollout, then optimise
+for it in range(60):
+    time.sleep(1)                                 # your rollout and optimise step go here
     learner.publish(Learning(run="ppo-0007", iteration=it, policy_loss=0.0241, elo=1183))
 ```
+
+Run it, then attach a viewer from another window with `--stream 127.0.0.1:9870`. The panel
+fills within a second or two, and its iteration counts up once a second.
 
 <p align="center"><img src="docs/viewer-learning-real-run.png" width="100%" alt="The viewer attached to a training run, the learning panel filled: iteration 33, its losses, rollout throughput and ladder standing"></p>
 
@@ -486,8 +537,9 @@ As of 2026-09-22, this works end to end:
   Cannon is the 3 by 3 building it is in the game, and the marking is there for older files and
   for sources that do not carry one.
 - A building is drawn as two shapes, because it has two different sizes and they are easy to
-  confuse. The box is the ground it stands on, which is what decides whether you may place it
-  there. The circle inside is its collision radius, which is what other units bump into. On the
+  confuse. The box is the ground it stands on. A new building only goes where its whole box
+  fits, so one tapped too close to another is moved to a spot nearby where it does. The circle
+  inside is its collision radius, which is what other units bump into. On the
   engine a Cannon stands on 3 tiles with a radius of 0.6 of a tile, a princess tower 3 and 1.0,
   and a king tower 4 and 1.4 (2026-09-22). A source that carries no radius gets no circle rather
   than a guessed one.
@@ -533,14 +585,17 @@ skipped (CI at 8ffd298, 2026-09-27, the same on Windows and Linux): the tests th
 sibling package skip and each says so. That figure is CI's, from a runner that has nothing but
 this repo, because this project's development machine has every sibling repo installed and cannot
 produce it -- measured there it gives a different pair, which is a different machine wearing the
-same name. The counts below are for a machine with the rest of
+same name. CI installs the `media` extra as well. Without it one more test skips, so the short
+way on its own gives 275 passed and 15 skipped. The counts below are for a machine with the rest of
 the stack. Until 2026-09-23 that case could not collect the suite at all, which nothing had ever
 run.
 
-Tests. Start in the `Royale` folder. On a clone the first line prints 351 passed, 4 skipped
-(2026-09-27, ceb446c), and the second prints nothing at all when it is happy. Both tools come
-from the `pip install maturin pytest hypothesis ruff numpy msgspec` line in [Setup](#setup), so
-the short way on its own does not have them:
+Tests. Start in the `Royale` folder. On a clone with the `media` extra installed, the first line
+prints 351 passed, 4 skipped (2026-09-27, ceb446c). Without the extra, which Setup does not
+install, it prints 350 passed, 5 skipped (2026-09-28, 76bd9a1). The second line prints
+`All checks passed!`. Both tools come from the
+`pip install maturin pytest hypothesis ruff numpy msgspec` line in [Setup](#setup), so the short
+way on its own does not have them:
 
 ```
 cd RoyaleViser

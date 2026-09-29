@@ -803,35 +803,47 @@ def test_a_frame_without_a_footprint_says_so_rather_than_drawing_a_guess_plainly
     assert r.notes(carried, Transport()) == []
 
 
-def test_the_overlay_shades_the_carried_box_and_the_taps_it_refuses() -> None:
-    """B: the footprint cells, and the tile taps whose centre lands inside one. It draws the
-    carried boxes and nothing else -- a building's own size is a property of the card being
-    played, which no frame carries, so the overlay shows the part the frame settles."""
+def test_the_overlay_shades_the_carried_box_and_marks_no_tap() -> None:
+    """B: every carried box shaded and edged, and nothing drawn about the taps inside it.
+
+    It used to mark each tile whose centre lies in a box as a refused tap. The engine does not
+    refuse there: on RoyaleSim 0d0ccd6 a troop tapped in its own building's box is moved off it,
+    a building is moved to where it fits and a Fireball lands where it was tapped. So the shade is
+    one tint over the whole box: what a pixel becomes depends on its colour underneath, never
+    on where in the box it is, which a mark at a tile's centre breaks."""
+    import numpy as np
+
     r = Renderer(scale=24, help_lines=KEYS)
     upt = model.LIVE_UNITS_PER_TILE
     frame = one_unit_frame(building("c", model.KIND_BUILDING, 6.5, 10.5, upt, 3.0), upt)
-    ax, ay, _, _ = r.layout.arena
-    on = ViewState(show_footprints=True)
-
-    def refused_tiles() -> list[tuple[int, int]]:
-        return sorted(
-            (tx, ty)
-            for ty in range(32)
-            for tx in range(18)
-            if r.surface.get_at((ax + tx * 24 + 12, ay + (31 - ty) * 24 + 12))[:3]
-            == DEFAULT.footprint_refused
-        )
-
-    r.draw(frame, on, Transport(source_name="t"))
-    # Nine tile centres lie inside a 3x3 box on a tile centre: 5, 6, 7 by 9, 10, 11.
-    assert refused_tiles() == sorted((tx, ty) for tx in (5, 6, 7) for ty in (9, 10, 11))
-    # A frame that carries no box shades nothing: the overlay never invents one.
     bare = one_unit_frame(building("c", model.KIND_BUILDING, 6.5, 10.5, upt, None), upt)
-    r.draw(bare, on, Transport(source_name="t"))
-    assert refused_tiles() == []
-    # And nothing is shaded while the overlay is off.
-    r.draw(frame, ViewState(), Transport(source_name="t"))
-    assert refused_tiles() == []
+    ax, ay, _, _ = r.layout.arena
+    body = np.array(DEFAULT.team_color(0))
+
+    def pixels(f: model.Frame, view: ViewState) -> np.ndarray:
+        """The arena as an (x, y, rgb) array."""
+        r.draw(f, view, Transport(source_name="t"))
+        return pygame.surfarray.array3d(r.surface.subsurface(r.layout.arena)).astype(int)
+
+    for seat in (0, 1):
+        off = pixels(frame, ViewState(seat=seat))
+        on = pixels(frame, ViewState(seat=seat, show_footprints=True))
+        box = r.box_px(tuple(frame.units[0].footprint), upt, seat).move(-ax, -ay)
+        inside = np.zeros(off.shape[:2], bool)
+        inside[box.left : box.right, box.top : box.bottom] = True
+        changed = (off != on).any(axis=2)
+        assert not (changed & ~inside).any(), f"seat {seat}: the overlay drew outside the box"
+        inner = box.inflate(-2, -2)  # its 1 px edge is drawn in footprint_edge
+        was = off[inner.left : inner.right, inner.top : inner.bottom].reshape(-1, 3)
+        now = on[inner.left : inner.right, inner.top : inner.bottom].reshape(-1, 3)
+        # One tint: each colour underneath comes out as one colour on top, wherever it is.
+        pairs = np.unique(np.concatenate([was, now], axis=1), axis=0)
+        assert len(pairs) == len(np.unique(was, axis=0)), f"seat {seat}: the box carries a mark"
+        # Every pixel not already the team's colour takes the tint (the body is that colour).
+        tinted = (was != now).any(axis=1)
+        assert tinted[(was != body).any(axis=1)].all(), f"seat {seat}: part of the box is bare"
+    # A frame that carries no box shades nothing: the overlay never invents one.
+    assert (pixels(bare, ViewState(show_footprints=True)) == pixels(bare, ViewState())).all()
 
 
 def test_a_building_is_clickable_over_its_whole_footprint() -> None:

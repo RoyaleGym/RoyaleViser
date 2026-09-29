@@ -13,11 +13,15 @@ __pycache__/
 build/
 dist/
 
-# Regenerable outputs: window shots (S / F12, --shot) and traces saved beside the viewer,
-# except the screenshots the README shows
+# Regenerable outputs: window shots (S / F12, --shot), capture() clips and traces saved beside
+# the viewer, except the pictures and clips the README shows
 *.png
 !docs/*.png
 !docs/media/*.png
+*.gif
+*.mp4
+!docs/media/*.gif
+!docs/media/*.mp4
 *.msgpack
 logs/
 

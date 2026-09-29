@@ -127,13 +127,16 @@ def test_main_runs_a_trace_headless(tmp_path: Path) -> None:
 def test_the_learning_endpoint_is_paired_with_the_stream() -> None:
     """--stream alone also listens for a learner one port up, so attaching to a training run
     is still one flag; --learning moves it."""
-    args = cli.build_parser().parse_args(["--stream", "127.0.0.1:9870"])
+    # NOT the default ports: opening a StreamSource says hello at once, and a hello to 9870
+    # half-attaches to whatever run is using it and steals its publisher's peer from a real
+    # viewer. The default pair itself is pinned without a socket in test_sources.
+    args = cli.build_parser().parse_args(["--stream", "127.0.0.1:17998"])
     (src,) = cli.open_sources(args)
     assert isinstance(src, StreamSource)
-    assert (src.peer, src.learning_peer) == (("127.0.0.1", 9870), ("127.0.0.1", 9871))
+    assert (src.peer, src.learning_peer) == (("127.0.0.1", 17998), ("127.0.0.1", 17999))
     src.close()
     args = cli.build_parser().parse_args(
-        ["--stream", "127.0.0.1:9870", "--learning", "127.0.0.1:9999"]
+        ["--stream", "127.0.0.1:17998", "--learning", "127.0.0.1:9999"]
     )
     (src,) = cli.open_sources(args)
     assert src.learning_peer == ("127.0.0.1", 9999)
@@ -142,11 +145,12 @@ def test_the_learning_endpoint_is_paired_with_the_stream() -> None:
 
 def test_the_learning_endpoint_follows_a_positional_stream_too() -> None:
     """--stream and a bare host:port are the same source, so --learning must reach both."""
-    args = cli.build_parser().parse_args(["127.0.0.1:9870", "--learning", "127.0.0.1:9999"])
+    # NOT the default ports, for the reason above.
+    args = cli.build_parser().parse_args(["127.0.0.1:17998", "--learning", "127.0.0.1:9999"])
     (src,) = cli.open_sources(args)
     assert isinstance(src, StreamSource) and src.learning_peer == ("127.0.0.1", 9999)
     src.close()
-    args = cli.build_parser().parse_args(["127.0.0.1:9870"])
+    args = cli.build_parser().parse_args(["127.0.0.1:17998"])
     (src,) = cli.open_sources(args)
-    assert src.learning_peer == ("127.0.0.1", 9871)
+    assert src.learning_peer == ("127.0.0.1", 17999)
     src.close()

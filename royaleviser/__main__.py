@@ -216,4 +216,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # A missing file is the first thing a reader meets (the README's placeholder names, a
+    # trace not saved yet), and a traceback through gzip and runpy buries the one line that
+    # matters. main() still raises FileNotFoundError, for callers and tests.
+    try:
+        sys.exit(main())
+    except FileNotFoundError as exc:
+        sys.exit(f"royaleviser: no such file: {exc.filename}")
