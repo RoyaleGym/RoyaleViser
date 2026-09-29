@@ -162,15 +162,16 @@ Barbarians, Goblins, Goblin Gang members or Minion Horde minions made one (121, 
 troops).
 
 **A rider its source names** is drawn as a rider instead. A troop whose row says which unit it
-sits on (`extra["mount"]`, the mount's uid: RoyaleGym's `EntityState.mount_uid`, which the
-engine's `Battle.rider_states()` feeds; asked of RoyaleGym and RoyaleSim on 2026-09-28) and
+sits on (`extra["mount"]`, the mount's uid: RoyaleGym 3cba372's `EntityState.mount_uid`, which
+`unit_dict` puts in `extra` for a rider only; it stays -1 until the engine sends a `mount_uid`
+column from `Battle.rider_states()`, asked of RoyaleSim on 2026-09-28) and
 whose mount is in the frame is found by `render.riders`. It is left out of every stack and drawn
 after all other units as a seat on its mount: a disc of 55 % of the mount's radius in the team's
 colour with a white rim (`theme.rider_rim`), 40 % of the radius above the mount's centre. It
 is placed from the MOUNT's position, not its own, because the engine puts a rider where its
 mount stood a tick before and the seat would jitter. The mount's label, hp bar and effects are
 the board's; the rider's own are in the inspector, and pinning the rider rings its seat. A
-source that names no mount (every source until RoyaleGym sends the field) draws the stack as
+source that names no mount (every source until the engine sends that column) draws the stack as
 above, byte for byte.
 
 ## Effects, spells and shots
