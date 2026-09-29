@@ -183,9 +183,9 @@ invisible one is faded. The board marks show in every source. The hand marks sho
 watch a running battle that has evolutions or heroes. A saved trace does not keep them yet.
 
 **Units on one spot.** Two units of one team can stand on almost the same spot. Then you only
-see the one on top, so its name gets a count, like RamRider x2. A Ram Rider shows x2: its
-rider sits on its ram. When the source says which unit a rider sits on, the rider is drawn
-instead as a small seat with a white rim on top of its ram.
+see the one on top, so its name gets a count, like RamRider x2. A Ram Rider's rider sits on
+its ram. A battle from the engine says so, and there the rider is drawn as a small seat with a
+white rim on top of its ram. A recording of a real match does not say, so there it shows x2.
 
 ## Save a picture or a clip
 

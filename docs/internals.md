@@ -165,16 +165,18 @@ troops).
 
 **A rider its source names** is drawn as a rider instead. A troop whose row says which unit it
 sits on (`extra["mount"]`, the mount's uid: RoyaleGym 3cba372's `EntityState.mount_uid`, which
-`unit_dict` puts in `extra` for a rider only; it stays -1 until the engine sends a `mount_uid`
-column from `Battle.rider_states()`, asked of RoyaleSim on 2026-09-28) and
-whose mount is in the frame is found by `render.riders`. It is left out of every stack and drawn
+`unit_dict` puts in `extra` for a rider only, from the `mount_uid` column every engine entity
+row ends in since RoyaleSim 6f680d6) and whose mount is in the frame is found by
+`render.riders`. It is left out of every stack and drawn
 after all other units as a seat on its mount: a disc of 55 % of the mount's radius in the team's
 colour with a white rim (`theme.rider_rim`), 40 % of the radius above the mount's centre. It
 is placed from the MOUNT's position, not its own, because the engine puts a rider where its
 mount stood a tick before and the seat would jitter. The mount's label, hp bar and effects are
 the board's; the rider's own are in the inspector, and pinning the rider rings its seat. A
-source that names no mount (every source until the engine sends that column) draws the stack as
-above, byte for byte.
+battle on RoyaleSim 6f680d6 draws it: a Ram Rider played there comes out as the ram and a rider
+whose `mount_uid` is the ram's uid, and `riders` pairs them. A trace keeps the column, because
+it stores the engine's entity rows whole. A source that names no mount (a recording of a real
+match, or an engine before that column) draws the stack as above, byte for byte.
 
 ## Effects, spells and shots
 
@@ -316,7 +318,10 @@ a card has counted but not how many it takes, so the pips count up and promise n
 sends no casting state and no charges, and the button draws neither. The champion build appends
 [card_id, cooldown_ticks] to each engine ability row; `sources.special_fields` reads the rows by
 index, so rows of three and of five both convert, the card id naming the button and the
-cooldown going to `ability_cooldowns` (the key only when some row has one).
+cooldown going to `ability_cooldowns` (the key only when some row has one). On RoyaleSim
+2245f9f the Golden Knight's button is the one that runs: after a dash chain its row reads
+[0, 0, 1, card_id, 219], which draws as a grey button showing 11 (219 ticks of 50 ms, rounded
+up), and the frame's contract check (`model.problems`) comes back empty.
 
 Where they come from. `sources.frame_from_state` adds them from an engine `PlayerState` that
 carries the engine's rows (`sources.special_fields`: `evo` rows `[card_id, plays,
