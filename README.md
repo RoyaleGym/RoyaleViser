@@ -582,13 +582,13 @@ window refusing to draw something.
 - A recording holds only the recording player's hand. The opponent's shows as "hand: not in this
   source" until the results screen. A trace's cycle past the revealed cards shows as "next ?".
 
-A clone of THIS REPO ALONE, installed the short way, runs `pytest -q` to 283 passed and 15
-skipped (CI at 3f60535, 2026-09-28, the same on Windows and Linux): the tests that need a
+A clone of THIS REPO ALONE, installed the short way, runs `pytest -q` to 285 passed and 15
+skipped (CI at adc2450, 2026-09-28, the same on Windows and Linux): the tests that need a
 sibling package skip and each says so. That figure is CI's, from a runner that has nothing but
 this repo, because this project's development machine has every sibling repo installed and cannot
 produce it -- measured there it gives a different pair, which is a different machine wearing the
 same name. CI installs the `media` extra as well. Without it one more test skips, so the short
-way on its own gives 282 passed and 16 skipped. The counts below are for a machine with the rest of
+way on its own gives 284 passed and 16 skipped. The counts below are for a machine with the rest of
 the stack. Until 2026-09-23 that case could not collect the suite at all, which nothing had ever
 run.
 
