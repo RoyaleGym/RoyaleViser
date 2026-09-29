@@ -97,7 +97,9 @@ ground, so it does not look like ground they can use.
 **Every crown tower has a thin outline round its zone**, the king's included (owner,
 2026-09-24). This is not the grey fill. It is one line, and it sits inside the tower's white
 footprint box. The first change that stopped filling the king's block took this outline away
-too, and the king was left as the one tower with nothing under it.
+too, and the king was left as the one tower with nothing under it. The king's outline is his
+no-deploy block; a princess's 2x2 outline is a mark of her zone only, as no placement rule reads
+that ground (RoyaleSim 0d0ccd6), and it stays by the owner's ruling of 2026-09-28.
 
 **Each bridge carries a brown rail down both long sides.** A bridge is the only way across the
 river and its edge is where a unit stops being on it. The rails are drawn on the half-cells
