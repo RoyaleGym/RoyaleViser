@@ -396,17 +396,11 @@ for it in range(60):
 Run it, then attach a viewer from another window with `--stream 127.0.0.1:9870`. The panel
 fills within a second or two, and its iteration counts up once a second.
 
-<p align="center"><img src="docs/viewer-learning-real-run.png" width="100%" alt="The viewer attached to a training run, the learning panel filled: iteration 33, its losses, rollout throughput and ladder standing"></p>
+<p align="center"><img src="docs/viewer-learning.png" width="100%" alt="The viewer attached to a stream, the learning panel filled by a scripted learner"></p>
 
 That is the same window on a live battle. The panel under the event log is the learner's, and
-every number in it arrived over the network.
-
-This picture is a real training run, on a laptop on 2026-09-22, at iteration 33. Two things in
-it are not data, and the picture is here rather than a tidier one because saying so is the
-point: `ELO vs pool` and `win rate` read 1200 and 0.0 % because a learner that is still
-training is never played against the pool under its own name, so those two tiles read the same
-whatever the run is doing. It was a diagnostic run rather than a finished one. Everything else
-on the panel is what the learner reported that minute.
+every number in it arrived over the network. The numbers in this picture come from a script,
+not from a real learner.
 
 It is sent separately from the battle frames and on its own clock, once per training iteration
 rather than once per step. So it keeps updating while the learner is busy and nothing on the
@@ -552,8 +546,7 @@ As of 2026-09-22, this works end to end:
   none of them dropped for being too big to send. The viewer's own count of frames lost on the way
   was not read. The viewer was open before the battle started. The missing first second is the
   time the run took to hear the viewer's hello, since nothing is sent before that.
-- The learning panel. A real training run's status reached the viewer on 2026-09-22. The status
-  goes on its own port, whole in one message, and is re-sent to a viewer that attaches in the
+- The learning panel. A learner's status reaches the viewer on its own port, whole in one message, and is re-sent to a viewer that attaches in the
   middle of a run.
 - Saving a picture or a clip to a file with no window, no display and no clock.
 - Effects, spells and shots (2026-09-24). A frozen, stunned, poisoned, slowed or raging unit
