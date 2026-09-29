@@ -266,7 +266,10 @@ describes is the plain `card_bg` tile with no glyph. Large in the middle, a two-
 the whole name on a dark band; an elixir drop with the cost; `xN` for a card that summons N;
 two chevrons for a flyer. The elixir still missing is a veil from the top down
 (`theme.card_veil`): at 1.5 of 3 elixir the top half is veiled. A free card is never veiled,
-and an unknown elixir veils nothing. The next card is a 24 px tile beside the elixir bar, and
+and an unknown elixir veils nothing. The white border (`theme.card_border`) is the "playable"
+mark: a card short of elixir has none and gets it the moment it can be played (owner,
+2026-09-28); the evolution and hero frames are drawn either way, because they say what the card
+is, not whether it is ready. The next card is a 24 px tile beside the elixir bar, and
 it and the ability buttons show a two-character code (`render.tile_codes`) rather than always
 the monogram. Of the engine's 132 cards, 57 share their monogram with another (25 monograms:
 `Wi` for Witch and Wizard, five cards on `MM`), and three pairs of monograms differ only in

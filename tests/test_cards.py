@@ -421,6 +421,20 @@ def test_a_free_card_is_never_veiled(renderer: Renderer) -> None:
     assert tile_px(free, "Free", 6, 40, elixir=-500) == tile_px(free, "Free", 6, 40)
 
 
+def test_a_card_short_of_elixir_has_no_white_border(renderer: Renderer) -> None:
+    # The Knight costs 3. Short of it: no white border; enough, or the elixir unknown: white.
+    assert tile_px(renderer, "Knight", 0, 50, elixir=2999) != T.card_border
+    assert tile_px(renderer, "Knight", 0, 90, elixir=0) != T.card_border
+    assert tile_px(renderer, "Knight", 0, 50, elixir=3000) == T.card_border
+    assert tile_px(renderer, "Knight", 0, 50, elixir=None) == T.card_border
+    # The evolution and hero frames say what the card is, not whether it is ready: they stay.
+    assert tile_px(renderer, "Knight", 0, 50, elixir=0, evolved=1) == T.evo
+    assert tile_px(renderer, "Knight", 0, 50, elixir=0, hero=True) == T.hero
+    # A free card is never short.
+    free = named(Renderer(scale=24), Names([(0, "Free", 0)]))
+    assert tile_px(free, "Free", 0, 50, elixir=0) == T.card_border
+
+
 def test_the_border_says_evolved_hero_or_neither(renderer: Renderer) -> None:
     assert tile_px(renderer, "Knight", 0, 50) == T.card_border
     assert tile_px(renderer, "Knight", 0, 50, evolved=1) == T.evo

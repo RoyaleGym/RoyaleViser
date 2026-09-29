@@ -1952,7 +1952,8 @@ class Renderer:
         monogram, so a hand reads at a glance; the whole name on the dark band below. An
         elixir drop with the cost, "x3" for a card that summons three, a wing for a flyer.
         Elixir still missing is a veil from the top down, so a card fills as it becomes
-        playable instead of switching on.
+        playable instead of switching on, and its white border is drawn only once it is
+        playable (or the source does not know the elixir).
 
         The special forms: ``evolved`` 1 (the next play of this slot is evolved) frames the
         tile in the evolution colour with an EVO tag; ``evo`` (the card's plays since its last
@@ -1999,9 +2000,16 @@ class Renderer:
         if evo is not None:
             self._draw_pips(evo, evolved == 1, (art.centerx, art.bottom - 3))
         cost = self.card_cost(name)
+        # Not playable yet: the source knows the elixir and it is short of the cost.
+        short = (
+            cost is not None
+            and cost > 0
+            and elixir_milli is not None
+            and elixir_milli < cost * 1000
+        )
         if cost is not None:
-            if cost > 0 and elixir_milli is not None and elixir_milli < cost * 1000:
-                missing = cost * 1000 - max(0, elixir_milli)
+            if short:
+                missing = cost * 1000 - max(0, elixir_milli or 0)
                 s.blit(self.tint(cw, ch * missing // (cost * 1000), t.card_veil), (cx, y))
             self._draw_drop((cx + 14, y + 17), cost)
         if hero:
@@ -2011,7 +2019,10 @@ class Renderer:
             pygame.draw.rect(s, t.evo, box, 3)
             pygame.draw.rect(s, t.evo, evo_pill, border_radius=5)
             s.blit(evo_tag, evo_tag.get_rect(center=evo_pill.center))
-        else:
+        elif not short:
+            # The white border is the "you can play this" mark (owner, 2026-09-28): a card short
+            # of elixir has none, and gets it the moment it can be played. The evolution and hero
+            # frames stay either way, because they say what the card is, not whether it is ready.
             pygame.draw.rect(s, t.card_border, box, 2)
 
     def _draw_drop(self, center: tuple[int, int], cost: int, r: int = 11) -> None:

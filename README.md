@@ -169,7 +169,7 @@ The seat, the window size, `--seconds`, `--shot` and the rest of the command lin
 **The cards.** Each card in a hand is a tile. Its colour and the mark in its corner say whether
 it is a troop, a building or a spell. The big letters are its name, and the purple drop is its
 cost. A card fills in from the bottom as elixir comes in, so you can see how close it is to
-being played. The next card is the small tile by the elixir bar. Two cards can have the same
+being played, and its white border appears once it can be played. The next card is the small tile by the elixir bar. Two cards can have the same
 big letters, like Witch and Wizard. When both are in the deck, the small tile shows other
 letters for each: Wt and Wz.
 
