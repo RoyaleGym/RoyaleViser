@@ -36,6 +36,7 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import msgspec
@@ -50,6 +51,7 @@ from .model import (
     LIVE_ELIXIR_PER_MILLI,
     LIVE_UNITS_PER_TILE,
     NO_WINNER,
+    STATUS_EVOLVED,
     TICK_MS,
     TOWER_KINDS,
     TOWER_SLOTS,
@@ -708,6 +710,18 @@ def regular_ticks(tick_ms: int) -> int:
     return -(-(seconds * 1000) // tick_ms)
 
 
+# Frames after a play searched for the units it put down: they land after the place delay
+# (25 ticks on the engine of 2026-09-29).
+EVO_LOOK_FRAMES = 60
+EVO_DEFAULT_CYCLES = 2  # an evolved card's basic plays before its evolved one (RoyaleSim's default)
+
+
+def _row_bits(e: Any) -> int:
+    # An engine entity row's status bits, 0 when not reported (-1, missing): never a raw -1 mask.
+    v = getattr(e, "status_flags", -1)
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+
+
 class TraceSource:
     """Frames of a royalegym.replay trace, by index; the arena drawn from the trace header.
 
@@ -770,16 +784,27 @@ class TraceSource:
         for i, t in enumerate(self._ticks):
             by_tick.setdefault(t, i)  # the frame BEFORE the step's commands
         for st in self.trace.steps:
-            for cmd, status in zip(st.commands, st.statuses, strict=True):
+            for k, (cmd, status) in enumerate(zip(st.commands, st.statuses, strict=True)):
                 if status != DeployStatus.OK or st.tick not in by_tick:
                     continue
                 before = self.trace.frames[by_tick[st.tick]]
-                card = before.hands[cmd.team][cmd.hand_slot]
-                line = play_line(
-                    st.tick, cmd.team, self.names.name_of(card), (cmd.x, cmd.y), h.subtile
-                )
+                if cmd.hand_slot >= len(before.hands[cmd.team]):
+                    # Slot HAND_SIZE + k is a press of ability button k; the step names its card.
+                    ids = getattr(st, "card_ids", None) or []
+                    who = self.names.name_of(ids[k]) if k < len(ids) else "a hero"
+                    line = f"t{st.tick} {TEAM_NAMES[cmd.team]} presses {who}'s ability"
+                else:
+                    card = before.hands[cmd.team][cmd.hand_slot]
+                    line = play_line(
+                        st.tick, cmd.team, self.names.name_of(card), (cmd.x, cmd.y), h.subtile
+                    )
                 after = by_tick[st.tick] + 1
                 plays.setdefault(after, []).append(line)
+        self._evo_cards, self._heroes, self._evo_changes, self._cycles = self._forms(
+            by_tick, EMPTY_CARD, DeployStatus
+        )
+        evo_plays: list[dict[int, int]] = [dict.fromkeys(cards, 0) for cards in self._evo_cards]
+        self._evo: list[list[dict[int, int]]] = []
         # One forward pass: events and the queue snapshot per frame (a trace is loaded whole).
         log = _EventLog()
         self._events_end: list[int] = []
@@ -802,7 +827,82 @@ class TraceSource:
             prev_hands = [list(hd) for hd in fr.hands]
             self._events_end.append(len(log.lines))
             self._queues.append([list(q) for q in queues])
+            for team, card, count in self._evo_changes.get(i, ()):
+                evo_plays[team][card] = count
+            self._evo.append([dict(d) for d in evo_plays])
         self._lines = log.lines
+
+    def _forms(
+        self, by_tick: dict[int, int], empty: int, deploy_status: Any
+    ) -> tuple[
+        list[list[int]], list[list[str]], dict[int, list[tuple[int, int, int]]], dict[int, int]
+    ]:
+        """The deck's special forms from ``header.setup.forms``, and each evolved card's plays.
+
+        Returns, per team, the evolved deck cards (form 1) and the hero entries' names (form 2),
+        and the plays counters as changes by frame index. A trace records no counters, so they
+        are rebuilt from the plays with the engine's rule: an evolved card's counter counts its
+        own plays since its last evolved one, and the next play is evolved once the counter
+        reaches the card's cycle. Whether a play WAS evolved is read from the units it put down
+        (the evolved status bit on a new unit of that card and team within a few frames), so
+        the counter follows what happened, not a guess. The cycle is the counter at the card's
+        evolved plays in this trace; a card never seen evolved uses the engine's default, 2
+        (a spell, which puts down no unit, is counted by that cycle too).
+        """
+        setup = self.trace.header.setup
+        forms = getattr(setup, "forms", None) if setup is not None else None
+        if not forms or self.decks is None:
+            return [[], []], [[], []], {}, {}
+        evo_cards = [
+            [c for c, f in zip(d, fm, strict=False) if f == 1]
+            for d, fm in zip(self.decks, forms, strict=False)
+        ]
+        heroes = [
+            [self.names.name_of(c) for c, f in zip(d, fm, strict=False) if f == 2]
+            for d, fm in zip(self.decks, forms, strict=False)
+        ]
+        frames = self.trace.frames
+        plays: list[tuple[int, int, int, bool | None]] = []  # (frame after, team, card, evolved)
+        for st in self.trace.steps:
+            for cmd, status in zip(st.commands, st.statuses, strict=True):
+                if status != deploy_status.OK or st.tick not in by_tick:
+                    continue
+                i = by_tick[st.tick]
+                if cmd.hand_slot >= len(frames[i].hands[cmd.team]):
+                    continue  # an ability press, not a play
+                card = frames[i].hands[cmd.team][cmd.hand_slot]
+                if card == empty or card not in evo_cards[cmd.team]:
+                    continue
+                before = {e.uid for e in frames[i].entities}
+                evolved: bool | None = None
+                for fr in frames[i + 1 : i + 1 + EVO_LOOK_FRAMES]:
+                    new = [
+                        e
+                        for e in fr.entities
+                        if e.uid not in before and e.team == cmd.team and e.card_id == card
+                    ]
+                    if new:
+                        evolved = any(_row_bits(e) & STATUS_EVOLVED for e in new)
+                        break
+                plays.append((i + 1, cmd.team, card, evolved))
+        # Pass one: each card's cycle, from its evolved plays.
+        cycles: dict[int, int] = {}
+        count: dict[tuple[int, int], int] = {}
+        for _i, team, card, evolved in plays:
+            n = count.get((team, card), 0)
+            if evolved:
+                cycles.setdefault(card, n)
+            count[(team, card)] = 0 if evolved else n + 1
+        # Pass two: the counters, a play of unknown outcome decided by the cycle.
+        changes: dict[int, list[tuple[int, int, int]]] = {}
+        count = {}
+        for i, team, card, evolved in plays:
+            n = count.get((team, card), 0)
+            if evolved is None:
+                evolved = n >= cycles.get(card, EVO_DEFAULT_CYCLES)
+            count[(team, card)] = n = 0 if evolved else n + 1
+            changes.setdefault(i, []).append((team, card, n))
+        return evo_cards, heroes, changes, cycles
 
     def _unit_name(self, e: Any) -> str:
         """royalegym.viser.unit_dict's naming: towers by kind, everything else by card."""
@@ -881,6 +981,28 @@ class TraceSource:
         else:
             tower_hp, tower_max = [UNKNOWN_HP] * TOWER_SLOTS, [UNKNOWN_HP] * TOWER_SLOTS
         hand = [name_of(c) if c != self._empty else "" for c in fr.hands[team]]
+        # The special forms: the engine's own rows where the trace recorded them (RoyaleGym's
+        # TraceFrame ``evo`` / ``abilities``, one list per seat, the PlayerState rows); else, for
+        # an older trace that decodes them as [], the counters rebuilt from the plays.
+        forms: dict[str, Any] = {
+            "evo": [
+                (name_of(c), n, int(n >= self._cycles.get(c, EVO_DEFAULT_CYCLES)))
+                for c, n in self._evo[self.index][team].items()
+            ],
+        }
+        recorded = {}
+        for key in ("evo", "abilities"):
+            per_seat = getattr(fr, key, None) or []
+            if team < len(per_seat) and per_seat[team]:
+                recorded[key] = per_seat[team]
+        if recorded:
+            seat = SimpleNamespace(evo=recorded.get("evo"), abilities=recorded.get("abilities"))
+            rows = special_fields(seat, name_of)
+            forms.update(
+                {k: [tuple(r) for r in rows[k]] for k in ("evo", "abilities") if k in rows}
+            )
+            if "ability_cooldowns" in rows:
+                forms["ability_cooldowns"] = rows["ability_cooldowns"]
         return Player(
             team=team,
             elixir_milli=fr.elixir_milli[team],
@@ -895,6 +1017,8 @@ class TraceSource:
             tower_hp=tower_hp,
             tower_max_hp=tower_max,
             king_active=None,  # not recorded in a trace
+            heroes=list(self._heroes[team]),
+            **forms,
         )
 
     def seek(self, index: int) -> None:

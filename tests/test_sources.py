@@ -792,6 +792,70 @@ def test_trace_source_per_decision(tmp_path: Path) -> None:
     assert f.tick == trace.frames[-1].tick and len(f.events) > 0
 
 
+def test_a_trace_s_special_forms_come_from_its_deck_forms_and_its_units(tmp_path: Path) -> None:
+    """A trace records the deck's forms in its header but no per-player rows (RoyaleGym
+    5565645). The source crowns the hero entries, and rebuilds each evolved card's counter from
+    the plays, reading whether a play WAS evolved off the units it put down. A cycle it sees
+    (here 1, not the engine's default 2) is the one it predicts with. An ability press in the
+    step log (slot HAND_SIZE + k) is an event line, not a play of a hand card."""
+    from royalegym.protocol import HAND_SIZE, DeployCommand, DeployStatus
+
+    rs = msgspec.structs.replace
+    trace = record(steps=300)
+    frames, deck = trace.frames, trace.header.setup.decks[0]
+    first_at: dict[int, int] = {}
+    for i, fr in enumerate(frames):
+        first_at.setdefault(fr.tick, i)
+    plays: dict[int, list[tuple[int, set[int]]]] = {}  # Blue's plays of a card: (frame, its uids)
+    for st in trace.steps:
+        for cmd, status in zip(st.commands, st.statuses, strict=True):
+            if status != DeployStatus.OK or cmd.team != 0:
+                continue
+            i = first_at[st.tick]
+            card = frames[i].hands[0][cmd.hand_slot]
+            before = {e.uid for e in frames[i].entities}
+            for fr in frames[i + 1 : i + 1 + sources.EVO_LOOK_FRAMES]:
+                new = {e.uid for e in fr.entities if e.uid not in before and e.card_id == card}
+                if new and all(e.team == 0 for e in fr.entities if e.uid in new):
+                    plays.setdefault(card, []).append((i + 1, new))
+                    break
+    evo, found = max(plays.items(), key=lambda kv: len(kv[1]))
+    assert len(found) >= 5, "the battle must play one unit card five times"
+    hero = next(c for c in deck if c != evo)
+    forms = [[1 if c == evo else 2 if c == hero else 0 for c in deck], [0] * len(deck)]
+    evolved = found[1][1] | found[3][1]  # plays 2 and 4 put evolved units down: a cycle of 1
+    frames = [
+        rs(fr, entities=[rs(e, status_flags=8) if e.uid in evolved else e for e in fr.entities])
+        for fr in frames
+    ]
+    press_step = trace.steps[len(trace.steps) // 2]
+    press = rs(
+        press_step,
+        commands=[DeployCommand(0, HAND_SIZE, 0, 0)],
+        statuses=[DeployStatus.OK],
+        card_ids=[hero],
+        landed=press_step.landed[:1],
+    )
+    trace = rs(
+        trace,
+        header=rs(trace.header, setup=rs(trace.header.setup, forms=forms)),
+        frames=frames,
+        steps=[*trace.steps, press],
+    )
+    src = sources.TraceSource(save_trace(trace, tmp_path / "t.msgpack"))
+    name = src.names.name_of
+    want = [(1, 1), (0, 0), (1, 1), (0, 0), (1, 1)]  # (plays, next evolved) after plays 1..5
+    for (at, _uids), (n, nxt) in zip(found, want, strict=False):
+        src.seek(at)
+        f = sound(src.frame())
+        assert f.players[0].evo == [(name(evo), n, nxt)], f.tick
+        assert f.players[0].heroes == [name(hero)] and f.players[1].heroes == []
+        assert f.players[1].evo == []
+    src.seek(0)
+    assert sound(src.frame()).players[0].evo == [(name(evo), 0, 0)]
+    assert any(f"Blue presses {name(hero)}'s ability" in line for line in src._lines)
+
+
 def test_frame_from_state_matches_the_publisher_rows() -> None:
     eng = MockEngine()
     setup = DefaultStateMutator(decks=[ALL_TYPES, ALL_TYPES]).build(

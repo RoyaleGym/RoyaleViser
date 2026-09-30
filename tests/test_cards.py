@@ -566,6 +566,27 @@ def test_a_waiting_button_shows_its_seconds_and_three_fit(renderer: Renderer) ->
     assert problems(frame([], [player(abilities=base, ability_cooldowns=[1, 2]), player(team=1)]))
 
 
+def test_a_hero_the_source_names_without_buttons_is_crowned(renderer: Renderer) -> None:
+    """A recording knows the deck's hero entries but not their buttons: ``Player.heroes``
+    crowns the card as a button naming it would, and draws no button."""
+    ex, ey, ew, eh = renderer.layout.bottom_elixir
+    hx, hy, hw, hh = renderer.layout.bottom_hand
+
+    def draw(p: Player) -> tuple[bytes, bytes]:
+        renderer.draw(frame([], [p, player(team=1)]), ViewState(), Transport())
+        s = renderer.surface
+        return (
+            pygame.image.tobytes(s.subsurface((hx, hy, hw, hh)), "RGB"),
+            pygame.image.tobytes(s.subsurface((ex, ey, ew, eh)), "RGB"),
+        )
+
+    plain_hand, plain_row = draw(player())
+    hand, row = draw(player(heroes=["Cannon"]))
+    by_button, _ = draw(player(abilities=[("Cannon", 0, 0, 1)]))
+    assert hand != plain_hand and hand == by_button
+    assert row == plain_row  # no button
+
+
 def test_an_ability_button_shows_what_the_engine_says(renderer: Renderer) -> None:
     idle = T.ability_idle
     assert button_px(renderer, ("", 1, 0, 1)) == T.hero  # available

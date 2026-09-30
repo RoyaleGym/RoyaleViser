@@ -128,6 +128,9 @@ class Player:
     # while his chain runs); ``available`` says that. A key of its own rather than a fifth column
     # of ``abilities``, so a viewer from before it still decodes every frame (it drops the key).
     ability_cooldowns: list[int] = field(default_factory=list)
+    # The deck's hero entries by name, for a source that knows the deck's forms but not its
+    # buttons (a recording): each is crowned in the hand like a card a button names.
+    heroes: list[str] = field(default_factory=list)
 
 
 def hand_evolved(p: Player) -> list[int]:

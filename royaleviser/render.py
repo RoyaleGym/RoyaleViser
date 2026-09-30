@@ -1910,7 +1910,7 @@ class Renderer:
         t = self.theme
         x, y, _, _ = rect
         cw, ch, gap = t.card_w, t.card_h, t.card_gap
-        heroes = {row[0] for row in p.abilities if row[0]}
+        heroes = {row[0] for row in p.abilities if row[0]} | set(p.heroes)
         plays = {name: n for name, n, _nxt in p.evo}
         evolved = hand_evolved(p)
         for i in range(4):
