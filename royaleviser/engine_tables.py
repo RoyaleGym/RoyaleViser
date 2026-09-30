@@ -180,6 +180,7 @@ SHOT_KIND: dict[str, str] = {
     "littleprince": "bullet",
     "megaminion": "bullet",
     "mergemaidenmounted": "bullet",
+    "miniongiant": "bullet",
     "minionhorde": "bullet",
     "minions": "bullet",
     "mortar": "ball",
