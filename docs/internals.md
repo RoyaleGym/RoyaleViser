@@ -335,7 +335,23 @@ row's card, else by the deck's k-th form-2 entry when the env's setup has forms,
 side with no evolution, hero or champion sends them empty, which reads as not said. A champion
 needs no forms, so a Golden Knight deck without any sends his button.
 `RoyaleGym/tests/test_viser.py` round-trips such a frame through this package's decoder, so ids
-where names belong fail there, on the publisher's side. A trace records none of them yet.
+where names belong fail there, on the publisher's side.
+
+**A trace** (RoyaleGym's `royalegym-trace`) records the deck's forms in its header
+(`setup.forms`, parallel to `setup.decks`) but, before RoyaleGym added the frame's own rows, no
+per-player rows. `TraceSource` rebuilds what that allows. `Player.heroes` names the form-2
+entries, and the hand crowns them as it would a card a button names; there are no buttons,
+because a trace does not say when one was ready. `evo` is rebuilt from the step log with the
+engine's rule (a counter of the card's own plays since its last evolved one, the next play
+evolved once it reaches the card's cycle). Whether a play WAS evolved is read off the units it
+put down: the evolved status bit on a new unit of that card and team, looked for over
+`EVO_LOOK_FRAMES` (60) frames because a play lands after the place delay (25 ticks on the
+engine of 2026-09-30). The cycle is the counter at the card's evolved plays in the trace; a
+card never seen evolved, or a play that put nothing down (a spell), uses the engine's default,
+2. On six recordings of 2,000 to 5,400 ticks the cycle read off Evo Skeletons' evolved plays
+came out 2 on each. Where a frame carries the engine's own `evo` / `abilities` rows
+per seat, those are used instead, buttons included. A press in the step log (slot `HAND_SIZE +
+k`) is an event line, "Blue presses IceGolemite's ability".
 
 **On the board**, the engine's status bits, `Unit.extra["status_flags"]`, read only through
 `model.status_bits`: None and -1 mean not reported and draw exactly as 0, for troops,
@@ -529,12 +545,12 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at 856abbe on 2026-09-28, with `pytest --collect-only -q` collecting 365:
+The suite has two correct results, and both are one command apart. Measured at 66cf046 on 2026-09-30, with `pytest --collect-only -q` collecting 367:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **361 passed, 4 skipped** |
-| this machine, with the recordings | **364 passed, 1 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **363 passed, 4 skipped** |
+| this machine, with the recordings | **366 passed, 1 skipped** |
 
 The four skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
@@ -548,11 +564,11 @@ gitignored) runs those three.
 
 Two more things move the count, in either run. Without the `media` extra
 (`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) ONE more skips,
-the single `@needs_ffmpeg` test: a clone then gives **360 passed, 5 skipped** (856abbe,
-2026-09-28, pytest run with `sys.modules["imageio_ffmpeg"] = None`). Without RoyaleLearn
+the single `@needs_ffmpeg` test: a clone then gives **362 passed, 5 skipped** (66cf046,
+2026-09-30, pytest run with `sys.modules["imageio_ffmpeg"] = None`). Without RoyaleLearn
 importable, `tests/test_learner_protocol.py` skips AT IMPORT: its four tests are not collected
-(361 rather than 365) and the run reports ONE skip for the whole module, so a clone gives 357
-passed and 5 skipped (856abbe, 2026-09-28). A count in this file is the output of the command
+(363 rather than 367) and the run reports ONE skip for the whole module, so a clone gives 359
+passed and 5 skipped (66cf046, 2026-09-30). A count in this file is the output of the command
 beside it and nothing else; the ones that stood here before were measured at a commit fifteen
 behind and were wrong at that commit too.
 
@@ -601,8 +617,9 @@ already holds a `Frame`.
 4. `royalegym.viser.frame_dict` builds the wire dict from a `BattleState`;
    `sources.frame_from_state` turns it into a `Frame`, and `TraceSource` builds its rows the
    same way, so a trace and a stream of one battle draw identically. The one exception is the
-   special-form player rows, which a stream and `frame_from_state` carry and a trace does not
-   keep yet ([Cards and the special forms](#cards-and-the-special-forms)). Spawn and death event
+   special-form player rows, which a stream and `frame_from_state` carry and `TraceSource`
+   rebuilds from the header's deck forms and the plays, without buttons
+   ([Cards and the special forms](#cards-and-the-special-forms)). Spawn and death event
    lines come from uid diffing, play lines from the step's accepted deploys.
    `RoyaleGym/tests/test_viser.py` round-trips a published frame through this package's
    decoder, so a drift between the two ends fails there rather than in someone's window.
