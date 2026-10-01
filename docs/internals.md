@@ -345,8 +345,9 @@ buttons, because it does not say when one was ready. `evo` is rebuilt from the s
 engine's rule (a counter of the card's own plays since its last evolved one, the next play
 evolved once it reaches the card's cycle). Whether a play WAS evolved is read off the units it
 put down: the evolved status bit on a new unit of that card and team, looked for over
-`EVO_LOOK_FRAMES` (60) frames, because with a command delay set
-(`Battle.set_command_delay_ticks`, 0 by default) a play lands that many ticks after the tap. The
+`EVO_LOOK_FRAMES` (60) frames, because the engine can hold each side's commands for a
+set number of ticks (`Battle.set_command_delay_ticks(blue, red)`, 0 by default), and a play
+then lands that many ticks after the tap. The
 cycle is the counter at the card's evolved plays in the trace; a
 card never seen evolved, or a play that put nothing down (a spell), uses the engine's default,
 2. On six recordings of 2,000 to 5,400 ticks the cycle read off Evo Skeletons' evolved plays
