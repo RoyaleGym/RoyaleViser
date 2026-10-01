@@ -275,7 +275,7 @@ mark: a card short of elixir has none and gets it the moment it can be played (o
 2026-09-28); the evolution and hero frames are drawn either way, because they say what the card
 is, not whether it is ready. The next card is a 24 px tile beside the elixir bar, and
 it and the ability buttons show a two-character code (`render.tile_codes`) rather than always
-the monogram. Of the engine's 132 cards, 57 share their monogram with another (25 monograms:
+the monogram. Of the engine's 136 cards, 58 share their monogram with another (25 monograms:
 `Wi` for Witch and Wizard, five cards on `MM`), and three pairs of monograms differ only in
 case (`SK` and `Sk`, `GH` and `Gh`, `EA` and `Ea`). Even with the tile's colour and cost dot,
 9 groups of 18 cards draw identical small tiles (Witch and Wizard, Minions and Miner, Balloon
