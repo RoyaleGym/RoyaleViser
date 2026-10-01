@@ -671,6 +671,15 @@ def tile_codes(among: Iterable[str]) -> dict[str, str]:
                 if code.upper() not in shown and all(i >= len(v) or v[i] != w[i] for v in others):
                     codes[n] = code
                     break
+            else:
+                # No letter tells it apart (Goblins is the start of Goblinstein). It keeps its
+                # monogram unless another group already shows that code (GoblinHut "Go" beside
+                # Ghost), then takes its name's first free letter, then a digit.
+                spare = [w[0].upper() + c for c in w[1:]] + [
+                    w[0].upper() + str(d) for d in range(2, 10)
+                ]
+                if codes[n].upper() in shown:
+                    codes[n] = next(c for c in spare if c.upper() not in shown)
             shown.add(codes[n].upper())
     return codes
 
