@@ -710,8 +710,8 @@ def regular_ticks(tick_ms: int) -> int:
     return -(-(seconds * 1000) // tick_ms)
 
 
-# Frames after a play searched for the units it put down: they land after the place delay
-# (25 ticks on the engine of 2026-09-29).
+# Frames after a play searched for the units it put down: with a command delay set
+# (Battle.set_command_delay_ticks; 0 by default), a play lands up to that many ticks after the tap.
 EVO_LOOK_FRAMES = 60
 EVO_DEFAULT_CYCLES = 2  # an evolved card's basic plays before its evolved one (RoyaleSim's default)
 

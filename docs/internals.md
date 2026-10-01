@@ -338,15 +338,16 @@ needs no forms, so a Golden Knight deck without any sends his button.
 where names belong fail there, on the publisher's side.
 
 **A trace** (RoyaleGym's `royalegym-trace`) records the deck's forms in its header
-(`setup.forms`, parallel to `setup.decks`) but, before RoyaleGym added the frame's own rows, no
+(`setup.forms`, parallel to `setup.decks`) but, before RoyaleGym 2f710e8 added the frame's own rows, no
 per-player rows. `TraceSource` rebuilds what that allows. `Player.heroes` names the form-2
-entries, and the hand crowns them as it would a card a button names; there are no buttons,
-because a trace does not say when one was ready. `evo` is rebuilt from the step log with the
+entries, and the hand crowns them as it would a card a button names; such a trace has no
+buttons, because it does not say when one was ready. `evo` is rebuilt from the step log with the
 engine's rule (a counter of the card's own plays since its last evolved one, the next play
 evolved once it reaches the card's cycle). Whether a play WAS evolved is read off the units it
 put down: the evolved status bit on a new unit of that card and team, looked for over
-`EVO_LOOK_FRAMES` (60) frames because a play lands after the place delay (25 ticks on the
-engine of 2026-09-30). The cycle is the counter at the card's evolved plays in the trace; a
+`EVO_LOOK_FRAMES` (60) frames, because with a command delay set
+(`Battle.set_command_delay_ticks`, 0 by default) a play lands that many ticks after the tap. The
+cycle is the counter at the card's evolved plays in the trace; a
 card never seen evolved, or a play that put nothing down (a spell), uses the engine's default,
 2. On six recordings of 2,000 to 5,400 ticks the cycle read off Evo Skeletons' evolved plays
 came out 2 on each. Where a frame carries the engine's own `evo` / `abilities` rows

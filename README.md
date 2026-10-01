@@ -181,8 +181,9 @@ button works the same way. On the board, an evolved unit gets a pink ring and a 
 gold one. A unit travelling under ground (Miner, Goblin Drill) is a patch of dirt, and an
 invisible one is faded. The board marks show in every source. The hand marks show when you
 watch a running battle that has evolutions or heroes, and in a saved trace too: it knows the
-deck's heroes, and it counts each evolved card's plays again from the battle. A saved trace
-has no ability buttons yet.
+deck's heroes, and it counts each evolved card's plays again from the battle. A trace saved
+with RoyaleGym 2f710e8 or later keeps the engine's own rows, ability buttons included; an older
+one shows no buttons.
 
 **Units on one spot.** Two units of one team can stand on almost the same spot. Then you only
 see the one on top, so its name gets a count, like RamRider x2. A Ram Rider's rider sits on
