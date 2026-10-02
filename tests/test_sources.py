@@ -1257,8 +1257,10 @@ def test_a_second_viewer_takes_the_stream_and_the_first_one_says_how_old_its_boa
     for i in range(5):
         frame.tick = i
         assert pub.publish(frame)
-    for _ in range(5):
+    end = time.monotonic() + 2.0  # drain until they are in: five calls were not enough on macOS CI
+    while first.index < 5 and time.monotonic() < end:
         first.frame()
+        time.sleep(0.005)
     assert first.index == 5 and "fps" in first.status()
 
     second = sources.StreamSource(*pub.address)  # someone opens another window on the same run
