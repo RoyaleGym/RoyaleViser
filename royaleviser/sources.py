@@ -77,6 +77,9 @@ STREAM_HEARTBEAT_S = 1.0
 STREAM_ATTACH_TIMEOUT_S = 3  # no heartbeat for this long: the publisher stops sending
 STREAM_MAX_DATAGRAM = 65507  # UDP over IPv4; a bigger frame is resent without unit paths
 STREAM_RCVBUF = 1 << 20  # the viewer's receive queue: a burst of frames must not push a status out
+# The send buffer, which on macOS also caps ONE datagram: its default (net.inet.udp.maxdgram,
+# 9216 bytes) refuses a busy battle's frame outright, where Windows and Linux allow 64 KB.
+STREAM_SNDBUF = 1 << 20
 MAX_PORT = 65535
 # The learner publishes its status on its own port, one above the frames' (``learning_endpoint``),
 # because it is a different process on a different clock: see LearningPublisher.
@@ -111,6 +114,8 @@ def udp_socket(host: str, port: int) -> socket.socket:
     sock.setblocking(False)
     with contextlib.suppress(OSError):  # a platform that will not grow it keeps its default
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, STREAM_RCVBUF)
+    with contextlib.suppress(OSError):  # macOS: without it a datagram over 9216 bytes is refused
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, STREAM_SNDBUF)
     return sock
 
 

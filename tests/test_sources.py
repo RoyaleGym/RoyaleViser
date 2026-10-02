@@ -1408,3 +1408,20 @@ def test_a_run_id_travels_from_the_env_to_the_panel_s_mismatch_line() -> None:
     assert "frames ppo-0007 / learner ppo-0008" in disagrees
     src.close()
     env.close()
+
+
+def test_a_viewer_socket_can_send_a_frame_bigger_than_macos_s_default() -> None:
+    """macOS caps one UDP datagram at its send buffer, 9216 bytes by default, so a busy
+    battle's frame was refused there while Windows and Linux sent it. ``udp_socket`` grows
+    the buffer; read it back rather than trusting the call, and send one such datagram."""
+    import socket
+
+    sock = sources.udp_socket("127.0.0.1", 0)
+    sink = sources.udp_socket("127.0.0.1", 0)
+    try:
+        assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF) >= 65_536
+        payload = b"x" * 60_000
+        assert sock.sendto(payload, sink.getsockname()) == len(payload)
+    finally:
+        sock.close()
+        sink.close()
