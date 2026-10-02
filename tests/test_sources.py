@@ -1264,15 +1264,25 @@ def test_a_second_viewer_takes_the_stream_and_the_first_one_says_how_old_its_boa
     second = sources.StreamSource(*pub.address)  # someone opens another window on the same run
     before = first.index
     for round_ in range(3):
-        pub._pub._last_poll = 0.0
         first.heartbeat()
-        second.heartbeat()  # arrives last, so the publisher's one peer becomes this one
-        time.sleep(0.02)
+        second.heartbeat()  # sent last, so the publisher's one peer becomes this one
+        # Wait until the publisher has READ that heartbeat, not a fixed 20 ms: on a slow runner
+        # (macOS CI, 2026-10-02) one round's heartbeat was still in flight at the poll, so that
+        # round's frames went to the old peer and the check read 20 of 30.
+        end = time.monotonic() + 2.0
+        while pub._pub._peer is None or pub._pub._peer[1] != second.address[1]:
+            assert time.monotonic() < end, "the publisher never took the second viewer's hello"
+            pub._pub._poll(time.monotonic())
+            time.sleep(0.005)
         for i in range(10):
             frame.tick = 100 + round_ * 10 + i
             pub.publish(frame)
+        want = (round_ + 1) * 10
+        end = time.monotonic() + 2.0  # and drain until they are in, with a deadline
+        while second.index < want and time.monotonic() < end:
+            second.frame()
+            time.sleep(0.005)
         first.frame()
-        second.frame()
     assert second.index == 30, "the newer viewer should be getting the frames"
     assert first.index == before, "the older viewer is not told it lost the stream"
 
