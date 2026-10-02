@@ -9,7 +9,9 @@ description = "RoyaleViser: an out-of-process viewer for Clash Royale battles - 
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
-    "pygame>=2.6",
+    # pygame-ce, the community edition: it installs as `import pygame`, the same API, and has
+    # wheels for Python 3.14, which pygame does not. Do not install both; they share the name.
+    "pygame-ce>=2.5.8",
     "msgspec>=0.19",
     "numpy>=2.0",
 ]

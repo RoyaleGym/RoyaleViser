@@ -12,6 +12,8 @@ All notable changes to RoyaleViser. Versions follow [Semantic Versioning](https:
   plays. A battle saved with RoyaleGym 2f710e8 or later also shows the ability buttons.
 
 ### Changed
+- The window library is pygame-ce instead of pygame. It is used the same way (`import pygame`)
+  and installs on Python 3.14, which pygame does not. Uninstall pygame first if you have it.
 - The README is short. The full guide is now [docs/guide.md](docs/guide.md).
 - A missing file, an empty folder or a missing RoyaleGym is reported in one line, not a
   traceback.

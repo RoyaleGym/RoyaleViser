@@ -465,7 +465,7 @@ If `python --version` already prints 3.12 or newer, `python -m venv .venv` works
 line must print 3.12 or newer before you go on. With an older Python, pip refuses the install
 line.
 
-The last line downloads pygame, msgspec and numpy, which is a few tens of MB. You now have the
+The last line downloads pygame-ce, msgspec and numpy, which is a few tens of MB. You now have the
 two recordings that ship with the tests, and the board is drawn from a copy of the arena built
 into this package. That is enough for [Try it](#try-it), for streams, and for saving a PNG.
 
@@ -522,7 +522,7 @@ One more line, only if you want to train. It is a big download:
 Here is what each piece of the viewer needs.
 
 - **Recordings, streams and the scripted battle** need only the virtual environment and
-  `pip install -e RoyaleViser`. That pulls in pygame, msgspec and numpy. Without RoyaleGym the
+  `pip install -e RoyaleViser`. That pulls in pygame-ce, msgspec and numpy. Without RoyaleGym the
   board is drawn from a copy of the arena built into this package.
 - **Opening a trace** needs RoyaleGym as well. RoyaleGym then reads the arena out of the
   RoyaleSim checkout (`data/derived/`, which the `extract_*` lines above generate), not out of
