@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The README's `tile-*.png` crops, from the recordings that ship with the tests.
+"""The guide's `tile-*.png` crops and `viewer-learning.png`, every one regenerable.
 
     ..\\..\\..\\.venv\\Scripts\\python docs\\media\\make_tiles.py            # every tile
     ..\\..\\..\\.venv\\Scripts\\python docs\\media\\make_tiles.py compare    # one of them
@@ -16,6 +16,18 @@ still shows what the window does.
 
 A tile is a CROP because the window is 1082 x 832 and a README thumbnail of the whole thing
 shows nothing. The crops are named regions rather than magic numbers: see `TILES`.
+
+Three more were hand-taken until 2026-10-01 and are made here now, on the current window:
+
+- `event-log` and `inspector` are crops of the window on the engine battle RoyaleGym's
+  `docs/media/make_media.py` records (the battle behind `engine-trace` and `viewer-trace.png`),
+  at the same tick with the same unit pinned. They need the engine, from the sibling checkouts.
+- `live-stream` and `learning` are the window ATTACHED over UDP: `tests/run_stream.py` streams
+  the scripted battle and a scripted learner's status, so nothing in them comes from a real
+  training run. `learning` is the whole window, written to `docs/viewer-learning.png`.
+
+A caption that quotes something drawn in one of these pictures (an fps, a unit's name) is
+updated in the same commit as the picture.
 """
 
 from __future__ import annotations
@@ -98,7 +110,85 @@ def paths_and_targets() -> None:
     crop(surf, (345, 225, 432, 243), HERE / "tile-paths-and-targets.png")
 
 
-TILES = {"compare": compare, "paths-and-targets": paths_and_targets}
+ENGINE_TICK = 900  # make_media's engine-trace tick: these tiles show the same moment
+
+
+def engine_window() -> tuple[pygame.Surface, str]:
+    """The window on make_media's engine battle at ENGINE_TICK with its first troop pinned,
+    exactly as ``engine_trace`` there pins it; and the pinned unit's name, for the caption."""
+    import importlib.util
+
+    path = REPO.parent / "RoyaleGym" / "docs" / "media" / "make_media.py"
+    if not path.exists():
+        raise SystemExit(f"the engine tiles need RoyaleGym beside this repo ({path})")
+    spec = importlib.util.spec_from_file_location("make_media", path)
+    make_media = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_media)
+    make_media.WORK = HERE / ".work"  # its recorded battle stays in this repo, gitignored
+    pygame.init()
+    src = make_media.trace()
+    src.seek(src.index_at_tick(ENGINE_TICK))
+    frame = src.frame()
+    troops = [u for u in frame.units if u.kind == 0]
+    pinned = troops[0] if troops else None
+    app = App([src], ViewState(seat=0, hover_uid=pinned.uid if pinned else None), scale=SCALE)
+    app.renderer.help_lines = KEYS
+    app.pull()
+    app.draw(0.0)
+    src.close()
+    return app.renderer.surface.copy(), pinned.name if pinned else ""
+
+
+def event_log() -> None:
+    """The event list: plays, spawns and deaths, with their tick and tile."""
+    surf, _ = engine_window()
+    crop(surf, EVENT_LOG_RECT, HERE / "tile-event-log.png")
+
+
+def inspector() -> None:
+    """Every raw field of the pinned unit."""
+    surf, name = engine_window()
+    crop(surf, INSPECTOR_RECT, HERE / "tile-inspector.png")
+    print(f"tile-inspector.png pins {name}")
+
+
+def stream_shot(to: Path) -> pygame.Surface:
+    """The whole window attached over UDP to run_stream's scripted publisher and learner."""
+    import run_stream
+
+    if run_stream.main(["--seconds", "6", "--shot", str(to)]) != 0:
+        raise SystemExit(f"run_stream wrote no picture to {to}")
+    return pygame.image.load(str(to))
+
+
+def live_stream() -> None:
+    """The window on a stream: LIVE, its frame rate, events arriving."""
+    tmp = HERE / ".live-stream-full.png"
+    try:
+        crop(stream_shot(tmp), LIVE_STREAM_RECT, HERE / "tile-live-stream.png")
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def learning() -> None:
+    """The whole window with the learning panel filled by run_stream's scripted learner."""
+    stream_shot(REPO / "docs" / "viewer-learning.png")
+    print("viewer-learning.png: the whole window")
+
+
+# The crops, chosen on the 1082 x 832 window at scale 24 (theme.layout).
+EVENT_LOG_RECT = (0, 140, 480, 270)  # the status block and its events, and the board's edge
+INSPECTOR_RECT = (522, 5, 560, 315)  # the board's right half and the pinned unit's fields
+LIVE_STREAM_RECT = (0, 140, 480, 270)  # LIVE, the frame rate, the events, the board's edge
+
+TILES = {
+    "compare": compare,
+    "paths-and-targets": paths_and_targets,
+    "event-log": event_log,
+    "inspector": inspector,
+    "live-stream": live_stream,
+    "learning": learning,
+}
 
 
 def main(argv: list[str]) -> int:

@@ -42,3 +42,7 @@ tests/captures/
 .idea/
 .DS_Store
 Thumbs.db
+
+# make_tiles.py: the engine battle it records, and the full window it crops a tile from
+docs/media/.work/
+docs/media/.live-stream-full.png

@@ -35,8 +35,8 @@ so regenerating is a clean diff. See `docs/internals.md` for the function.
 | `live-training-env.png` | `make_media.py live-training-env` | A real environment in another process, streaming over UDP to the viewer. |
 | `tile-compare.png` | `make_tiles.py compare` | The compare panel at the end of the scripted battle, recorded from both seats: 395 ticks compared, 0 differ. |
 | `tile-paths-and-targets.png` | `make_tiles.py paths-and-targets` | A recorded unit's route and another's target line, at tick 162 of the scripted battle. |
-| `tile-event-log.png`, `tile-inspector.png` | screenshot of an engine trace | The event list, and every raw field of a pinned unit. |
-| `tile-live-stream.png` | screenshot of a running environment | The viewer attached over UDP while a training run plays. |
+| `tile-event-log.png`, `tile-inspector.png` | `make_tiles.py event-log inspector` (the engine-trace battle at tick 900) | The event list, and every raw field of a pinned unit. |
+| `tile-live-stream.png`, `../viewer-learning.png` | `make_tiles.py live-stream learning` (`tests/run_stream.py`) | The viewer attached over UDP to a scripted battle and a scripted learner. |
 | `tile-synthetic-battle.png` | `capture()` on the scripted battle (`tests/synthetic.py`), tick 1015, `crop="full"` | The whole window, rendered with no display. |
 | `family.svg` | hand-drawn | the Royale repos and how they depend on each other; final |
 
@@ -105,7 +105,8 @@ and `tile-paths-and-targets.png`. They were the only pictures here nobody else c
 reproduce, and the compare tile printed a recording's name on its own face. Both are now
 crops of the window on the committed recordings, made by `make_tiles.py`.
 
-The rest of the screenshots are pictures of the window taken by hand on a public battle. A
-generated picture is better, because a hand-taken one never updates when the window changes
-and nobody can diff it -- but what makes a picture publishable is where its BATTLE came from,
-not whether a script pressed the button.
+The other four hand-taken screenshots went the same way on 2026-10-01: `tile-event-log`,
+`tile-inspector`, `tile-live-stream` and `../viewer-learning.png` are made by `make_tiles.py`
+too, on the current window, so no picture here is taken by hand any more. A generated picture
+updates when the window changes and can be diffed; what makes it publishable is still where its
+BATTLE came from, not that a script pressed the button.
