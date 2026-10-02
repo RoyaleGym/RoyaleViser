@@ -50,6 +50,9 @@ watching, it costs your training run almost nothing.
 
 ## Try it
 
+Installed with `pip install "royalegym[all]"`? You already have `royaleviser`. Skip
+[Setup](#setup): it is only for working on the viewer itself.
+
 The install gives you a `royaleviser` command. It opens three ways:
 
 - `royaleviser` on its own waits for a training run on `127.0.0.1:9870` and shows it live.
@@ -59,8 +62,8 @@ The install gives you a `royaleviser` command. It opens three ways:
 `python -m royaleviser` is the same program. The examples below use it, so they also work
 straight from a clone.
 
-Two recordings of the same scripted battle, one from each player's point of view, are committed
-with the tests. They are about 20 KB each, so they came down with your clone.
+The rest of this section uses files that only a clone of this repo has. Two recordings of the
+same scripted battle, one from each player's point of view, are committed with the tests. They are about 20 KB each, so they came down with your clone.
 
 You need the shared virtual environment from [Setup](#setup) and this one package installed.
 Nothing else. No engine build, no game files, no recordings of your own. Then move into the
@@ -437,6 +440,10 @@ datagram itself. The format and the six constants it has to match are in
 [`docs/internals.md`](internals.md).
 
 ### Setup
+
+Installed with `pip install "royalegym[all]"`? You already have `royaleviser`. Skip this
+section: the clones, the virtual environment and Rust below are only for working on the viewer
+itself.
 
 The whole stack shares one setup. The repos sit side by side in one folder, with one virtual
 environment at its root. You do not need all of it to use the viewer, so it comes in two parts.

@@ -9,10 +9,11 @@ It is the viewer for the battles RoyaleGym runs, live while a bot trains or save
 
 ## Install
 
-    pip install "royalegym[all]"
+    pip install "royalegym[all]" --find-links https://github.com/RoyaleGym/RoyaleGym/releases/expanded_assets/v0.1.1
 
-The viewer is the `[viser]` part. Until the packages are on PyPI, see [Install](https://royalegym.github.io/RoyaleGym/install/)
-for the exact line.
+Python 3.12 or 3.13. The viewer is the `[viser]` part. The packages are not on PyPI yet, so the
+line points pip at the release; [Install](https://royalegym.github.io/RoyaleGym/install/) has the
+details.
 
 ## Try it
 
