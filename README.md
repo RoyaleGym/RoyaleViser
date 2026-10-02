@@ -2,7 +2,7 @@
 
 <h1 align="center">RoyaleViser</h1>
 
-<p align="center"><a href="https://github.com/RoyaleGym/RoyaleViser/actions/workflows/suite.yml"><img alt="CI" src="https://github.com/RoyaleGym/RoyaleViser/actions/workflows/suite.yml/badge.svg"></a> <img alt="License" src="https://img.shields.io/github/license/RoyaleGym/RoyaleViser?style=flat-square&color=555"> <img alt="Python" src="https://img.shields.io/badge/python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white"> <a href="https://royalegym.github.io/RoyaleGym/"><img alt="Docs" src="https://img.shields.io/badge/docs-royalegym.github.io-8957e5?style=flat-square&logo=readthedocs&logoColor=white"></a> <a href="https://discord.gg/4D2BS5JBHP"><img alt="Discord" src="https://img.shields.io/discord/1551699576304705647?style=flat-square&logo=discord&logoColor=white&label=discord&color=5865F2"></a> <img alt="Last commit" src="https://img.shields.io/github/last-commit/RoyaleGym/RoyaleViser?style=flat-square&color=555"></p>
+<p align="center"><a href="https://github.com/RoyaleGym/RoyaleViser/actions/workflows/suite.yml"><img alt="CI" src="https://github.com/RoyaleGym/RoyaleViser/actions/workflows/suite.yml/badge.svg"></a> <img alt="License" src="https://img.shields.io/github/license/RoyaleGym/RoyaleViser?style=flat-square&color=555"> <img alt="Python" src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-3776AB?style=flat-square&logo=python&logoColor=white"> <a href="https://royalegym.github.io/RoyaleGym/"><img alt="Docs" src="https://img.shields.io/badge/docs-royalegym.github.io-8957e5?style=flat-square&logo=readthedocs&logoColor=white"></a> <a href="https://discord.gg/4D2BS5JBHP"><img alt="Discord" src="https://img.shields.io/discord/1551699576304705647?style=flat-square&logo=discord&logoColor=white&label=discord&color=5865F2"></a> <img alt="Last commit" src="https://img.shields.io/github/last-commit/RoyaleGym/RoyaleViser?style=flat-square&color=555"></p>
 
 Watch your Clash Royale bot play, in a window on your own machine.
 It is the viewer for the battles RoyaleGym runs, live while a bot trains or saved to a file.
@@ -11,9 +11,9 @@ It is the viewer for the battles RoyaleGym runs, live while a bot trains or save
 
 ## Install
 
-    pip install "royalegym[all]" --find-links https://github.com/RoyaleGym/RoyaleGym/releases/expanded_assets/v0.1.1
+    pip install "royalegym[all]" --find-links https://github.com/RoyaleGym/RoyaleGym/releases/expanded_assets/v0.1.2
 
-Python 3.12 or 3.13. The viewer is the `[viser]` part. The packages are not on PyPI yet, so the
+Python 3.12, 3.13 or 3.14. The viewer is the `[viser]` part. The packages are not on PyPI yet, so the
 line points pip at the release; [Install](https://royalegym.github.io/RoyaleGym/install/) has the
 details.
 
