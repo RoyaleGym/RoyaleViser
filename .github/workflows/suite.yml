@@ -303,3 +303,25 @@ jobs:
           except Exception as e:
               print('engine build_digest= unavailable:', type(e).__name__)
           " >> "$GITHUB_STEP_SUMMARY"
+
+  # PYTHON 3.14, the newest CPython. pygame publishes no 3.14 wheels, so `pip install
+  # royaleviser` failed there for a newcomer with nothing to fix on their side. One leg is
+  # enough: the question is whether the install line works at all on the new interpreter.
+  py314:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RoyaleViser
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: install, the guide's line, on Python 3.14
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -e "RoyaleViser[media]"
+          .venv/bin/python -m pip install pytest hypothesis
+      - name: suite
+        working-directory: RoyaleViser
+        run: ../.venv/bin/python -m pytest -q
