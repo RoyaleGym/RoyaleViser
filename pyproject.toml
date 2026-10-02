@@ -19,6 +19,9 @@ dependencies = [
 # import it; the model, the theme, CaptureSource and StreamSource do not. RoyaleLive is never
 # imported: RoyaleLive imports this package instead.
 
+[project.scripts]
+royaleviser = "royaleviser.__main__:cli"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

@@ -366,8 +366,9 @@ def test_cli_parser() -> None:
     assert p.parse_args([]).seat == "local"
     for key, action in cli.KEYS:
         assert key and action
-    with pytest.raises(SystemExit):
-        cli.main([])  # no source at all
+    # No source at all attaches to the default stream (test_cli's
+    # test_no_argument_attaches_to_the_default_stream), so it is not called here: unpatched,
+    # it would open a window and wait for a run.
     with pytest.raises(FileNotFoundError):
         cli.main(["a.jsonl"])  # sources are opened before any window exists
     with pytest.raises(SystemExit):

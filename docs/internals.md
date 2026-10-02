@@ -1,7 +1,7 @@
 # Internals
 
-This page is for people changing the viewer, or writing something that feeds it. The README
-covers usage. Here you get the frame model, the recording format, the stream protocol, the
+This page is for people changing the viewer, or writing something that feeds it. The
+[guide](guide.md) covers usage. Here you get the frame model, the recording format, the stream protocol, the
 command line, the window layout, the key table, what the viewer costs, how it is tested and
 what it cannot draw.
 
@@ -838,8 +838,8 @@ the board surface is built once per seat and grid setting and blitted on every d
 
 `royaleviser.capture.capture` writes what the window would show, with no window and no clock:
 the README media of all four repos is regenerated from it when the engine changes.
-`battle.msgpack` below is the trace the README's
-[Saving a battle to a file](../README.md#saving-a-battle-to-a-file) program writes, so run that
+`battle.msgpack` below is the trace the guide's
+[Saving a battle to a file](guide.md#saving-a-battle-to-a-file) program writes, so run that
 first. It saves 200 steps, 2001 frames up to tick 2000, and the clip stops inside that.
 
 ```python
@@ -936,8 +936,9 @@ buffer.
 
 ## CI runs on two operating systems, on purpose
 
-`.github/workflows/suite.yml` runs the suite on `windows-latest` AND `ubuntu-latest`, with the
-README's own install commands verbatim on each. That is not thoroughness for its own sake.
+`.github/workflows/suite.yml` runs the suite on `windows-latest`, `ubuntu-latest` and
+`macos-latest`, with the guide's own install commands verbatim on each, and checks that the
+installed `royaleviser` command starts. That is not thoroughness for its own sake.
 
 `..` normalises LEXICALLY on Windows and is walked COMPONENT BY COMPONENT on POSIX, so a path
 built with `..` and then stat-ed answers a different question per platform. The same goes for
@@ -950,8 +951,8 @@ with `Path(...).resolve().parents[N]`, which resolves before it walks, and nothi
 paths as strings or hard-codes a separator. Passing on both runners is evidence about the paths
 the suite EXERCISES; it is not evidence about the ones it does not.
 
-The ubuntu leg is also the only machine in this project that has ever run the POSIX install the
-README documents. There is no Linux or macOS machine here, which is why `VISER-capture-posix`
+The ubuntu and macOS legs are also the only machines in this project that run the POSIX install
+the guide documents. There is no Linux or macOS machine here, which is why `VISER-capture-posix`
 was deferred rather than tested.
 
 ## Limitations

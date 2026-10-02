@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-README = REPO / "README.md"
+README = REPO / "docs" / "guide.md"  # the user guide; the short README quotes no counts
 INTERNALS = REPO / "docs" / "internals.md"
 
 
@@ -99,7 +99,7 @@ def test_the_two_documents_agree_with_each_other(collected: int) -> None:
     in_readme = set(counts_in(README.read_text(encoding="utf-8")))
     in_internals = set(counts_in(INTERNALS.read_text(encoding="utf-8")))
     assert in_readme == in_internals, (
-        f"README.md quotes {sorted(in_readme)} and docs/internals.md quotes "
+        f"docs/guide.md quotes {sorted(in_readme)} and docs/internals.md quotes "
         f"{sorted(in_internals)}; both describe this one suite of {collected}."
     )
 

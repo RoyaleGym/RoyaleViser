@@ -53,7 +53,7 @@ CHECKER = Path(__file__).resolve().parent / "_shell_fences.py"
 #: The pages a reader lands on and pastes from. Not every .md in the repo: the guard is
 #: about what a newcomer runs, and a contributor reference that shows a POSIX command is
 #: not the same promise. This repo publishes one such page.
-READER_PAGES = ("README.md",)
+READER_PAGES = ("README.md", "docs/guide.md")
 
 
 def test_the_guards_own_self_test_passes() -> None:

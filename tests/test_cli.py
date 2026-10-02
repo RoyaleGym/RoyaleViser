@@ -154,3 +154,65 @@ def test_the_learning_endpoint_follows_a_positional_stream_too() -> None:
     (src,) = cli.open_sources(args)
     assert src.learning_peer == ("127.0.0.1", 17999)
     src.close()
+
+
+def test_no_argument_attaches_to_the_default_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``royaleviser`` alone is "watch the run I just started": the publisher's default port."""
+    seen = {}
+    monkeypatch.setattr(cli, "run", lambda args: seen.setdefault("args", args) and 0)
+    cli.main([])
+    assert seen["args"].stream == ("127.0.0.1", 9870) and seen["args"].sources == []
+
+
+def test_a_folder_opens_its_newest_saved_battle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``royaleviser runs/``: the newest .msgpack / .jsonl / .jsonl.gz anywhere under it, never
+    a .json (a folder holds config and metrics JSON too); an empty folder is one clear line."""
+    old, new = tmp_path / "a" / "old.msgpack", tmp_path / "b" / "c" / "new.jsonl.gz"
+    for i, f in enumerate((old, new, tmp_path / "newest-but-not-a-battle.json")):
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"x")
+        os.utime(f, (1_000_000 + i, 1_000_000 + i))
+    assert cli.newest_recording(tmp_path) == new
+    seen = {}
+    monkeypatch.setattr(cli, "run", lambda args: seen.setdefault("args", args) and 0)
+    cli.main([str(tmp_path)])
+    assert seen["args"].sources == [str(new)] and seen["args"].stream is None
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(cli.NoRecording, match="no saved battle under"):
+        cli.main([str(tmp_path / "empty")])
+
+
+def test_the_command_says_one_line_for_what_a_newcomer_hits_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def said(argv: list[str]) -> str:
+        monkeypatch.setattr(sys, "argv", ["royaleviser", *argv])
+        with pytest.raises(SystemExit) as exit_:
+            cli.cli()
+        return str(exit_.value.code)
+
+    assert (
+        said([str(tmp_path / "nope.msgpack")])
+        == f"royaleviser: no such file: {tmp_path / 'nope.msgpack'}"
+    )
+    assert said([str(tmp_path)]).startswith("royaleviser: no saved battle under")
+
+    def no_gym(args: object) -> int:
+        raise ModuleNotFoundError("No module named 'royalegym'", name="royalegym")
+
+    monkeypatch.setattr(cli, "run", no_gym)
+    (tmp_path / "t.msgpack").write_bytes(b"x")
+    assert "pip install royalegym[viser]" in said([str(tmp_path / "t.msgpack")])
+
+
+def test_the_version_is_the_installed_one(capsys: pytest.CaptureFixture[str]) -> None:
+    from importlib.metadata import version
+
+    import royaleviser
+
+    assert royaleviser.__version__ == version("royaleviser")
+    with pytest.raises(SystemExit):
+        cli.main(["--version"])
+    assert capsys.readouterr().out.strip() == f"royaleviser {royaleviser.__version__}"

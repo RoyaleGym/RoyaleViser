@@ -1,5 +1,8 @@
 """RoyaleViser: view a capture, a trace or a running engine.
 
+    royaleviser                         # attach to a run publishing on 127.0.0.1:9870
+    royaleviser my_bot_battle.msgpack   # a saved battle
+    royaleviser runs/                   # the newest saved battle under a folder
     python -m royaleviser frames-<label>-<stamp>.jsonl.gz
     python -m royaleviser trace.msgpack --speed 4 --start-tick 600
     python -m royaleviser --stream 127.0.0.1:9870        # and a learner's status on 9871
@@ -26,6 +29,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 from .app import KEYS
@@ -89,7 +93,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "sources",
         nargs="*",
-        help="capture (.jsonl, .jsonl.gz) or trace (.msgpack, .json); a second one is compared",
+        help="a saved battle (.msgpack, .json, .jsonl, .jsonl.gz) or a folder (its newest one); "
+        "a second one is compared. None: attach to a run on 127.0.0.1:9870",
     )
     p.add_argument(
         "--stream",
@@ -120,6 +125,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="MILLITILES",
         help="count two units as agreeing within this far apart (--parity: 250, a quarter tile)",
     )
+    from . import __version__
+
+    p.add_argument("--version", action="version", version=f"royaleviser {__version__}")
     add_view_arguments(p)
     return p
 
@@ -203,11 +211,40 @@ def run(args: argparse.Namespace) -> int:
     return run_sources(open_sources(args), args)
 
 
+RECORDING_PATTERNS = ("*.msgpack", "*.jsonl.gz", "*.jsonl")  # what a folder is searched for
+
+
+class NoRecording(Exception):
+    """A folder with no saved battle under it."""
+
+
+def newest_recording(folder: Path) -> Path:
+    """The most recently written saved battle anywhere under ``folder`` (a trace's .msgpack or
+    a capture's .jsonl / .jsonl.gz; a .json is left out, as a folder holds other JSON too)."""
+    found = [f for pattern in RECORDING_PATTERNS for f in folder.rglob(pattern) if f.is_file()]
+    if not found:
+        raise NoRecording(
+            f"no saved battle under {folder} (looked for {', '.join(RECORDING_PATTERNS)})"
+        )
+    return max(found, key=lambda f: f.stat().st_mtime)
+
+
 def main(argv: list[str] | None = None) -> int:
+    from .sources import STREAM_HOST, STREAM_PORT
+
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.sources and args.stream is None and not args.parity:
-        parser.error("give a capture/trace path, --stream or --parity")
+        args.stream = (STREAM_HOST, STREAM_PORT)
+        print(
+            f"royaleviser: waiting for a run on {STREAM_HOST}:{STREAM_PORT} "
+            "(to open a saved battle instead: royaleviser FILE)",
+            flush=True,
+        )
+    for i, src in enumerate(args.sources):
+        if Path(src).is_dir():
+            args.sources[i] = str(newest_recording(Path(src)))
+            print(f"royaleviser: opening {args.sources[i]}", flush=True)
     if args.parity and (args.sources or args.stream is not None or args.compare):
         parser.error("--parity opens both sides by itself; give no other source")
     if len(source_specs(args)) > 2:
@@ -215,11 +252,24 @@ def main(argv: list[str] | None = None) -> int:
     return run(args)
 
 
-if __name__ == "__main__":
-    # A missing file is the first thing a reader meets (the README's placeholder names, a
-    # trace not saved yet), and a traceback through gzip and runpy buries the one line that
-    # matters. main() still raises FileNotFoundError, for callers and tests.
+def cli() -> None:
+    """The ``royaleviser`` command. The first things a reader meets are a missing file (a
+    placeholder name, a battle not saved yet), an empty folder and a saved battle opened
+    without RoyaleGym, and a traceback through gzip and runpy buries the one line that matters.
+    main() still raises, for callers and tests."""
     try:
         sys.exit(main())
     except FileNotFoundError as exc:
         sys.exit(f"royaleviser: no such file: {exc.filename}")
+    except NoRecording as exc:
+        sys.exit(f"royaleviser: {exc}")
+    except ModuleNotFoundError as exc:
+        if exc.name != "royalegym":
+            raise
+        sys.exit(
+            "royaleviser: a saved battle needs RoyaleGym to read it: pip install royalegym[viser]"
+        )
+
+
+if __name__ == "__main__":
+    cli()

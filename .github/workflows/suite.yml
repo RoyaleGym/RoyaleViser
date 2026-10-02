@@ -39,6 +39,9 @@ on:
 # ubuntu leg is the first machine in this repo's life to check it, so a red ubuntu run is this
 # job working rather than a fault to route around.
 #
+# macOS joined on 2026-10-01 (the public-polish sprint: CI on all three systems a user has). Its
+# steps are the POSIX ones; nothing here is Linux-only.
+#
 # The layout is the README's too: the repo is cloned INTO a folder beside a shared .venv, because
 # that is what the install line assumes and a flat checkout would quietly test a path no reader
 # takes.
@@ -47,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +76,17 @@ jobs:
       - name: install, the README's line as it documents it for POSIX
         if: runner.os != 'Windows'
         run: .venv/bin/python -m pip install -e RoyaleViser
+
+      # The command the README tells a newcomer to type: the console script the install made, not
+      # `python -m`, so a broken [project.scripts] entry fails here rather than on their machine.
+      - name: the royaleviser command
+        shell: pwsh
+        if: runner.os == 'Windows'
+        run: .venv\Scripts\royaleviser --help
+
+      - name: the royaleviser command
+        if: runner.os != 'Windows'
+        run: .venv/bin/royaleviser --help
 
       # pytest and ruff come from the README's "rest of the stack" line, not the short way, and
       # it says so. maturin is in that line and is not needed to run this repo's suite.
@@ -189,7 +203,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
