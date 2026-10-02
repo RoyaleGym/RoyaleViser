@@ -9,7 +9,7 @@ It is the viewer for the battles RoyaleGym runs, live while a bot trains or save
 
 ## Install
 
-    pip install royalegym[all]
+    pip install "royalegym[all]"
 
 The viewer is the `[viser]` part. Until the packages are on PyPI, install from the
 GitHub repos as the [guide's Setup](docs/guide.md#setup) shows.

@@ -267,7 +267,7 @@ def cli() -> None:
         if exc.name != "royalegym":
             raise
         sys.exit(
-            "royaleviser: a saved battle needs RoyaleGym to read it: pip install royalegym[viser]"
+            'royaleviser: a saved battle needs RoyaleGym to read it: pip install "royalegym[viser]"'
         )
 
 

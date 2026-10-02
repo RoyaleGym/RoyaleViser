@@ -877,7 +877,7 @@ Measured on the scripted battle (`tests/fixtures/frames-synthetic-A.jsonl.gz`: 4
 ticks 0 to 394) at 76bd9a1 on 2026-09-28, with imageio-ffmpeg 0.6.0: cropped `left` at scale
 16, every eighth tick (`ticks=(0, 395, 8)`), it is a 267,937-byte gif; the same range every
 fourth tick is a 252,239-byte mp4; every frame (no `ticks`) is a 1,545,027-byte gif. ffmpeg is
-the `media` extra (`pip install royaleviser[media]`) and PNG needs nothing beyond this package,
+the `media` extra (`pip install "royaleviser[media]"`) and PNG needs nothing beyond this package,
 so nobody has to install a video encoder to look at a frame.
 
 **What the tool cannot check for you.** `capture` takes any `Source`, so it will happily

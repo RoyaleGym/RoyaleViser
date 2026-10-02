@@ -204,7 +204,7 @@ def test_the_command_says_one_line_for_what_a_newcomer_hits_first(
 
     monkeypatch.setattr(cli, "run", no_gym)
     (tmp_path / "t.msgpack").write_bytes(b"x")
-    assert "pip install royalegym[viser]" in said([str(tmp_path / "t.msgpack")])
+    assert 'pip install "royalegym[viser]"' in said([str(tmp_path / "t.msgpack")])
 
 
 def test_the_version_is_the_installed_one(capsys: pytest.CaptureFixture[str]) -> None:

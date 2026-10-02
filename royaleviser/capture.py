@@ -25,7 +25,7 @@ WHAT IS FROZEN, AND WHY
 
 WHAT IT COSTS TO CARRY
     PNG needs nothing beyond this package. mp4 and gif are encoded by ffmpeg, which arrives
-    with ``imageio-ffmpeg`` -- the ``media`` extra (``pip install royaleviser[media]``).
+    with ``imageio-ffmpeg`` -- the ``media`` extra (``pip install "royaleviser[media]"``).
     Without it, ``capture`` to those formats raises and says so; PNG keeps working, so
     nobody has to install a video encoder to look at a frame.
 
@@ -61,7 +61,7 @@ GIF_DITHER = "bayer:bayer_scale=3"  # small files, no shimmer on flat colour
 MP4_CRF = 18  # visually lossless for flat UI colour
 
 MEDIA_MISSING = (
-    "writing {suffix} needs ffmpeg: pip install royaleviser[media] (imageio-ffmpeg), or "
+    'writing {suffix} needs ffmpeg: pip install "royaleviser[media]" (imageio-ffmpeg), or '
     "capture to .png and encode the sequence yourself"
 )
 

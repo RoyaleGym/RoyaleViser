@@ -1,7 +1,7 @@
 """``capture``: what the window would show, written to a file with no window.
 
 Runs on the scripted battle, so a fresh clone tests all of it. The mp4 and gif tests need
-ffmpeg (``pip install royaleviser[media]``) and skip, saying so, when it is not installed --
+ffmpeg (``pip install "royaleviser[media]"``) and skip, saying so, when it is not installed --
 the PNG paths, which are what the rest of the module is, run either way.
 """
 
@@ -31,7 +31,7 @@ FRAMES = battle()
 HAS_FFMPEG = importlib.util.find_spec("imageio_ffmpeg") is not None
 needs_ffmpeg = pytest.mark.skipif(
     not HAS_FFMPEG,
-    reason="mp4/gif need ffmpeg: pip install royaleviser[media] (imageio-ffmpeg)",
+    reason='mp4/gif need ffmpeg: pip install "royaleviser[media]" (imageio-ffmpeg)',
 )
 
 
