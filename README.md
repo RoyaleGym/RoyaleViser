@@ -1,6 +1,6 @@
 # RoyaleViser
 
-[![suite](https://github.com/RoyaleGym/RoyaleViser/actions/workflows/suite.yml/badge.svg)](https://github.com/RoyaleGym/RoyaleViser/actions/workflows/suite.yml)
+<p align="center"><a href="https://github.com/RoyaleGym/RoyaleViser/actions/workflows/suite.yml"><img alt="CI" src="https://github.com/RoyaleGym/RoyaleViser/actions/workflows/suite.yml/badge.svg"></a> <img alt="License" src="https://img.shields.io/github/license/RoyaleGym/RoyaleViser?style=flat-square&color=555"> <img alt="Python" src="https://img.shields.io/badge/python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white"> <a href="https://royalegym.github.io/RoyaleGym/"><img alt="Docs" src="https://img.shields.io/badge/docs-royalegym.github.io-8957e5?style=flat-square&logo=readthedocs&logoColor=white"></a> <a href="https://discord.gg/4D2BS5JBHP"><img alt="Discord" src="https://img.shields.io/discord/1551699576304705647?style=flat-square&logo=discord&logoColor=white&label=discord&color=5865F2"></a> <img alt="Last commit" src="https://img.shields.io/github/last-commit/RoyaleGym/RoyaleViser?style=flat-square&color=555"></p>
 
 Watch your Clash Royale bot play, in a window on your own machine.
 It is the viewer for the battles RoyaleGym runs, live while a bot trains or saved to a file.
@@ -11,8 +11,8 @@ It is the viewer for the battles RoyaleGym runs, live while a bot trains or save
 
     pip install "royalegym[all]"
 
-The viewer is the `[viser]` part. Until the packages are on PyPI, install from the
-GitHub repos as the [guide's Setup](docs/guide.md#setup) shows.
+The viewer is the `[viser]` part. Until the packages are on PyPI, see [Install](https://royalegym.github.io/RoyaleGym/install/)
+for the exact line.
 
 ## Try it
 
@@ -24,8 +24,9 @@ Space plays and pauses, the arrow keys step, `h` shows every key, `q` quits.
 
 ## Next
 
-- Everything the viewer does, step by step: [docs/guide.md](docs/guide.md)
-- How it works inside (Advanced): [docs/internals.md](docs/internals.md)
+- The docs: [royalegym.github.io/RoyaleGym](https://royalegym.github.io/RoyaleGym/)
+- Everything the viewer does, step by step: [the guide](https://royalegym.github.io/RoyaleGym/repos/royaleviser/guide/)
+- How it works inside (Advanced): [internals](https://royalegym.github.io/RoyaleGym/repos/royaleviser/internals/)
 - Questions: [Discord](https://discord.gg/4D2BS5JBHP)
 
 MIT licensed. See [LICENSE](LICENSE).
