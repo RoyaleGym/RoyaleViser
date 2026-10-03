@@ -266,8 +266,8 @@ For a sense of size: the whole scripted battle cropped to `left` at scale 16, ev
 | [RoyaleImitate](https://github.com/RoyaleGym/RoyaleImitate) | an optional add-on to RoyaleLearn: config sections that start a bot from saved weights and keep it near a reference policy while it learns | nothing |
 | RoyaleLive | private. It records real battles | it writes the recordings the viewer replays and compares |
 
-If you already know RLGym, RocketSim and rlviser, this is the same split. An environment API on
-top of an engine, a learner on top of that, and the viewer off in its own process.
+The split: an environment API on top of an engine, a learner on top of that, and the viewer off in
+its own process.
 
 **What goes in.** Three things.
 
