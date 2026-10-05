@@ -26,4 +26,4 @@ built. A skip is not a pass, and CI runs the rest.
 
 ## Questions
 
-Ask on [Discord](https://discord.gg/4D2BS5JBHP), or open an issue.
+Ask on [Discord](https://discord.gg/cvRu4nEGXY), or open an issue.
