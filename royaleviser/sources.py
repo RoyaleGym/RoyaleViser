@@ -1492,7 +1492,8 @@ def frame_from_state(
 def special_fields(p: Any, name_of: Callable[[int], str]) -> dict[str, Any]:
     """A PlayerState's special-form rows in the viewer's shape (``model.Player``), names for ids.
 
-    The engine's layout (RoyaleSim state_json): ``evo`` rows [card_id, plays, next_evolved];
+    The engine's layout (RoyaleSim state_json): ``evo`` rows [card_id, plays, next_evolved,
+    cycle length] (the fourth since RoyaleSim d925aa8; the viewer reads the first three);
     ``abilities`` rows [available, spent, cost], one per button (heroes in deck order, then the
     champion), to which the champion build appends [card_id, cooldown_ticks]. Read BY INDEX,
     so a row of three and a row of five both convert: the card's name from its card_id where the
@@ -1504,7 +1505,7 @@ def special_fields(p: Any, name_of: Callable[[int], str]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     evo = getattr(p, "evo", None)
     if evo:
-        out["evo"] = [[name_of(int(c)), int(plays), int(nxt)] for c, plays, nxt in evo]
+        out["evo"] = [[name_of(int(c)), int(plays), int(nxt)] for c, plays, nxt, *_ in evo]
     abilities = getattr(p, "abilities", None)
     if abilities:
         rows, cooldowns = [], []

@@ -4,6 +4,13 @@ All notable changes to RoyaleViser. Versions follow [Semantic Versioning](https:
 
 ## Unreleased
 
+## 0.1.2
+
+### Fixed
+- A battle with an evolved card no longer crashes the viewer. RoyaleSim sends four values per
+  evolution row, and the viewer read three, so live viewing and playing back a saved battle both
+  stopped with "too many values to unpack".
+
 ## 0.1.1
 
 ### Changed

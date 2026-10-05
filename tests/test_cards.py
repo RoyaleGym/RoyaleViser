@@ -314,9 +314,13 @@ def test_special_fields_turn_the_engine_rows_into_names() -> None:
         evo: list[list[int]]
         abilities: list[list[int]]
 
-    got = special_fields(State([[0, 2, 1]], [[1, 0, 2]]), NAMES.name_of)
+    # The engine's evo row has had four columns since RoyaleSim d925aa8 (2026-10-01): [card,
+    # plays, next evolved, cycle length]. This test once gave it three, and so passed while
+    # every battle with an evolved card crashed the viewer and trace playback. Read by index,
+    # a row of three still converts.
+    got = special_fields(State([[0, 2, 1, 3], [2, 0, 0]], [[1, 0, 2]]), NAMES.name_of)
     # The engine's ability row names no card, so the viewer's name column is "".
-    assert got == {"evo": [["Knight", 2, 1]], "abilities": [["", 1, 0, 2]]}
+    assert got == {"evo": [["Knight", 2, 1], ["Cannon", 0, 0]], "abilities": [["", 1, 0, 2]]}
     # The champion build's rows add [card_id, cooldown_ticks]; read by index, rows of three
     # and five mix, and the cooldowns go to a key of their own, -1 where a row has none.
     got = special_fields(State([], [[1, 0, 2], [0, 0, 1, 2, 45], [0, 1, 1, -1, 0]]), NAMES.name_of)
