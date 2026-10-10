@@ -35,11 +35,16 @@ from royaleviser.model import (
     KIND_BUILDING,
     KIND_PRINCESS_TOWER,
     KIND_TROOP,
+    STATUS_ABILITY_ACTIVE,
+    STATUS_CHARGED,
+    STATUS_CLONE,
     STATUS_EVOLVED,
+    STATUS_GROUNDED,
     STATUS_HERO,
     STATUS_HIDDEN,
     STATUS_INVISIBLE,
     STATUS_UNDERGROUND,
+    STATUS_WINDUP,
     CardFace,
     Frame,
     Names,
@@ -262,6 +267,20 @@ def test_the_status_bit_numbers_are_the_contract() -> None:
         protocol.STATUS_INVISIBLE,
         protocol.STATUS_HIDDEN,
     )
+    # The rest of the engine's list (royalesim 0.1.8 and 0.1.20), by number and by name: the
+    # inspector's word for bit 1 << k is the engine's name k, spaced.
+    more = (STATUS_CLONE, STATUS_WINDUP, STATUS_ABILITY_ACTIVE, STATUS_CHARGED, STATUS_GROUNDED)
+    assert more == (
+        protocol.STATUS_CLONE,
+        protocol.STATUS_WINDUP,
+        protocol.STATUS_ABILITY_ACTIVE,
+        protocol.STATUS_CHARGED,
+        protocol.STATUS_GROUNDED,
+    )
+    names = getattr(protocol, "STATUS_BIT_NAMES", None)
+    if names is not None:
+        for k, name in enumerate(names):
+            assert status_words(unit(flags=1 << k)) == name.replace("_", " "), name
 
 
 @pytest.mark.parametrize("value", ["absent", None, -1, -7, True, "8"])
@@ -273,7 +292,9 @@ def test_status_bits_not_reported_is_none(value: object) -> None:
 def test_status_bits_and_their_words() -> None:
     assert status_bits(unit(flags=0)) == 0 and status_words(unit(flags=0)) == "none"
     assert status_words(unit(flags=STATUS_UNDERGROUND | STATUS_HERO)) == "underground, hero"
-    assert status_words(unit(flags=STATUS_EVOLVED | 64)) == "evolved, bits 64"
+    assert status_words(unit(flags=STATUS_EVOLVED | 64)) == "evolved, ability windup"
+    # A bit past the engine's list (1 << 10 today) is shown as its number, not dropped.
+    assert status_words(unit(flags=STATUS_GROUNDED | 1024)) == "grounded, bits 1024"
 
 
 # --------------------------------------------------------------------- the wire
@@ -721,3 +742,20 @@ def test_a_capture_and_the_window_install_the_card_table() -> None:
     assert r.face_of("Knight") == NAMES.face_of("Knight")
     a = App([src], ViewState())
     assert a.renderer.face_of("Cannon") == NAMES.face_of("Cannon")
+
+
+def test_a_flier_held_on_the_ground_is_drawn_on_the_ground(renderer: Renderer) -> None:
+    """A Vines catch (STATUS_GROUNDED) keeps ``flying`` True, because the unit IS a flier; the
+    board drops its shadow and white air ring and rings it in dashed green instead."""
+    white = (255, 255, 255)
+    air = unit(flying=True, flags=0)
+    held = unit(flying=True, flags=STATUS_GROUNDED)
+    assert white in ring_colours(renderer, air, 2, 4)
+    assert T.grounded not in ring_colours(renderer, air, 1, 6)
+    assert white not in ring_colours(renderer, held, 1, 6)
+    assert T.grounded in ring_colours(renderer, held, 1, 6)
+    # A ground troop with the bit (it can only come from a source that misreports) draws as
+    # any ground troop: the ring belongs to a flier held down, not to the bit alone.
+    assert ring_colours(renderer, unit(flags=STATUS_GROUNDED), 1, 6) == ring_colours(
+        renderer, unit(flags=0), 1, 6
+    )

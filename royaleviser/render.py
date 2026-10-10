@@ -56,11 +56,16 @@ from .model import (
     KIND_KING_TOWER,
     KIND_PRINCESS_TOWER,
     KIND_TROOP,
+    STATUS_ABILITY_ACTIVE,
+    STATUS_CHARGED,
+    STATUS_CLONE,
     STATUS_EVOLVED,
+    STATUS_GROUNDED,
     STATUS_HERO,
     STATUS_HIDDEN,
     STATUS_INVISIBLE,
     STATUS_UNDERGROUND,
+    STATUS_WINDUP,
     UNKNOWN_HP,
     CardFace,
     Frame,
@@ -1374,7 +1379,10 @@ class Renderer:
                     surface.blit(self.disc(r, (*t.burrow, 170)), (px - r - 1, py - r - 1))
                     dashed_circle(surface, color, (px, py), r, 2)
                 else:
-                    if u.flying:
+                    # A flier held on the ground (a Vines catch) is drawn on the ground: no
+                    # shadow and no air ring, and a dashed green ring says it is held.
+                    in_air = u.flying and not bits & STATUS_GROUNDED
+                    if in_air:
                         surface.blit(self.disc(r, (0, 0, 0, 90)), (px - r + 2, py - r + 4))
                     if bits & STATUS_INVISIBLE:
                         # Invisible to the enemy: the body faded, the black outline kept and
@@ -1388,8 +1396,10 @@ class Renderer:
                     else:
                         pygame.draw.circle(surface, color, (px, py), r)
                         pygame.draw.circle(surface, t.troop_outline, (px, py), r, 1)
-                    if u.flying:
+                    if in_air:
                         pygame.draw.circle(surface, (255, 255, 255), (px, py), r + 3, 1)
+                    elif u.flying:
+                        dashed_circle(surface, t.grounded, (px, py), r + 3, 2)
                 if u.direction is not None and (u.direction[0] or u.direction[1]):
                     dx, dy = u.direction
                     if seat == 0:
@@ -2563,6 +2573,11 @@ STATUS_WORDS = (
     (STATUS_HIDDEN, "hidden"),
     (STATUS_EVOLVED, "evolved"),
     (STATUS_HERO, "hero"),
+    (STATUS_CLONE, "clone"),
+    (STATUS_WINDUP, "ability windup"),
+    (STATUS_ABILITY_ACTIVE, "ability active"),
+    (STATUS_CHARGED, "charged"),
+    (STATUS_GROUNDED, "grounded"),
 )
 
 

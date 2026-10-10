@@ -145,6 +145,7 @@ class Theme:
     # A unit the engine reports under ground, and one that is invisible or hidden.
     burrow: Color = (132, 92, 54)
     rider_rim: Color = (255, 255, 255)  # a rider's seat on its mount
+    grounded: Color = (70, 170, 60)  # the dashed ring round a flier held on the ground
     unseen_alpha: int = 80
     live_pill: Color = (200, 40, 40)
     # Fonts: pygame.font.Font(font_name, size); None is pygame's bundled default. The

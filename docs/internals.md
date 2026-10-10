@@ -365,10 +365,14 @@ hero: rings in `theme.evo` and `theme.hero`, each on a black copy, `FORM_RING_GA
 outside the body and so outside every status ring (those reach body + 5, and the Rage glow
 body + 6). They are drawn after the status marks, so a Freeze and an evolution ring both
 show. A hero also wears a crown over its hp bar, lifted above the status pips when it has any,
-and the pin ring moves outside the form rings. The inspector's `flags` line names the set bits:
-"none", "not reported", or for example "underground, hero", with a bit it does not know as its
-number. 1, 2 and 4 are `royalegym.protocol.STATUS_*`; 8 and 16 are the engine's evolved and
-hero bits.
+and the pin ring moves outside the form rings. 512, grounded (a flier a Vines holds on the
+ground): the flier keeps `flying` True, because it IS one, but loses its shadow and white air
+ring, and a dashed ring in `theme.grounded` says it is held down; the bit on a ground troop
+draws nothing. 32 (clone), 64 (ability windup), 128 (ability active) and 256 (charged) are not
+drawn on the board. The inspector's `flags` line names every set bit by the engine's own name
+(`royalesim.STATUS_BITS`, name k for bit 1 << k): "none", "not reported", or for example
+"underground, hero", with a bit past that list shown as its number. All ten are
+`royalegym.protocol.STATUS_*`, and a test holds the viewer's numbers and words to that list.
 
 ## The recording format
 

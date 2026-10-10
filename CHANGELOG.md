@@ -4,6 +4,12 @@ All notable changes to RoyaleViser. Versions follow [Semantic Versioning](https:
 
 ## Unreleased
 
+### Added
+- A flier held on the ground by Vines is drawn on the ground: no shadow or air ring, and a
+  dashed green ring instead.
+- The inspector names all ten of the engine's status bits (clone, ability windup, ability
+  active, charged and grounded were shown as numbers).
+
 ## 0.1.2
 
 ### Fixed

@@ -71,6 +71,12 @@ STATUS_INVISIBLE = 2  # invisible to enemies (Royal Ghost)
 STATUS_HIDDEN = 4  # a building hidden in the ground (Tesla)
 STATUS_EVOLVED = 8  # an evolved form of its card
 STATUS_HERO = 16  # a hero form of its card
+# The rest of the engine's list (royalesim.STATUS_BITS, name k = bit 1 << k; 0.1.8 and 0.1.20).
+STATUS_CLONE = 32  # a Clone's copy
+STATUS_WINDUP = 64  # an ability winding up
+STATUS_ABILITY_ACTIVE = 128  # an ability running (a cloak, a dash chain, a hero's effect)
+STATUS_CHARGED = 256  # fully charged (the Prince family)
+STATUS_GROUNDED = 512  # a flier held on the ground (a Vines catch): ground attacks reach it
 
 # What a card IS, for drawing it: the engine's CARD_KINDS lower-cased, or None when the source
 # does not say.
