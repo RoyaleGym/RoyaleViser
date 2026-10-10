@@ -551,12 +551,12 @@ the real window on the scripted battle straight from the script, with no sibling
 recording needed: the look check for the renderer, and its `--compare` ghosts a
 half-tile-shifted copy of the same battle to exercise the compare panel.
 
-The suite has two correct results, and both are one command apart. Measured at 500ae04 on 2026-10-01, with `pytest --collect-only -q` collecting 373:
+The suite has two correct results, and both are one command apart. Measured at db785fd on 2026-10-10, with `pytest --collect-only -q` collecting 374:
 
 | Run | Result |
 |---|---|
-| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **369 passed, 4 skipped** |
-| this machine, with the recordings | **372 passed, 1 skipped** |
+| a clone, `ROYALELIVE_REPORTS` pointed at an empty folder | **370 passed, 4 skipped** |
+| this machine, with the recordings | **373 passed, 1 skipped** |
 
 The four skips in a clone are the three tests that pin numbers only a recording of a real
 battle has (2407 ticks both seats hold, 2404 equal, 3 differ; the Goblin Drill of tick 2974
@@ -570,11 +570,11 @@ gitignored) runs those three.
 
 Two more things move the count, in either run. Without the `media` extra
 (`imageio-ffmpeg`, which `royaleviser.capture` needs only for mp4 and gif) ONE more skips,
-the single `@needs_ffmpeg` test: a clone then gives **368 passed, 5 skipped** (500ae04,
-2026-10-01, pytest run with `sys.modules["imageio_ffmpeg"] = None`). Without RoyaleLearn
+the single `@needs_ffmpeg` test: a clone then gives **369 passed, 5 skipped** (db785fd,
+2026-10-10, pytest run with `sys.modules["imageio_ffmpeg"] = None`). Without RoyaleLearn
 importable, `tests/test_learner_protocol.py` skips AT IMPORT: its four tests are not collected
-(369 rather than 373) and the run reports ONE skip for the whole module, so a clone gives 365
-passed and 5 skipped (500ae04, 2026-10-01). A count in this file is the output of the command
+(370 rather than 374) and the run reports ONE skip for the whole module, so a clone gives 366
+passed and 5 skipped (db785fd, 2026-10-10). A count in this file is the output of the command
 beside it and nothing else; the ones that stood here before were measured at a commit fifteen
 behind and were wrong at that commit too.
 
