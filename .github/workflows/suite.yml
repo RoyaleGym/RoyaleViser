@@ -50,7 +50,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        # macOS on push, pull request and dispatch runs, not the nightly (2026-11-07): GitHub's macOS
+        # arm64 runners run short, and a leg that gets none is cancelled after 15 minutes ("not acquired
+        # by Runner of type hosted"), which turned the 11-02 and 11-04 nightlies red with every test
+        # that ran passing.
+        os: ${{ github.event_name == 'schedule' && fromJSON('["windows-latest", "ubuntu-latest"]') || fromJSON('["windows-latest", "ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -203,7 +207,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        # macOS on push, pull request and dispatch runs, not the nightly (2026-11-07): GitHub's macOS
+        # arm64 runners run short, and a leg that gets none is cancelled after 15 minutes ("not acquired
+        # by Runner of type hosted"), which turned the 11-02 and 11-04 nightlies red with every test
+        # that ran passing.
+        os: ${{ github.event_name == 'schedule' && fromJSON('["windows-latest", "ubuntu-latest"]') || fromJSON('["windows-latest", "ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
